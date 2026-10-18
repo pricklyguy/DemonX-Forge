@@ -8,6 +8,8 @@ import type { Body, Sketch, SketchCurve, Vec2, Vec3 } from './api';
 import { loopPolygon, curvePoints } from './sketch/loops';
 import { ORIGIN_PLANES, normalOf, rayToSketch, toWorld, type Plane } from './sketch/plane';
 import { niceStep, round3, snapGrid, snapPoints } from './sketch/snap';
+import { pickEntity, type PickMode, type Picked } from './sketch/pick';
+import { isDraw, preview as previewOf } from './sketch/tools';
 import type { Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
 
 export interface FacePick { body: string; face: number; point: Vec3 }
@@ -20,6 +22,10 @@ interface Props {
   mode: Mode;
   tool: Tool | null;
   pending: Vec2[];
+  /** What the pointer can land on (null: nothing is picked), ids drawn as selected, and whether to show every sketch point. */
+  pickMode: PickMode | null;
+  highlight: string[];
+  showPoints: boolean;
   hiddenBodies: Set<string>;
   hiddenSketches: Set<number>;
   showOrigin: boolean;
@@ -31,9 +37,9 @@ interface Props {
   selectedProfiles: ProfileRef[];
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
-  onSketchClick(pt: Vec2): void;
+  /** `pt` is snapped for drawing tools and exact for picking tools; `tol` is about 9 screen pixels in sketch units. */
+  onSketchClick(pt: Vec2, tol: number, additive: boolean): void;
   onSketchRightClick(): void;
-  onCurvePick(curve: SketchCurve, at: Vec2): void;
   onProfilePick(sketch: number, index: number, at: Vec2): void;
   onCursor(pt: Vec2 | null): void;
   apiRef: MutableRefObject<ViewApi | null>;
@@ -86,6 +92,9 @@ export function Viewport(props: Props) {
       m.resolution.copy(size); lineMats.add(m);
       const l = new LineSegments2(g, m); l.renderOrder = 10; return l;
     };
+    const dashed = (pts: number[], color: THREE.ColorRepresentation, width: number) => {
+      const l = thick(pts, color, width, 0.9); const m = l.material as LineMaterial; m.dashed = true; m.dashSize = wpp() * 8 || 3; m.gapSize = wpp() * 5 || 2; l.computeLineDistances(); return l;
+    };
     const clear = (g: THREE.Group) => { for (const c of [...g.children]) { g.remove(c); c.traverse((o: any) => { o.geometry?.dispose?.(); if (o.material?.isLineMaterial) lineMats.delete(o.material); o.material?.dispose?.(); }); } };
 
     // ---- bodies
@@ -130,10 +139,11 @@ export function Viewport(props: Props) {
           lab.textContent = `${d.kind === 'diameter' ? 'Ø' : d.kind === 'radius' ? 'R' : ''}${Math.round(d.value * 1000) / 1000}`;
           labelLayer.appendChild(lab); labels.push({ el: lab, w: v3(toWorld(plane, at)) });
         }
-        const open: number[] = [], solid: number[] = [];
-        for (const c of s.curves) (isActive && c.fullyConstrained ? solid : open).push(...curveSegments(c, plane));
+        const open: number[] = [], solid: number[] = [], construction: number[] = [];
+        for (const c of s.curves) (c.construction ? construction : isActive && c.fullyConstrained ? solid : open).push(...curveSegments(c, plane));
         if (open.length) gSketch.add(thick(open, cyan, isActive ? 2.5 : 1.75, isActive ? 1 : 0.7));
         if (solid.length) gSketch.add(thick(solid, text, 2.5));
+        if (construction.length) gSketch.add(dashed(construction, css('--muted'), 1.5));
         const wantFill = p.showProfiles && ((p.mode === 'sketch' && isActive) || (p.mode === 'extrude' && !isActive));
         if (wantFill) {
           for (const pr of s.profiles) {
@@ -193,25 +203,25 @@ export function Viewport(props: Props) {
       gGrid.add(thick([...toWorld(plane, [-half, 0]), ...toWorld(plane, [half, 0])], '#e0605a', 1.5, 0.8), thick([...toWorld(plane, [0, -half]), ...toWorld(plane, [0, half])], '#4caf7a', 1.5, 0.8));
     };
 
-    // ---- the cursor and the shape being drawn
+    // ---- the cursor, the shape being drawn, what is under the pointer and what is selected
     let cursor: Vec2 | null = null;
-    let hoverCurve: string | null = null;
+    let hover: Picked | null = null;
     const rebuildPreview = () => {
       clear(gPreview);
       const p = P.current, s = p.activeSketch;
       if (!(p.mode === 'sketch' && s)) return;
       const plane = planeOf(s), amber = css('--amber');
-      const seg: number[] = [];
-      const add = (a: Vec2, b: Vec2) => seg.push(...toWorld(plane, a), ...toWorld(plane, b));
-      if (cursor && p.pending.length) {
-        const a = p.pending[0]!, last = p.pending[p.pending.length - 1]!;
-        if (p.tool === 'line') add(last, cursor);
-        else if (p.tool === 'rect') { add(a, [cursor[0], a[1]]); add([cursor[0], a[1]], cursor); add(cursor, [a[0], cursor[1]]); add([a[0], cursor[1]], a); }
-        else if (p.tool === 'circle') { const r = Math.hypot(cursor[0] - a[0], cursor[1] - a[1]); for (let i = 0; i < 64; i++) { const t0 = (i / 64) * Math.PI * 2, t1 = ((i + 1) / 64) * Math.PI * 2; add([a[0] + r * Math.cos(t0), a[1] + r * Math.sin(t0)], [a[0] + r * Math.cos(t1), a[1] + r * Math.sin(t1)]); } }
-      }
-      if (seg.length) gPreview.add(thick(seg, amber, 2));
-      if (p.tool === 'dimension' && hoverCurve) { const c = s.curves.find((x) => x.id === hoverCurve); if (c) gPreview.add(thick(curveSegments(c, plane), amber, 4)); }
-      if (cursor && p.tool && p.tool !== 'dimension') { const k = wpp() * 6, [x, y] = cursor; const sq: Vec2[] = [[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k]]; const m: number[] = []; for (let i = 0; i < 4; i++) m.push(...toWorld(plane, sq[i]!), ...toWorld(plane, sq[(i + 1) % 4]!)); gPreview.add(thick(m, amber, 1.5)); }
+      const flat = (poly: Vec2[]) => { const o: number[] = []; for (let i = 0; i < poly.length - 1; i++) o.push(...toWorld(plane, poly[i]!), ...toWorld(plane, poly[i + 1]!)); return o; };
+      if (isDraw(p.tool) && cursor && p.pending.length) { const seg = previewOf(p.tool, p.pending, cursor).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
+      const mark = (at: Vec2, k: number, w: number) => { const [x, y] = at, sq: Vec2[] = [[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k], [x - k, y - k]]; return thick(flat(sq), amber, w); };
+      if (p.showPoints) for (const q of s.points) gPreview.add(mark(q.at, wpp() * 3, 1.25));
+      const showEntity = (e: Picked, w: number) => {
+        if (e.kind === 'curve') { const c = s.curves.find((x) => x.id === e.id); if (c) gPreview.add(thick(curveSegments(c, plane), amber, w)); }
+        else { const q = s.points.find((x) => x.id === e.id); if (q) gPreview.add(mark(q.at, wpp() * 6, 2.5)); }
+      };
+      for (const id of p.highlight) { const c = s.curves.find((x) => x.id === id); showEntity(c ? { kind: 'curve', id } : { kind: 'point', id }, 4); }
+      if (hover && p.pickMode) showEntity(hover, 3);
+      if (cursor && isDraw(p.tool)) gPreview.add(mark(cursor, wpp() * 6, 1.5));
     };
 
     // ---- camera helpers
@@ -242,10 +252,14 @@ export function Viewport(props: Props) {
     // ---- picking and pointer handling
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
     const setRay = (e: { clientX: number; clientY: number }) => { const r = dom.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam); };
-    const sketchPoint = (e: { clientX: number; clientY: number }): Vec2 | null => {
+    const rawPoint = (e: { clientX: number; clientY: number }): Vec2 | null => {
       const s = P.current.activeSketch; if (!s) return null;
       setRay(e);
-      const raw = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]);
+      return rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]);
+    };
+    const sketchPoint = (e: { clientX: number; clientY: number }): Vec2 | null => {
+      const s = P.current.activeSketch; if (!s) return null;
+      const raw = rawPoint(e);
       if (!raw) return null;
       const known: Vec2[] = [[0, 0]];
       for (const c of s.curves) { if (c.start) known.push(c.start); if (c.end) known.push(c.end); if (c.center) known.push(c.center); }
@@ -254,22 +268,6 @@ export function Viewport(props: Props) {
       if (hit) return hit;
       return P.current.snap ? snapGrid(raw, niceStep(wpp() * 14)) : ([round3(raw[0]), round3(raw[1])] as Vec2);
     };
-    const nearestCurve = (s: Sketch, pt: Vec2): SketchCurve | null => {
-      let best: SketchCurve | null = null, bd = wpp() * 10;
-      for (const c of s.curves) {
-        const pts = curvePoints(c, 48); if (pts.length < 2) continue;
-        const loop = c.type === 'circle';
-        for (let i = 0; i < pts.length - (loop ? 0 : 1); i++) {
-          const a = pts[i]!, b = pts[(i + 1) % pts.length]!, dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
-          const t = l2 ? Math.max(0, Math.min(1, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / l2)) : 0;
-          const d = Math.hypot(pt[0] - (a[0] + t * dx), pt[1] - (a[1] + t * dy));
-          if (d < bd) { bd = d; best = c; }
-        }
-      }
-      return best;
-    };
-    const midpointOf = (c: SketchCurve): Vec2 => c.start && c.end ? [(c.start[0] + c.end[0]) / 2, (c.start[1] + c.end[1]) / 2] : c.center ? [c.center[0] + (c.radius ?? 0), c.center[1]] : [0, 0];
-
     const planarFaceHit = (): { body: string; point: Vec3; index: number } | null => {
       for (const h of ray.intersectObjects(gBodies.children, false)) {
         const b = h.object.userData.body as Body | undefined; if (!b || h.faceIndex == null) continue;
@@ -285,8 +283,9 @@ export function Viewport(props: Props) {
     dom.addEventListener('pointermove', (e) => {
       const p = P.current;
       if (p.mode === 'sketch') {
-        const pt = sketchPoint(e); cursor = pt; p.onCursor(pt);
-        hoverCurve = p.tool === 'dimension' && pt && p.activeSketch ? (nearestCurve(p.activeSketch, pt)?.id ?? null) : null;
+        const draw = isDraw(p.tool);
+        const pt = draw ? sketchPoint(e) : rawPoint(e); cursor = pt; p.onCursor(pt);
+        hover = pt && p.activeSketch && p.pickMode ? pickEntity(p.activeSketch, pt, wpp() * 9, p.pickMode) : null;
         rebuildPreview();
       } else if (p.mode === 'pickPlane') {
         setRay(e);
@@ -301,9 +300,8 @@ export function Viewport(props: Props) {
       if (moved) return;
       const p = P.current;
       if (p.mode === 'sketch') {
-        const pt = sketchPoint(e); if (!pt || !p.activeSketch) return;
-        if (p.tool === 'dimension') { const c = nearestCurve(p.activeSketch, pt); if (c) p.onCurvePick(c, midpointOf(c)); return; }
-        if (p.tool) p.onSketchClick(pt);
+        const pt = isDraw(p.tool) ? sketchPoint(e) : rawPoint(e); if (!pt || !p.activeSketch) return;
+        p.onSketchClick(pt, wpp() * 9, e.shiftKey || e.ctrlKey || e.metaKey);
       } else if (p.mode === 'pickPlane') {
         setRay(e);
         const hit = ray.intersectObjects(planeMeshes, false)[0];
@@ -364,7 +362,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFace, p.showEdges, p.theme]);
   useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.showProfiles, p.selectedProfiles, p.theme]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
-  useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch]);
+  useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
 
   return <div className="viewport" ref={host} data-testid="viewport" />;

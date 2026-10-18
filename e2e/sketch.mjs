@@ -18,6 +18,7 @@ const at = async (q) => p.evaluate((q) => window.__forge.sketchToScreen(q), q);
 const click = async (q) => { const [x, y] = await at(q); await p.mouse.move(x, y); await p.mouse.click(x, y); };
 const settle = (ms = 400) => p.waitForTimeout(ms);
 const text = (id) => p.getByTestId(id).innerText();
+const near = (a, b, tol = 0.05) => Math.abs(a - b) <= tol;
 
 await p.goto(URL);
 await p.getByTestId('demo').waitFor({ timeout: 30000 });
@@ -47,13 +48,16 @@ check(sk && sk.active && sk.curves.length === 4 && sk.profiles.length === 1, 're
 check(JSON.stringify(sk.curves[0].end) === '[40,0]' && JSON.stringify(sk.curves[1].end) === '[40,30]', 'rectangle corners landed where clicked (snapped to the grid)', JSON.stringify(sk.curves.map((c) => c.end)));
 check((await p.getByTestId('tool-rect').getAttribute('aria-pressed')) !== 'true', 'the rectangle tool ends after one rectangle');
 
+// the grid step depends on the zoom (5 or 10 mm here); round numbers snap exactly, so switch Snap off for the freehand positions below
+await p.locator('.palette label', { hasText: 'Snap' }).locator('input').uncheck();
+
 // ---- circle (C), centre and a point on it; then a circle typed by diameter
 await p.keyboard.press('c');
 await click([20, 15]); await click([25, 15]);
 await settle();
 s = await state(); sk = s.sketches[0];
 const circ = sk.curves.find((c) => c.type === 'circle');
-check(circ && Math.abs(circ.radius - 5) < 1e-6 && Math.abs(circ.center[0] - 20) < 1e-6, 'circle: centre (20,15), radius 5', JSON.stringify(circ));
+check(circ && near(circ.radius, 5) && near(circ.center[0], 20) && near(circ.center[1], 15), 'circle: centre (20,15), radius 5 (clicked freehand)', JSON.stringify(circ));
 check(sk.profiles.length === 2, 'a hole splits the region: 2 profiles');
 await p.screenshot({ path: `${shots}/s3-sketch.png` });
 
@@ -64,15 +68,15 @@ await p.keyboard.type('6');
 await p.getByLabel('Typed size').press('Enter');
 await settle();
 s = await state(); sk = s.sketches[0];
-check(sk.curves.filter((c) => c.type === 'circle').length === 2 && Math.abs(sk.curves.at(-1).radius - 3) < 1e-6, 'typing 6 after the centre makes a diameter-6 circle');
+check(sk.curves.filter((c) => c.type === 'circle').length === 2 && near(sk.curves.at(-1).radius, 3, 1e-6), 'typing 6 after the centre makes a diameter-6 circle');
 
 // ---- dimension (D): make the bottom line 50 long; the rectangle follows
 const dof0 = sk.dof;
 await p.keyboard.press('d');
 await click([30, 0]);
-await p.getByTestId('dim-entry').waitFor();
-await p.getByLabel('Dimension value').fill('50');
-await p.getByLabel('Dimension value').press('Enter');
+await p.getByTestId('value-entry').waitFor();
+await p.getByLabel('Value').fill('50');
+await p.getByLabel('Value').press('Enter');
 await settle(600);
 s = await state(); sk = s.sketches[0];
 check(sk.dimensions.length === 1 && sk.dimensions[0].value === 50, 'dimension recorded', JSON.stringify(sk.dimensions));
@@ -81,16 +85,16 @@ check(sk.dof < dof0, 'degrees of freedom went down', `${dof0} -> ${sk.dof}`);
 check((await p.locator('.dimlabel').first().innerText()) === '50', 'the dimension shows as a label (50)');
 // clicking the same line again edits the dimension (a second one would over-constrain)
 await click([30, 0]);
-await p.getByTestId('dim-entry').waitFor();
-check(/Change Length/.test(await text('dim-entry')) && (await p.getByLabel('Dimension value').inputValue()) === '50', 'dimensioning an already-dimensioned line offers to change it');
-await p.getByLabel('Dimension value').fill('56');
-await p.getByLabel('Dimension value').press('Enter');
+await p.getByTestId('value-entry').waitFor();
+check(/Change Length/.test(await text('value-entry')) && (await p.getByLabel('Value').inputValue()) === '50', 'dimensioning an already-dimensioned line offers to change it');
+await p.getByLabel('Value').fill('56');
+await p.getByLabel('Value').press('Enter');
 await settle(600);
 s = await state(); sk = s.sketches[0];
 check(sk.dimensions.length === 1 && sk.dimensions[0].value === 56 && Math.abs(Math.max(...sk.curves.filter((c) => c.type === 'line').map((c) => c.end[0])) - 56) < 1e-6, 'the change moved the line: still one dimension, now 56');
 await click([28, 0]);
-await p.getByLabel('Dimension value').fill('50');
-await p.getByLabel('Dimension value').press('Enter');
+await p.getByLabel('Value').fill('50');
+await p.getByLabel('Value').press('Enter');
 await settle(600);
 await p.keyboard.press('Escape'); // ends the dimension tool
 
@@ -112,7 +116,7 @@ await p.getByTestId('timeline').locator('[data-name^=Extrude]').waitFor({ timeou
 await settle(600);
 s = await state();
 let body = s.bodies[0];
-check(s.bodies.length === 1 && Math.abs(bbox(body)[2][1] - 12) < 1e-6, 'live preview: a body 12 tall exists while the dialog is open', body && JSON.stringify(bbox(body)));
+check(s.bodies.length === 1 && near(bbox(body)[2][1], 12, 1e-6), 'live preview: a body 12 tall exists while the dialog is open', body && JSON.stringify(bbox(body)));
 await p.screenshot({ path: `${shots}/s5-preview.png` });
 
 // change the distance: the preview follows (and does not stack features)
@@ -140,7 +144,7 @@ await p.getByTestId('extrude-ok').click();
 await p.getByTestId('extrude-dialog').waitFor({ state: 'detached' });
 await settle(500);
 s = await state(); body = s.bodies[0]; const bb = bbox(body);
-check(s.bodies.length === 1 && Math.abs(bb[0][1] - 50) < 1e-6 && Math.abs(bb[1][1] - 30) < 1e-6 && Math.abs(bb[2][1] - 12) < 1e-6, 'OK keeps it: a 50 x 30 x 12 body', JSON.stringify(bb));
+check(s.bodies.length === 1 && near(bb[0][1], 50, 1e-6) && near(bb[1][1], 30) && near(bb[2][1], 12, 1e-6), 'OK keeps it: a 50 x 30 x 12 body', JSON.stringify(bb));
 check(body.faces.length === 4 + 2 + 2 + 2 , 'faces: 4 sides, top, bottom and the two holes (two half-cylinders each)', `${body.faces.length}`);
 await p.screenshot({ path: `${shots}/s6-extruded.png` });
 

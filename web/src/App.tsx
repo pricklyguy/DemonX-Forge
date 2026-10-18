@@ -7,14 +7,38 @@ import { Timeline } from './Timeline';
 import { ViewCube } from './ViewCube';
 import { Viewport, type FacePick } from './Viewport';
 import { normalOf } from './sketch/plane';
-import { dimensionFor, onClick, onTyped } from './sketch/tools';
-import type { Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
+import { PICK_MODE, constraintStep, dimensionFor, isDraw, onClick, onTyped, type Tool } from './sketch/tools';
+import { pickEntity, type Picked } from './sketch/pick';
+import type { Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
 const EMPTY: Snapshot = { bodies: [], parameters: [], timeline: [], sketches: [], ms: 0, warnings: [] };
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
-  dimension: 'Click a line, circle or arc to dimension it. Esc ends the tool.',
+};
+/** Status-bar help for a sketch tool, by how many points are already placed (or picked). */
+const TOOL_HINT: Record<string, string[]> = {
+  line: ['Click the start point.', 'Click the next point, or type a length. Right-click or Esc ends the line.'],
+  rect: ['Click the first corner.', 'Click the opposite corner, or type width,height.'],
+  rectCenter: ['Click the centre.', 'Click a corner, or type width,height.'],
+  circle: ['Click the centre.', 'Click to set the size, or type a diameter.'],
+  circle2: ['Click one end of the diameter.', 'Click the other end, or type a diameter.'],
+  arc3: ['Click the start point.', 'Click the end point.', 'Click a point the arc passes through.'],
+  slot: ['Click the centre of the first end.', 'Click the centre of the other end.', 'Click to set the width, or type it.'],
+  dimension: ['Click a line, circle or arc to dimension it (click a dimensioned one to change it). Esc ends the tool.'],
+  trim: ['Click the piece of a line, arc or circle to remove, between its nearest crossings.'],
+  extend: ['Click near the end of a line or arc to extend it to the nearest curve.'],
+  offset: ['Click a curve (its connected chain is offset), then type the distance.'],
+  fillet: ['Click a corner where two curves meet, then type the radius.'],
+  horizontal: ['Click a line (or two points) to make it horizontal or vertical.', 'Click the second point.'],
+  coincident: ['Click a point.', 'Click a point or a curve to join it to.'],
+  parallel: ['Click the first line.', 'Click the second line.'],
+  perpendicular: ['Click the first line.', 'Click the second line.'],
+  tangent: ['Click the first curve.', 'Click the second curve.'],
+  equal: ['Click the first line or circle.', 'Click the second.'],
+  midpoint: ['Click a point or a line.', 'Click the other.'],
+  concentric: ['Click the first circle or arc.', 'Click the second.'],
+  fix: ['Click a point or curve to fix it (or release it).'],
 };
 type ExtrudeForm = { distance: string; direction: 'one' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect' };
 
@@ -31,7 +55,9 @@ export function App() {
   const [pending, setPending] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [typed, setTyped] = useState('');
-  const [dimEdit, setDimEdit] = useState<{ curve: SketchCurve; value: string; param?: string } | null>(null);
+  const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string): void } | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [picks, setPicks] = useState<Picked[]>([]);
   const [sel, setSel] = useState<FacePick | null>(null);
   const [profiles, setProfiles] = useState<ProfileRef[]>([]);
   const [ext, setExt] = useState<ExtrudeForm>({ distance: '10', direction: 'one', operation: 'new' });
@@ -73,33 +99,61 @@ export function App() {
   // the engine is the truth about whether a sketch is open (undo and redo can open and close one)
   useEffect(() => {
     if (activeSketch && mode !== 'sketch') { setMode('sketch'); setTool(null); setPending([]); }
-    else if (!activeSketch && mode === 'sketch') { setMode('model'); setTool(null); setPending([]); setDimEdit(null); setTyped(''); }
+    else if (!activeSketch && mode === 'sketch') { setMode('model'); setTool(null); setPending([]); setEdit(null); setTyped(''); setSelected([]); setPicks([]); }
   }, [activeSketch, mode]);
   useEffect(() => { setSel((p) => (p && snap.bodies.find((b) => b.name === p.body)?.faces.some((f) => f.index === p.face) ? p : null)); }, [snap]);
 
   // ---- sketching
-  const chooseTool = (t: Tool | null) => { setTool(t); setPending([]); setTyped(''); setDimEdit(null); setError(''); };
+  const chooseTool = (t: Tool | null) => { setTool(t); setPending([]); setTyped(''); setEdit(null); setPicks([]); if (t) setSelected([]); setError(''); };
   const applyResult = (r: ReturnType<typeof onClick>) => {
     setError(r.message ?? '');
     setPending(r.pending);
     setTyped('');
     if (r.steps.length) { void run(() => api.batch(r.steps)).then((s) => { if (!s) setPending([]); }); if (r.pending.length === 0) setTool(null); }
   };
-  const sketchClick = (pt: Vec2) => { if (tool && tool !== 'dimension') applyResult(onClick(tool, pending, pt)); };
-  const submitTyped = () => { if (tool && tool !== 'dimension' && pending.length) applyResult(onTyped(tool, pending, cursor ?? pending[pending.length - 1]!, typed)); };
+  const numOrExpr = (v: string): number | string => { const n = Number(v); return v.trim() !== '' && Number.isFinite(n) ? n : v.trim(); };
+  const send = (steps: { command: string; params: Record<string, unknown> }[]) => { void run(() => api.batch(steps)); };
+  const sketchClick = (pt: Vec2, tol: number, additive: boolean) => {
+    const sk = activeSketch; if (!sk) return;
+    if (isDraw(tool)) { applyResult(onClick(tool, pending, pt)); return; }
+    const hit = pickEntity(sk, pt, tol, tool ? PICK_MODE[tool] : 'curve');
+    if (!tool) { // no tool: select curves (Shift adds), then Delete removes them or X makes them construction lines
+      setSelected((cur) => (!hit ? (additive ? cur : []) : additive ? (cur.includes(hit.id) ? cur.filter((i) => i !== hit.id) : [...cur, hit.id]) : [hit.id]));
+      return;
+    }
+    if (!hit) { setError(''); return; }
+    setError('');
+    switch (tool) {
+      case 'dimension': { const c = sk.curves.find((x) => x.id === hit.id); if (c) curvePick(c); break; }
+      case 'trim': send([{ command: 'sketch.trim', params: { curve: hit.id, at: pt } }]); break;
+      case 'extend': send([{ command: 'sketch.extend', params: { curve: hit.id, at: pt } }]); break;
+      case 'offset': setEdit({ title: 'Offset distance (negative goes the other way)', value: '5', submit: (v) => send([{ command: 'sketch.offset', params: { curves: [hit.id], distance: numOrExpr(v), chain: true } }]) }); break;
+      case 'fillet': setEdit({ title: 'Fillet radius', value: '2', submit: (v) => send([{ command: 'sketch.fillet', params: { point: hit.id, radius: numOrExpr(v) } }]) }); break;
+      default: { // constraint tools collect the picks they need, then send one constraint
+        const next = [...picks, hit];
+        const r = constraintStep(tool, next);
+        if (!r.done) { setPicks(next); break; }
+        setPicks([]);
+        if (r.message) setError(r.message); else if (r.step) send([r.step]);
+      }
+    }
+  };
+  const submitTyped = () => { if (isDraw(tool) && pending.length) applyResult(onTyped(tool, pending, cursor ?? pending[pending.length - 1]!, typed)); };
   const endChain = () => { setPending([]); setTyped(''); setTool((t) => (t === 'line' ? null : t)); };
   const curvePick = (c: SketchCurve) => {
     const existing = activeSketch?.dimensions.find((d) => d.curve === c.id); // already dimensioned: edit that value instead of adding a second one
-    setDimEdit({ curve: c, value: existing ? existing.expression : fmt(lengthOf(c)), ...(existing ? { param: existing.param } : {}) });
+    const what = c.type === 'line' ? 'Length' : c.type === 'circle' ? 'Diameter' : 'Radius';
+    setEdit({
+      title: `${existing ? 'Change ' : ''}${what} of ${c.id}`, value: existing ? existing.expression : fmt(lengthOf(c)),
+      submit: (v) => {
+        if (existing) { void run(() => api.param(existing.param, v.trim())); return; }
+        const step = dimensionFor(c, v);
+        if (!step) setError('That curve cannot be dimensioned yet'); else send([step]);
+      },
+    });
   };
-  const submitDimension = () => {
-    if (!dimEdit) return;
-    if (dimEdit.param) { const { param, value } = dimEdit; setDimEdit(null); void run(() => api.param(param, value.trim())); return; }
-    const step = dimensionFor(dimEdit.curve, dimEdit.value);
-    if (!step) { setError('That curve cannot be dimensioned yet'); return; }
-    setDimEdit(null);
-    void run(() => api.batch([step]));
-  };
+  const deleteSelected = () => { if (selected.length) { const ids = selected; setSelected([]); send([{ command: 'sketch.delete', params: { entities: ids } }]); } };
+  const toggleConstruction = () => { if (selected.length) send([{ command: 'sketch.construction', params: { curves: selected } }]); };
 
   const createSketch = async () => {
     if (mode === 'extrude') await cancelExtrude();
@@ -172,14 +226,15 @@ export function App() {
   const redo = () => { if (mode === 'extrude') return; void run(api.redo); };
 
   // ---- keyboard (the same letters Fusion users know)
-  const latest = useRef({ mode, tool, pending, dimEdit, sel, activeSketch });
-  latest.current = { mode, tool, pending, dimEdit, sel, activeSketch };
-  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch });
-  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch };
+  const latest = useRef({ mode, tool, pending, edit, sel, activeSketch, selected, picks });
+  latest.current = { mode, tool, pending, edit, sel, activeSketch, selected, picks };
+  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction });
+  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current, A = actions.current, k = e.key.toLowerCase();
-      const inField = (e.target as HTMLElement)?.closest?.('input, select, textarea');
+      // text boxes and lists own the keyboard; a ticked checkbox does not (clicking Snap must not turn the L, R, C keys off)
+      const inField = (e.target as HTMLElement)?.closest?.('input:not([type=checkbox]):not([type=radio]), select, textarea');
       if ((e.ctrlKey || e.metaKey) && !inField) {
         if (k === 'z' && !e.shiftKey) { e.preventDefault(); A.undo(); } else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); A.redo(); }
         return;
@@ -187,18 +242,22 @@ export function App() {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (k === 'escape') {
         if (inField) (e.target as HTMLElement).blur();
-        if (L.dimEdit) setDimEdit(null);
+        if (L.edit) setEdit(null);
         else if (L.mode === 'extrude') void A.cancelExtrude();
         else if (L.mode === 'pickPlane') setMode('model');
         else if (L.pending.length) A.endChain();
+        else if (L.picks.length) setPicks([]);
         else if (L.tool) A.chooseTool(null);
+        else if (L.selected.length) setSelected([]);
         return;
       }
       if (inField) return;
       if (L.mode === 'sketch') {
         if (L.pending.length && /^[0-9.\-]$/.test(e.key)) { setTyped(e.key); setTimeout(() => entryRef.current?.focus(), 0); e.preventDefault(); return; }
-        const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', d: 'dimension' };
+        const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', a: 'arc3', d: 'dimension', t: 'trim', o: 'offset' };
         if (map[k]) { A.chooseTool(map[k]!); return; }
+        if (k === 'delete' || k === 'backspace') { A.deleteSelected(); return; }
+        if (k === 'x') { A.toggleConstruction(); return; }
         if (k === 'e') void A.startExtrude();
         return;
       }
@@ -212,10 +271,11 @@ export function App() {
   const toggle = <T,>(set: Set<T>, v: T) => { const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); return n; };
   const face = useMemo(() => snap.bodies.find((b) => b.name === sel?.body)?.faces.find((f) => f.index === sel?.face), [snap, sel]);
   const hint = mode === 'sketch'
-    ? (tool === 'dimension' ? HINT.dimension! : tool === 'line' ? (pending.length ? 'Click the next point, or type a length. Right-click or Esc ends the line.' : 'Click the start point.') : tool === 'rect' ? (pending.length ? 'Click the opposite corner, or type width,height.' : 'Click the first corner.') : tool === 'circle' ? (pending.length ? 'Click to set the size, or type a diameter.' : 'Click the centre.') : 'Pick a sketch tool: L line, R rectangle, C circle, D dimension.')
+    ? (tool ? (TOOL_HINT[tool]?.[Math.min(isDraw(tool) ? pending.length : picks.length, (TOOL_HINT[tool]?.length ?? 1) - 1)] ?? '') : selected.length ? `${selected.length} selected. Delete removes it, X makes it a construction line, Esc clears.` : 'Pick a sketch tool, or click a line to select it. Keys: L R C A T O D.')
     : HINT[mode] ?? '';
   const triangles = snap.bodies.reduce((n, b) => n + b.faceIds.length, 0);
-  const placeholder = tool === 'rect' ? 'width, height' : tool === 'circle' ? 'diameter' : 'length [, angle]';
+  const placeholder = tool === 'rect' || tool === 'rectCenter' ? 'width, height' : tool === 'circle' || tool === 'circle2' ? 'diameter' : tool === 'slot' ? 'width' : 'length [, angle]';
+  const typable = isDraw(tool) && pending.length > 0 && tool !== 'arc3' && !(tool === 'slot' && pending.length < 2);
 
   return (
     <div className="app">
@@ -238,7 +298,8 @@ export function App() {
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFace={sel ? { body: sel.body, face: sel.face } : null} selectedProfiles={profiles}
-          onFacePick={setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain} onCurvePick={curvePick}
+          onFacePick={setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
         <ViewCube api={viewApi} onHome={() => viewApi.current?.setView('home')} />
@@ -276,15 +337,16 @@ export function App() {
           </div>
         )}
 
-        {mode === 'sketch' && tool && tool !== 'dimension' && pending.length > 0 && (
+        {mode === 'sketch' && typable && (
           <div className="entry" data-testid="entry">
             <input ref={entryRef} aria-label="Typed size" type="text" value={typed} placeholder={placeholder} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} />
           </div>
         )}
-        {dimEdit && (
-          <div className="entry dim" data-testid="dim-entry">
-            <span>{dimEdit.param ? 'Change ' : ''}{dimEdit.curve.type === 'line' ? 'Length' : dimEdit.curve.type === 'circle' ? 'Diameter' : 'Radius'} of {dimEdit.curve.id}</span>
-            <input autoFocus aria-label="Dimension value" type="text" value={dimEdit.value} onFocus={(e) => e.target.select()} onChange={(e) => setDimEdit({ ...dimEdit, value: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') submitDimension(); }} />
+        {edit && (
+          <div className="entry dim" data-testid="value-entry">
+            <span>{edit.title}</span>
+            <input autoFocus aria-label="Value" type="text" value={edit.value} onFocus={(e) => e.target.select()} onChange={(e) => setEdit({ ...edit, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') { const { submit, value } = edit; setEdit(null); submit(value); } }} />
           </div>
         )}
 

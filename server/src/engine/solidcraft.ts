@@ -169,8 +169,10 @@ export function toSketch(k: any, activeId: unknown): Sketch {
       id: String(c.id), type, construction: !!c.construction, fullyConstrained: !!c.fully_constrained,
       ...(c.start_at ? { start: v2(c.start_at) } : {}), ...(c.end_at ? { end: v2(c.end_at) } : {}),
       ...(c.center_at ? { center: v2(c.center_at) } : {}), ...(typeof c.radius === 'number' ? { radius: c.radius } : {}),
+      ...(typeof c.start === 'string' ? { startId: c.start } : {}), ...(typeof c.end === 'string' ? { endId: c.end } : {}), ...(typeof c.center === 'string' ? { centerId: c.center } : {}),
     };
   });
+  const points = (k.points ?? []).filter((q: any) => q.id !== 'origin').map((q: any) => ({ id: String(q.id), at: v2(q.at), fixed: !!q.fixed }));
   const dimensions = (k.constraints ?? []).filter((c: any) => typeof c.param === 'string').map((c: any) => ({
     id: String(c.id), kind: String(c.type), param: String(c.param), expression: String(c.expression ?? c.value), value: Number(c.value),
     ...(typeof c.l === 'number' && curves[c.l] ? { curve: curves[c.l].id } : {}),
@@ -181,6 +183,6 @@ export function toSketch(k: any, activeId: unknown): Sketch {
   return {
     id: Number(k.id), name: String(k.name), visible: k.visible !== false, active: activeId != null && Number(activeId) === Number(k.id),
     plane: { origin: v3(k.plane?.origin), xDir: v3(k.plane?.x_dir), yDir: v3(k.plane?.y_dir) },
-    curves, dimensions, profiles, dof: Number(k.dof ?? 0),
+    curves, points, dimensions, profiles, dof: Number(k.dof ?? 0),
   };
 }

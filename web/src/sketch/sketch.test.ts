@@ -3,7 +3,9 @@ import type { SketchCurve } from '../api';
 import { loopPolygon, curvePoints } from './loops';
 import { ORIGIN_PLANES, normalOf, rayToSketch, toSketch, toWorld } from './plane';
 import { niceStep, snapGrid, snapPoints } from './snap';
-import { dimensionFor, onClick, onTyped } from './tools';
+import { circleThrough, constraintStep, dimensionFor, isDraw, onClick, onTyped, preview } from './tools';
+import { distToCurve, pickEntity } from './pick';
+import type { Sketch } from '../api';
 
 const line = (id: string, a: [number, number], b: [number, number]): SketchCurve => ({ id, type: 'line', construction: false, fullyConstrained: false, start: a, end: b });
 
@@ -103,5 +105,97 @@ describe('tools', () => {
     expect(dimensionFor({ id: 'c1', type: 'circle' }, 'width / 2')!.params).toEqual({ entities: ['c1'], type: 'diameter', value: 'width / 2' });
     expect(dimensionFor({ id: 'a1', type: 'arc' }, '5')!.params.type).toBe('radius');
     expect(dimensionFor({ id: 'x', type: 'other' }, '5')).toBeNull();
+  });
+});
+
+const sk = (over: Partial<Sketch> = {}): Sketch => ({
+  id: 1, name: 'S', visible: true, active: true, plane: ORIGIN_PLANES.XY, dof: 3, dimensions: [], profiles: [],
+  curves: [line('l1', [0, 0], [10, 0]), line('l2', [10, 0], [10, 5]), { id: 'c1', type: 'circle', construction: false, fullyConstrained: false, center: [3, 3], radius: 1 }],
+  points: [{ id: 'p1', at: [0, 0], fixed: false }, { id: 'p2', at: [10, 0], fixed: false }, { id: 'c1.center', at: [3, 3], fixed: false }], ...over,
+});
+
+describe('pick', () => {
+  it('measures the distance to lines and circles', () => {
+    expect(distToCurve(line('l', [0, 0], [10, 0]), [5, 3])).toBeCloseTo(3);
+    expect(distToCurve(line('l', [0, 0], [10, 0]), [14, 3])).toBeCloseTo(5);
+    expect(distToCurve(sk().curves[2]!, [3, 5])).toBeCloseTo(1, 1);
+  });
+  it('prefers a point over the lines through it, and honours the mode', () => {
+    const s = sk();
+    expect(pickEntity(s, [10.1, 0.1], 0.5, 'any')).toEqual({ kind: 'point', id: 'p2' });
+    expect(pickEntity(s, [10.1, 0.1], 0.5, 'curve')).toMatchObject({ kind: 'curve' });
+    expect(pickEntity(s, [5, 0.2], 0.5, 'any')).toEqual({ kind: 'curve', id: 'l1', type: 'line' });
+    expect(pickEntity(s, [5, 0.2], 0.5, 'point')).toBeNull();
+    expect(pickEntity(s, [20, 20], 0.5, 'any')).toBeNull();
+    expect(pickEntity(s, [3.1, 3.0], 0.5, 'any')).toEqual({ kind: 'point', id: 'c1.center' });
+  });
+});
+
+describe('more draw tools', () => {
+  it('centre rectangle: centre then a corner; typed numbers are the full width and height', () => {
+    expect(onClick('rectCenter', [[5, 5]], [8, 7]).steps[0]).toEqual({ command: 'sketch.rectangle.center', params: { center: [5, 5], corner: [8, 7] } });
+    expect(onClick('rectCenter', [[5, 5]], [8, 5]).message).toMatch(/width and a height/);
+    expect(onTyped('rectCenter', [[0, 0]], [1, 1], '40,30').steps[0]!.params).toEqual({ center: [0, 0], corner: [20, 15] });
+  });
+  it('two-point circle: the two ends of the diameter; typed diameter goes toward the cursor', () => {
+    expect(onClick('circle2', [[0, 0]], [10, 0]).steps[0]).toEqual({ command: 'sketch.circle.two_point', params: { p0: [0, 0], p1: [10, 0] } });
+    expect(onTyped('circle2', [[0, 0]], [0, 5], '8').steps[0]!.params).toEqual({ p0: [0, 0], p1: [0, 8] });
+  });
+  it('3-point arc: start, end, then a point it passes through (not in line with them)', () => {
+    let r = onClick('arc3', [], [0, 0]); expect(r.pending).toEqual([[0, 0]]);
+    r = onClick('arc3', r.pending, [10, 0]); expect(r.pending).toEqual([[0, 0], [10, 0]]); expect(r.steps).toEqual([]);
+    expect(onClick('arc3', r.pending, [5, 0]).message).toMatch(/must not lie on the line/);
+    const done = onClick('arc3', r.pending, [5, 5]);
+    expect(done.steps[0]).toEqual({ command: 'sketch.arc.three_point', params: { start: [0, 0], end: [10, 0], through: [5, 5] } }); expect(done.pending).toEqual([]);
+  });
+  it('slot: two centres, then the width from the pointer distance to the centre line', () => {
+    const r = onClick('slot', [[0, 0], [20, 0]], [10, 4]);
+    expect(r.steps[0]).toEqual({ command: 'sketch.slot.center_to_center', params: { p0: [0, 0], p1: [20, 0], width: 8 } });
+    expect(onClick('slot', [[0, 0], [20, 0]], [10, 0]).message).toMatch(/centre line/);
+    expect(onTyped('slot', [[0, 0], [20, 0]], [0, 0], '6').steps[0]!.params).toMatchObject({ width: 6 });
+    expect(onTyped('slot', [[0, 0]], [0, 0], '6').message).toMatch(/Click/);
+  });
+  it('knows which tools draw', () => { expect(isDraw('slot')).toBe(true); expect(isDraw('trim')).toBe(false); expect(isDraw(null)).toBe(false); });
+});
+
+describe('preview', () => {
+  it('shows the next shape while the pointer moves', () => {
+    expect(preview('rect', [[0, 0]], [4, 3])[0]).toHaveLength(5);
+    expect(preview('line', [[0, 0], [1, 1]], [4, 3])).toEqual([[[1, 1], [4, 3]]]);
+    expect(preview('rect', [], [1, 1])).toEqual([]);
+    const c = preview('circle', [[0, 0]], [3, 4])[0]!;
+    expect(Math.hypot(c[10]![0], c[10]![1])).toBeCloseTo(5);
+    const arc = preview('arc3', [[0, 0], [10, 0]], [5, 5])[0]!;
+    expect(arc[0]).toEqual([0, 0]); expect(arc[arc.length - 1]![0]).toBeCloseTo(10); expect(Math.max(...arc.map((q) => q[1]))).toBeCloseTo(5, 0);
+    const down = preview('arc3', [[0, 0], [10, 0]], [5, -5])[0]!; expect(Math.min(...down.map((q) => q[1]))).toBeCloseTo(-5, 0);
+    expect(preview('slot', [[0, 0], [20, 0]], [10, 3])).toHaveLength(4);
+  });
+  it('circleThrough finds the centre, and refuses a straight line', () => {
+    const c = circleThrough([0, 0], [10, 0], [5, 5])!;
+    expect(c.center[0]).toBeCloseTo(5); expect(c.center[1]).toBeCloseTo(0); expect(c.r).toBeCloseTo(5);
+    expect(circleThrough([0, 0], [1, 1], [2, 2])).toBeNull();
+  });
+});
+
+describe('constraintStep', () => {
+  const L = (id: string) => ({ kind: 'curve' as const, id, type: 'line' }), P = (id: string) => ({ kind: 'point' as const, id });
+  it('horizontal/vertical: one line, or two points', () => {
+    expect(constraintStep('horizontal', [])).toEqual({ done: false });
+    expect(constraintStep('horizontal', [L('l1')]).step).toEqual({ command: 'sketch.constraint.horizontal_vertical', params: { line: 'l1' } });
+    expect(constraintStep('horizontal', [P('p1')])).toEqual({ done: false });
+    expect(constraintStep('horizontal', [P('p1'), P('p2')]).step!.params).toEqual({ points: ['p1', 'p2'] });
+    expect(constraintStep('horizontal', [{ kind: 'curve', id: 'c1', type: 'circle' }]).message).toMatch(/line/);
+  });
+  it('coincident puts the point first, in either pick order', () => {
+    expect(constraintStep('coincident', [L('l1'), P('p3')]).step!.params).toEqual({ a: 'p3', b: 'l1' });
+    expect(constraintStep('coincident', [P('p1'), P('p2')]).step!.params).toEqual({ a: 'p1', b: 'p2' });
+  });
+  it('midpoint needs a point and a line; the pair tools need two curves; fix needs one entity', () => {
+    expect(constraintStep('midpoint', [L('l1'), P('p1')]).step!.params).toEqual({ point: 'p1', line: 'l1' });
+    expect(constraintStep('midpoint', [P('p1'), P('p2')]).message).toMatch(/point and a line/);
+    expect(constraintStep('parallel', [L('l1')])).toEqual({ done: false });
+    expect(constraintStep('perpendicular', [L('l1'), L('l2')]).step).toEqual({ command: 'sketch.constraint.perpendicular', params: { a: 'l1', b: 'l2' } });
+    expect(constraintStep('tangent', [L('l1'), L('c1')]).step!.command).toBe('sketch.constraint.tangent');
+    expect(constraintStep('fix', [P('p1')]).step!.params).toEqual({ entity: 'p1' });
   });
 });

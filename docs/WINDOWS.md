@@ -30,6 +30,9 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
   length, press E, click the shaded shape, type a distance, press OK. Ctrl+Z undoes, Ctrl+Y redoes.
 - Mouse: the wheel zooms, the middle button pans, Shift + middle button orbits. The cube at the top right looks at the
   model from a side; the buttons under the model fit it to the window or show the home view.
+- More sketch tools are on the SKETCH tab: center rectangle, 2-point circle, 3-point arc (A), slot, trim (T), extend, offset (O),
+  fillet, and the constraints (the small icons). With no tool selected, click a line to select it: Delete removes it, X makes
+  it a construction line (dashed). Esc ends a tool.
 - "Load the demo bracket" gives a ready-made part to look at.
 
 

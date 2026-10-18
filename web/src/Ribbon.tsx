@@ -20,6 +20,9 @@ function Btn({ icon, label, keyHint, pressed, disabled, onClick, id }: { icon: R
     </button>
   );
 }
+function Cbtn({ id, icon, label, tool, p }: { id: string; icon: ReactNode; label: string; tool: Tool; p: Props }) {
+  return <button className={`cbtn${p.tool === tool ? ' on' : ''}`} aria-pressed={p.tool === tool} title={label} aria-label={label} data-testid={id} onClick={() => p.onTool(tool)}>{icon}</button>;
+}
 const Group = ({ title, children }: { title: string; children: ReactNode }) => <div className="rgroup"><div className="rbtns">{children}</div><div className="rtitle">{title}</div></div>;
 
 /** The tabs and toolbar. The SKETCH tab exists only while a sketch is open, as in Fusion. */
@@ -42,10 +45,31 @@ export function Ribbon(p: Props) {
           <>
             <Group title="CREATE">
               <Btn id="tool-line" icon={<Icon.line />} label="Line" keyHint="L" pressed={p.tool === 'line'} onClick={() => p.onTool('line')} />
-              <Btn id="tool-rect" icon={<Icon.rect />} label="Rectangle" keyHint="R" pressed={p.tool === 'rect'} onClick={() => p.onTool('rect')} />
-              <Btn id="tool-circle" icon={<Icon.circle />} label="Circle" keyHint="C" pressed={p.tool === 'circle'} onClick={() => p.onTool('circle')} />
+              <Btn id="tool-rect" icon={<Icon.rect />} label="2-Point Rectangle" keyHint="R" pressed={p.tool === 'rect'} onClick={() => p.onTool('rect')} />
+              <Btn id="tool-rectCenter" icon={<Icon.rectCenter />} label="Center Rectangle" pressed={p.tool === 'rectCenter'} onClick={() => p.onTool('rectCenter')} />
+              <Btn id="tool-circle" icon={<Icon.circle />} label="Center Circle" keyHint="C" pressed={p.tool === 'circle'} onClick={() => p.onTool('circle')} />
+              <Btn id="tool-circle2" icon={<Icon.circle2 />} label="2-Point Circle" pressed={p.tool === 'circle2'} onClick={() => p.onTool('circle2')} />
+              <Btn id="tool-arc3" icon={<Icon.arc3 />} label="3-Point Arc" keyHint="A" pressed={p.tool === 'arc3'} onClick={() => p.onTool('arc3')} />
+              <Btn id="tool-slot" icon={<Icon.slot />} label="Slot" pressed={p.tool === 'slot'} onClick={() => p.onTool('slot')} />
+            </Group>
+            <Group title="MODIFY">
+              <Btn id="tool-trim" icon={<Icon.trim />} label="Trim" keyHint="T" pressed={p.tool === 'trim'} onClick={() => p.onTool('trim')} />
+              <Btn id="tool-extend" icon={<Icon.extend />} label="Extend" pressed={p.tool === 'extend'} onClick={() => p.onTool('extend')} />
+              <Btn id="tool-offset" icon={<Icon.offset />} label="Offset" keyHint="O" pressed={p.tool === 'offset'} onClick={() => p.onTool('offset')} />
+              <Btn id="tool-fillet" icon={<Icon.fillet />} label="Fillet" pressed={p.tool === 'fillet'} onClick={() => p.onTool('fillet')} />
             </Group>
             <Group title="CONSTRAINTS">
+              <div className="cgrid">
+                <Cbtn id="tool-horizontal" icon={<Icon.cHoriz />} label="Horizontal/Vertical" tool="horizontal" p={p} />
+                <Cbtn id="tool-coincident" icon={<Icon.cCoinc />} label="Coincident" tool="coincident" p={p} />
+                <Cbtn id="tool-parallel" icon={<Icon.cParallel />} label="Parallel" tool="parallel" p={p} />
+                <Cbtn id="tool-perpendicular" icon={<Icon.cPerp />} label="Perpendicular" tool="perpendicular" p={p} />
+                <Cbtn id="tool-tangent" icon={<Icon.cTangent />} label="Tangent" tool="tangent" p={p} />
+                <Cbtn id="tool-equal" icon={<Icon.cEqual />} label="Equal" tool="equal" p={p} />
+                <Cbtn id="tool-midpoint" icon={<Icon.cMid />} label="Midpoint" tool="midpoint" p={p} />
+                <Cbtn id="tool-concentric" icon={<Icon.cConc />} label="Concentric" tool="concentric" p={p} />
+                <Cbtn id="tool-fix" icon={<Icon.cFix />} label="Fix / Unfix" tool="fix" p={p} />
+              </div>
               <Btn id="tool-dimension" icon={<Icon.dimension />} label="Sketch Dimension" keyHint="D" pressed={p.tool === 'dimension'} onClick={() => p.onTool('dimension')} />
             </Group>
             <div className="rspacer" />

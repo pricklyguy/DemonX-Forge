@@ -29,7 +29,13 @@ export interface SketchCurve {
   /** Circles and arcs; arcs run counter-clockwise from start to end. */
   center?: Vec2;
   radius?: number;
+  /** The engine's ids of the points this curve ends and is centred on (for constraints, fillets and picking). */
+  startId?: string;
+  endId?: string;
+  centerId?: string;
 }
+
+export interface SketchPoint { id: string; at: Vec2; fixed: boolean }
 
 /** A driving dimension (a number the sketch is solved to). `curve` is set for dimensions on one curve. */
 export interface SketchDimension { id: string; kind: string; param: string; expression: string; value: number; curve?: string }
@@ -46,6 +52,7 @@ export interface Sketch {
   /** Sketch plane in world millimetres: sketch (x, y) maps to origin + x * xDir + y * yDir. */
   plane: { origin: Vec3; xDir: Vec3; yDir: Vec3 };
   curves: SketchCurve[];
+  points: SketchPoint[];
   dimensions: SketchDimension[];
   profiles: Profile[];
   /** Degrees of freedom left (0 means fully constrained). */

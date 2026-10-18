@@ -28,6 +28,23 @@ export const Icon = {
   undo: () => <Svg size={18}><path d="M9 8 L4 13 L9 18 M4 13 H17 C21 13 24 15.5 24 19.5" /></Svg>,
   redo: () => <Svg size={18}><path d="M19 8 L24 13 L19 18 M24 13 H11 C7 13 4 15.5 4 19.5" /></Svg>,
   generic: () => <Svg size={20}><rect x="6" y="6" width="16" height="16" rx="2" /></Svg>,
+  rectCenter: () => <Svg><rect x="5" y="8" width="18" height="12" stroke={C} /><circle cx="14" cy="14" r="1.8" /><path d="M14 14 L23 20" strokeDasharray="2 2" /></Svg>,
+  circle2: () => <Svg><circle cx="14" cy="14" r="9" stroke={C} /><circle cx="5" cy="14" r="1.6" /><circle cx="23" cy="14" r="1.6" /></Svg>,
+  arc3: () => <Svg><path d="M5 20 C8 6 20 6 23 20" stroke={C} /><circle cx="5" cy="20" r="1.6" /><circle cx="23" cy="20" r="1.6" /><circle cx="14" cy="8.5" r="1.4" /></Svg>,
+  slot: () => <Svg><path d="M9 8 H19 A6 6 0 0 1 19 20 H9 A6 6 0 0 1 9 8 Z" stroke={C} /></Svg>,
+  trim: () => <Svg><path d="M4 20 L24 8" stroke={C} /><path d="M10 4 L14 24" stroke={C} /><path d="M12.5 14 L24 8" stroke={A} strokeWidth={3} /></Svg>,
+  extend: () => <Svg><path d="M4 20 L16 13" stroke={C} /><path d="M16 13 L22 9.5" stroke={A} strokeDasharray="2 2" /><path d="M24 4 V24" /></Svg>,
+  offset: () => <Svg><path d="M5 22 V8 H19" stroke={C} /><path d="M10 22 V13 H24" stroke={A} /></Svg>,
+  fillet: () => <Svg><path d="M5 5 V15 A8 8 0 0 0 13 23 H23" stroke={C} /></Svg>,
+  cHoriz: () => <Svg size={22}><path d="M3 14 H25" /><path d="M9 8 V20 M19 8 V20" opacity=".35" /></Svg>,
+  cCoinc: () => <Svg size={22}><circle cx="14" cy="14" r="4" /><path d="M3 14 H10 M18 14 H25" opacity=".5" /></Svg>,
+  cParallel: () => <Svg size={22}><path d="M7 22 L16 5 M14 24 L23 7" /></Svg>,
+  cPerp: () => <Svg size={22}><path d="M6 23 H24 M6 23 V5" /><path d="M6 17 H12 V23" strokeWidth={1.2} /></Svg>,
+  cTangent: () => <Svg size={22}><circle cx="14" cy="17" r="7" /><path d="M2 10 H26" /></Svg>,
+  cEqual: () => <Svg size={22}><path d="M6 10 H22 M6 18 H22" strokeWidth={2.4} /></Svg>,
+  cMid: () => <Svg size={22}><path d="M3 20 H25" /><path d="M14 20 L14 6 M9 11 L14 6 L19 11" opacity=".6" /><circle cx="14" cy="20" r="2.2" /></Svg>,
+  cConc: () => <Svg size={22}><circle cx="14" cy="14" r="10" /><circle cx="14" cy="14" r="5" /></Svg>,
+  cFix: () => <Svg size={22}><rect x="7" y="12" width="14" height="11" rx="2" /><path d="M10 12 V8 A4 4 0 0 1 18 8 V12" /></Svg>,
 };
 
 /** The timeline icon for an engine feature type. */

@@ -1,6 +1,6 @@
 import type { Snapshot } from '../../server/src/engine/Engine';
 
-export type { Snapshot, Body, Face, Parameter, TimelineItem, Sketch, SketchCurve, SketchDimension, Profile, Vec2, Vec3 } from '../../server/src/engine/Engine';
+export type { Snapshot, Body, Face, Parameter, TimelineItem, Sketch, SketchCurve, SketchPoint, SketchDimension, Profile, Vec2, Vec3 } from '../../server/src/engine/Engine';
 
 async function call(path: string, body?: unknown): Promise<Snapshot> {
   const r = await fetch(`/api/${path}`, { method: body === undefined ? 'GET' : 'POST', body: body === undefined ? undefined : JSON.stringify(body) });

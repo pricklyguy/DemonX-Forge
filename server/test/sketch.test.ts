@@ -12,13 +12,16 @@ describe('toSketch', () => {
   it('reads curves, dimensions and profiles', () => {
     const s = toSketch({
       id: 3, name: 'S', visible: true, dof: 2, plane: { origin: [0, 0, 5], x_dir: [1, 0, 0], y_dir: [0, 1, 0] },
-      curves: [{ id: 'l1', type: 'line', start_at: [0, 0], end_at: [4, 0], fully_constrained: true }, { id: 'a1', type: 'arc', center_at: [1, 1], start_at: [2, 1], end_at: [1, 2], radius: 1 }, { id: 'x', type: 'spline' }],
+      points: [{ id: 'origin', at: [0, 0], fixed: true }, { id: 'p1', at: [0, 0], fixed: false }],
+      curves: [{ id: 'l1', type: 'line', start: 'p1', end: 'p2', start_at: [0, 0], end_at: [4, 0], fully_constrained: true }, { id: 'a1', type: 'arc', center_at: [1, 1], start_at: [2, 1], end_at: [1, 2], radius: 1 }, { id: 'x', type: 'spline' }],
       constraints: [{ id: 'k1', type: 'horizontal', l: 0 }, { id: 'k6', type: 'length', l: 0, param: 'd1', expression: '4', value: 4 }],
       profiles: [{ index: 0, area_mm2: 12, centroid_sketch: [2, 1], curves: ['l1'], holes: [['c1']] }],
     }, 3);
     expect(s.active).toBe(true);
     expect(s.plane.origin).toEqual([0, 0, 5]);
     expect(s.curves.map((c) => c.type)).toEqual(['line', 'arc', 'other']);
+    expect(s.curves[0]).toMatchObject({ startId: 'p1', endId: 'p2' });
+    expect(s.points).toEqual([{ id: 'p1', at: [0, 0], fixed: false }]); // the origin is not offered as a point to pick
     expect(s.curves[1]).toMatchObject({ center: [1, 1], start: [2, 1], end: [1, 2], radius: 1 });
     expect(s.dimensions).toEqual([{ id: 'k6', kind: 'length', param: 'd1', expression: '4', value: 4, curve: 'l1' }]);
     expect(s.profiles[0]).toMatchObject({ index: 0, area: 12, holes: [['c1']] });
