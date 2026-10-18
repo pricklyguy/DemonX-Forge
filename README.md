@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="assets/banner.jpg" alt="DemonX-Forge — Modeling Software | Prickly Guy Creations" width="100%">
+</p>
 # DemonX Forge
 
 A Fusion-style parametric 3D CAD application, by Prickly Guy Creations. Sketch, extrude, fillet, hole and pattern features on an editable timeline, with named parameters, in a browser interface that looks and feels like DemonX CNC and DemonX Design. It runs locally on your own computer; nothing goes to the cloud.
