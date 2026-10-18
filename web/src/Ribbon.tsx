@@ -9,6 +9,9 @@ interface Props {
   onCreateSketch(): void;
   onExtrude(): void;
   onHole(): void;
+  canModify: boolean;
+  onFillet(): void;
+  onChamfer(): void;
   onTool(t: Tool): void;
   onFinish(): void;
 }
@@ -40,6 +43,12 @@ export function Ribbon(p: Props) {
             <Btn id="btn-sketch" icon={<Icon.sketch />} label="Create Sketch" pressed={p.mode === 'pickPlane'} onClick={p.onCreateSketch} />
             <Btn id="btn-extrude" icon={<Icon.extrude />} label="Extrude" keyHint="E" pressed={p.mode === 'extrude'} onClick={p.onExtrude} />
             <Btn id="btn-hole" icon={<Icon.hole />} label="Hole" keyHint="H" disabled={!p.canHole} onClick={p.onHole} />
+          </Group>
+        ) : null}
+        {!sketching ? (
+          <Group title="MODIFY">
+            <Btn id="btn-fillet" icon={<Icon.bFillet />} label="Fillet" keyHint="F" pressed={p.mode === 'modify'} disabled={!p.canModify} onClick={p.onFillet} />
+            <Btn id="btn-chamfer" icon={<Icon.bChamfer />} label="Chamfer" disabled={!p.canModify} onClick={p.onChamfer} />
           </Group>
         ) : (
           <>

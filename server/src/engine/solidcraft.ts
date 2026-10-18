@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileError, packForge, unpackForge } from '../forgeFile';
-import { EngineError, type Body, type CommandStep, type ExportFormat, type Engine, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
+import { EngineError, type Body, type CommandStep, type ExportFormat, type Engine, type BodyEdge, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
 import { parse3mf } from './mesh3mf';
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };
@@ -173,7 +173,7 @@ export class SolidCraftEngine implements Engine {
       const bodies: Body[] = [];
       for (const m of meshes) {
         const topo = await this.tool('body_topology', { body: m.name });
-        bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace) });
+        bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace), edges: (topo?.edges ?? []).map(toEdge) });
       }
       return { doc, bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
     });
@@ -184,6 +184,10 @@ export class SolidCraftEngine implements Engine {
 export function unknownParamNames(spec: string, keys: string[]): string[] {
   const words = new Set(spec.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
   return keys.filter((k) => !words.has(k));
+}
+
+function toEdge(e: any): BodyEdge {
+  return { index: Number(e.index), name: String(e.name ?? ''), mid: v3(e.mid), start: v3(e.start), end: v3(e.end), length: Number(e.length ?? 0) };
 }
 
 function toFace(f: any): Face {

@@ -10,7 +10,8 @@ import { ORIGIN_PLANES, normalOf, rayToSketch, toWorld, type Plane } from './ske
 import { niceStep, round3, snapGrid, snapPoints } from './sketch/snap';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
 import { isDraw, preview as previewOf } from './sketch/tools';
-import type { Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
+import type { EdgeGeometry } from '../../server/src/engine/meshEdges';
+import type { EdgeRef, Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
 
 export interface FacePick { body: string; face: number; point: Vec3 }
 
@@ -35,6 +36,10 @@ interface Props {
   snap: boolean;
   selectedFace: { body: string; face: number } | null;
   selectedProfiles: ProfileRef[];
+  /** The edges that can be picked while choosing edges (empty otherwise), and the ones drawn as selected. */
+  edgeSets: { body: string; edges: EdgeGeometry[] }[];
+  edgeHighlight: EdgeRef[];
+  onEdgePick(ref: EdgeRef | null, additive: boolean): void;
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
   /** `pt` is snapped for drawing tools and exact for picking tools; `tol` is about 9 screen pixels in sketch units. */
@@ -53,7 +58,7 @@ const planeOf = (s: Sketch): Plane => s.plane;
 export function Viewport(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const P = useRef(props); P.current = props;
-  const S = useRef<null | { rebuild(what: 'bodies' | 'sketches' | 'planes' | 'preview' | 'camera'): void }>(null);
+  const S = useRef<null | { rebuild(what: 'bodies' | 'sketches' | 'planes' | 'preview' | 'camera' | 'edges'): void }>(null);
 
   useEffect(() => {
     const el = host.current!;
@@ -63,8 +68,8 @@ export function Viewport(props: Props) {
     const cam = new THREE.PerspectiveCamera(40, 1, 0.5, 50000); cam.up.set(0, 0, 1); cam.position.set(150, -220, 130);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.1));
     const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(200, -300, 400); scene.add(sun);
-    const gBodies = new THREE.Group(), gSketch = new THREE.Group(), gPlanes = new THREE.Group(), gGrid = new THREE.Group(), gPreview = new THREE.Group();
-    scene.add(gBodies, gSketch, gPlanes, gGrid, gPreview);
+    const gBodies = new THREE.Group(), gSketch = new THREE.Group(), gPlanes = new THREE.Group(), gGrid = new THREE.Group(), gPreview = new THREE.Group(), gEdges = new THREE.Group();
+    scene.add(gBodies, gSketch, gPlanes, gGrid, gPreview, gEdges);
     const lineMats = new Set<LineMaterial>();
     // dimension values drawn as small labels over the sketch (plain HTML, moved to follow the camera every frame)
     const labelLayer = document.createElement('div'); labelLayer.className = 'dimlayer'; el.appendChild(labelLayer);
@@ -224,6 +229,44 @@ export function Viewport(props: Props) {
       if (cursor && isDraw(p.tool)) gPreview.add(mark(cursor, wpp() * 6, 1.5));
     };
 
+    // ---- edges: the one under the pointer and the selected ones
+    let hoverEdge: EdgeRef | null = null;
+    const rebuildEdges = () => {
+      clear(gEdges);
+      const p = P.current;
+      const find = (r: EdgeRef) => p.edgeSets.find((s) => s.body === r.body)?.edges.find((x) => x.index === r.index);
+      for (const r of p.edgeHighlight) { const g = find(r); if (g) gEdges.add(thick(g.segments, css('--accent'), 4.5)); }
+      if (hoverEdge && p.mode === 'modify') { const g = find(hoverEdge); if (g) gEdges.add(thick(g.segments, css('--amber'), 3.5)); }
+    };
+    /** How far from the camera the edge a-b is where the pick ray passes it (the closest point of the segment to the ray; a screen-space fraction would be wrong under perspective). */
+    const depthAlong = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const o = ray.ray.origin, d = ray.ray.direction, u = b.clone().sub(a), w0 = a.clone().sub(o);
+      const A = u.dot(u), B = u.dot(d), D = u.dot(w0), E = d.dot(w0), den = A - B * B; // d is a unit vector
+      const s = den > 1e-12 ? Math.max(0, Math.min(1, (B * E - D) / den)) : 0;
+      return o.distanceTo(a.clone().addScaledVector(u, s));
+    };
+    /** The edge nearest the pointer within a few pixels, ignoring edges hidden behind a face. */
+    const pickEdge = (e: { clientX: number; clientY: number }): EdgeRef | null => {
+      const r = dom.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      setRay(e);
+      const hit = ray.intersectObjects(gBodies.children, false)[0], dFace = hit ? hit.distance : Infinity;
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Vector3();
+      const toPx = (v: THREE.Vector3) => { q.copy(v).project(cam); return [((q.x + 1) / 2) * r.width, ((1 - q.y) / 2) * r.height, q.z] as const; };
+      let best: EdgeRef | null = null, bd = 9; // pixels
+      for (const set of P.current.edgeSets) for (const g of set.edges) for (let i = 0; i < g.segments.length; i += 6) {
+        a.set(g.segments[i]!, g.segments[i + 1]!, g.segments[i + 2]!); b.set(g.segments[i + 3]!, g.segments[i + 4]!, g.segments[i + 5]!);
+        const [ax, ay, az] = toPx(a), [bx, by, bz] = toPx(b);
+        if (az > 1 && bz > 1) continue;
+        const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((mx - ax) * dx + (my - ay) * dy) / l2)) : 0;
+        const d = Math.hypot(mx - (ax + t * dx), my - (ay + t * dy));
+        if (d >= bd) continue;
+        const depth = depthAlong(a, b);
+        if (depth > dFace + Math.max(0.8, dFace * 0.004)) continue; // behind a face
+        bd = d; best = { body: set.body, index: g.index };
+      }
+      return best;
+    };
+
     // ---- camera helpers
     const target = () => ctl.target;
     const fit = () => {
@@ -291,6 +334,9 @@ export function Viewport(props: Props) {
         setRay(e);
         const hit = ray.intersectObjects(planeMeshes, false)[0];
         planeMeshes.forEach((m) => ((m.material as THREE.MeshBasicMaterial).opacity = m === hit?.object ? 0.4 : 0.16));
+      } else if (p.mode === 'modify') {
+        const h = pickEdge(e);
+        if (h?.body !== hoverEdge?.body || h?.index !== hoverEdge?.index) { hoverEdge = h; rebuildEdges(); }
       }
     });
     dom.addEventListener('pointerleave', () => { cursor = null; P.current.onCursor(null); if (P.current.mode === 'sketch') rebuildPreview(); });
@@ -309,6 +355,8 @@ export function Viewport(props: Props) {
         const bodyDist = ray.intersectObjects(gBodies.children, false)[0]?.distance ?? Infinity;
         if (face && bodyDist <= (hit?.distance ?? Infinity)) p.onPlanePick({ face: face.point, body: face.body, index: face.index });
         else if (hit) p.onPlanePick({ plane: hit.object.userData.plane });
+      } else if (p.mode === 'modify') {
+        p.onEdgePick(pickEdge(e), e.shiftKey || e.ctrlKey || e.metaKey);
       } else if (p.mode === 'extrude') {
         setRay(e);
         const hit = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0];
@@ -333,6 +381,7 @@ export function Viewport(props: Props) {
         if (what === 'sketches') rebuildSketches();
         if (what === 'planes') rebuildPlanes();
         if (what === 'preview') rebuildPreview();
+        if (what === 'edges') { if (P.current.mode !== 'modify') hoverEdge = null; rebuildEdges(); }
         if (what === 'camera') {
           const p = P.current;
           const id = p.mode === 'sketch' ? (p.activeSketch?.id ?? null) : null;
@@ -352,6 +401,8 @@ export function Viewport(props: Props) {
       project: (w: number[]) => { const v = new THREE.Vector3(w[0], w[1], w[2]).project(cam); const r = dom.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; },
       sketchToScreen: (q: Vec2) => { const s = P.current.activeSketch; if (!s) return null; const w = toWorld(planeOf(s), q); return (window as any).__forge.project(w); },
       pointerSnap: () => cursor,
+      // test hook: what the edge picker finds at the screen position of a world point
+      edgeAt: (w: number[]) => { const [x, y] = (window as any).__forge.project(w); const sets = P.current.edgeSets; return { sets: sets.length, edges: sets.reduce((n, t) => n + t.edges.length, 0), pick: pickEdge({ clientX: x, clientY: y }), mode: P.current.mode }; },
     };
     const fitOnce = () => { if (!firstFit && gBodies.children.length) { firstFit = true; fit(); } };
     (S.current as any).fitOnce = fitOnce;
@@ -364,6 +415,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
+  useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);
 
   return <div className="viewport" ref={host} data-testid="viewport" />;
 }

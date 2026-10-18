@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { buildEdgeGeometry } from '../../server/src/engine/meshEdges';
 import { api, type Snapshot, type SketchCurve, type TimelineItem, type Vec2, type Vec3 } from './api';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Browser } from './Browser';
@@ -11,12 +12,13 @@ import { Viewport, type FacePick } from './Viewport';
 import { normalOf } from './sketch/plane';
 import { PICK_MODE, constraintStep, dimensionFor, isDraw, onClick, onTyped, type Tool } from './sketch/tools';
 import { pickEntity, type Picked } from './sketch/pick';
-import type { Mode, PlanePick, ProfileRef, ViewApi } from './ui';
+import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
 const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
+  modify: 'Click the edges to round or bevel (click again to deselect), set the size, then OK. Esc cancels.',
 };
 /** Status-bar help for a sketch tool, by how many points are already placed (or picked). */
 const TOOL_HINT: Record<string, string[]> = {
@@ -66,6 +68,10 @@ export function App() {
   const [selTl, setSelTl] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
   const [confirm, setConfirm] = useState<{ text: string; label?: string; ok(): void } | null>(null);
+  const [modTool, setModTool] = useState<'fillet' | 'chamfer'>('fillet');
+  const [edgesSel, setEdgesSel] = useState<EdgeRef[]>([]);
+  const [modValue, setModValue] = useState('2');
+  const [modBase, setModBase] = useState<Snapshot | null>(null); // the model when Fillet or Chamfer was opened: edges are picked on this, not on the preview
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
   const [notice, setNotice] = useState('');
   const fileHandle = useRef<Handle | null>(null); // the file Save writes back to (Chrome and Edge)
@@ -172,6 +178,7 @@ export function App() {
 
   const createSketch = async () => {
     if (mode === 'extrude') await cancelExtrude();
+    else if (mode === 'modify') await cancelModify();
     chooseTool(null); setMode('pickPlane'); setError('');
   };
   const planePicked = (p: PlanePick) => {
@@ -211,11 +218,17 @@ export function App() {
     try { const s = await api.batch([step]); preview.current = true; return s; }
     catch (e) { const s = await api.state(); setError((e as Error).message); return s; }
   }), [run]);
-  const stepKey = JSON.stringify(mode === 'extrude' ? extrudeStep() : null);
+  const modifyStep = (): { command: string; params: Record<string, unknown> } | null => {
+    const v = modValue.trim(); if (!edgesSel.length || !v) return null;
+    const n = Number(v), size: number | string = Number.isFinite(n) ? n : v;
+    if (typeof size === 'number' && !(size > 0)) return null;
+    return { command: modTool === 'fillet' ? 'solid.fillet' : 'solid.chamfer', params: { edges: edgesSel.map((e) => ({ body: e.body, index: e.index })), [modTool === 'fillet' ? 'radius' : 'distance']: size } };
+  };
+  const stepKey = JSON.stringify(mode === 'extrude' ? extrudeStep() : mode === 'modify' ? modifyStep() : null);
   const skipFirst = useRef(false); // opening an existing extrude must not "change" it to itself
   const baseKey = useRef('');
   useEffect(() => {
-    if (mode !== 'extrude') return;
+    if (mode !== 'extrude' && mode !== 'modify') return;
     if (skipFirst.current) { skipFirst.current = false; baseKey.current = stepKey; return; }
     const t = setTimeout(() => { void applyPreview(JSON.parse(stepKey)); }, 250);
     return () => clearTimeout(t);
@@ -223,6 +236,7 @@ export function App() {
 
   const startExtrude = async () => {
     if (mode === 'extrude') return;
+    if (mode === 'modify') await cancelModify();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
     if (!s) return;
@@ -237,7 +251,8 @@ export function App() {
     if (cur.some((r) => r.sketch === sketch && r.index === index)) return cur.filter((r) => !(r.sketch === sketch && r.index === index));
     return [...cur.filter((r) => r.sketch === sketch), { sketch, index, at }]; // one sketch at a time
   });
-  const cancelExtrude = async () => { await applyPreview(null); setProfiles([]); setEditing(null); setMode('model'); setError(''); };
+  // leave the mode first: that cancels a debounced preview that has not fired yet, so it cannot re-apply after the undo
+  const cancelExtrude = async () => { setProfiles([]); setEditing(null); setMode('model'); setError(''); await applyPreview(null); };
   const okExtrude = async () => {
     const step = extrudeStep(); if (!step) { setError('Select a profile and enter a distance'); return; }
     if (editing && !preview.current && stepKey === baseKey.current) { setProfiles([]); setEditing(null); setMode('model'); return; } // nothing was changed
@@ -246,9 +261,36 @@ export function App() {
     preview.current = false; setProfiles([]); setEditing(null); setMode('model');
   };
 
+  // ---- Fillet and Chamfer: pick edges, set a size, live preview (the same mechanism as the extrude dialog)
+  const edgeSets = useMemo(() => (mode === 'modify' && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modBase]);
+  const startModify = async (t: 'fillet' | 'chamfer') => {
+    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); } return; }
+    if (mode === 'extrude') await cancelExtrude();
+    let s: Snapshot | null = snap;
+    if (activeSketch) s = await finishSketch();
+    if (!s) return;
+    if (!s.bodies.length) { setError('Make a body first (sketch and extrude), then round or bevel its edges.'); return; }
+    chooseTool(null); setSel(null); setEdgesSel([]); setModTool(t); setModBase(s); setModValue(t === 'fillet' ? '2' : '1'); setMode('modify'); setError('');
+  };
+  const edgePicked = (ref: EdgeRef | null) => {
+    if (!ref) return;
+    setEdgesSel((cur) => {
+      if (cur.some((e) => e.body === ref.body && e.index === ref.index)) return cur.filter((e) => !(e.body === ref.body && e.index === ref.index));
+      return [...cur.filter((e) => e.body === ref.body), ref]; // one body at a time
+    });
+  };
+  const closeModify = () => { setEdgesSel([]); setModBase(null); setMode('model'); setError(''); };
+  const cancelModify = async () => { closeModify(); await applyPreview(null); };
+  const okModify = async () => {
+    const step = modifyStep(); if (!step) { setError('Select at least one edge and enter a size'); return; }
+    await applyPreview(step);
+    if (!preview.current) return; // the engine refused (for example a radius too big): the reason is shown and the dialog stays open
+    preview.current = false; closeModify();
+  };
+
   // ---- files: new, open, save, export
   const resetAfterLoad = () => {
-    chooseTool(null); setSel(null); setSelected([]); setPicks([]); setProfiles([]); setEditing(null); setSelTl(null); setMenu(null);
+    chooseTool(null); setSel(null); setSelected([]); setPicks([]); setProfiles([]); setEditing(null); setSelTl(null); setMenu(null); setEdgesSel([]); setModBase(null);
     setHiddenBodies(new Set()); setHiddenSketches(new Set());
     setTimeout(() => viewApi.current?.setView('home'), 80);
   };
@@ -284,7 +326,7 @@ export function App() {
     await run(api.state); // the name and the unsaved marker
   };
   const doSave = async (saveAs: boolean) => {
-    if (mode === 'extrude') { setError('Finish or cancel the extrude first, then save.'); return; }
+    if (mode === 'extrude' || mode === 'modify') { setError('Finish or cancel the open dialog first, then save.'); return; }
     const name = snap.doc.name;
     try {
       let target = saveAs ? null : fileHandle.current;
@@ -330,7 +372,7 @@ export function App() {
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(t); }, [notice]);
 
   // ---- editing: timeline items and sketches
-  const noPreviewPending = async () => { if (mode === 'extrude') await cancelExtrude(); };
+  const noPreviewPending = async () => { if (mode === 'extrude') await cancelExtrude(); else if (mode === 'modify') await cancelModify(); };
   const editSketch = async (name: string) => {
     await noPreviewPending();
     chooseTool(null);
@@ -376,14 +418,14 @@ export function App() {
   ];
 
   const drillHole = () => { if (sel) void run(() => api.command('solid.hole', { position: sel.point.map((v) => +v.toFixed(3)), diameter: 5 })); };
-  const undo = () => { if (mode === 'extrude') return; setPending([]); void run(api.undo); };
-  const redo = () => { if (mode === 'extrude') return; void run(api.redo); };
+  const undo = () => { if (mode === 'extrude' || mode === 'modify') return; setPending([]); void run(api.undo); };
+  const redo = () => { if (mode === 'extrude' || mode === 'modify') return; void run(api.redo); };
 
   // ---- keyboard (the same letters Fusion users know)
   const latest = useRef({ mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
   latest.current = { mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
-  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen });
-  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen };
+  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify });
+  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current, A = actions.current, k = e.key.toLowerCase();
@@ -401,6 +443,7 @@ export function App() {
         else if (L.menu) setMenu(null);
         else if (L.edit) setEdit(null);
         else if (L.mode === 'extrude') void A.cancelExtrude();
+        else if (L.mode === 'modify') void A.cancelModify();
         else if (L.mode === 'pickPlane') setMode('model');
         else if (L.pending.length) A.endChain();
         else if (L.picks.length) setPicks([]);
@@ -421,10 +464,12 @@ export function App() {
       if (L.mode === 'model') {
         if (k === 'e') void A.startExtrude();
         else if (k === 'h' && L.sel) A.drillHole();
+        else if (k === 'f') void A.startModify('fillet');
         else if ((k === 'delete' || k === 'backspace') && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) void A.requestDelete(it); }
         else if (k === 'enter' && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) A.editItem(it); }
       }
       else if (L.mode === 'extrude' && k === 'enter') void A.okExtrude();
+      else if (L.mode === 'modify' && k === 'enter') void A.okModify();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -451,7 +496,7 @@ export function App() {
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
       </header>
 
-      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
+      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
       <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
         onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
@@ -461,7 +506,7 @@ export function App() {
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFace={sel ? { body: sel.body, face: sel.face } : null} selectedProfiles={profiles}
-          onFacePick={setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
@@ -497,6 +542,17 @@ export function App() {
               <select aria-label="Operation" value={ext.operation} onChange={(e) => setExt({ ...ext, operation: e.target.value as ExtrudeForm['operation'] })}><option value="new">New Body</option><option value="join">Join</option><option value="cut">Cut</option><option value="intersect">Intersect</option></select></label>
             <div className="dnote">{ext.operation === 'cut' ? 'Cut goes into the body. A negative distance flips the direction.' : 'A negative distance flips the direction.'}</div>
             <div className="dbtns"><button onClick={() => void cancelExtrude()}>Cancel</button><button className="primary" data-testid="extrude-ok" onClick={() => void okExtrude()}>OK</button></div>
+          </div>
+        )}
+
+        {mode === 'modify' && (
+          <div className="dialog" data-testid="modify-dialog">
+            <div className="dhead">{modTool === 'fillet' ? 'FILLET' : 'CHAMFER'}</div>
+            <div className="drow"><span>Edges</span><b data-testid="edge-count">{edgesSel.length ? `${edgesSel.length} selected` : 'Select edges'}</b></div>
+            <label className="drow"><span>{modTool === 'fillet' ? 'Radius' : 'Distance'}</span>
+              <input aria-label={modTool === 'fillet' ? 'Radius' : 'Distance'} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>
+            <div className="dnote">{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</div>
+            <div className="dbtns"><button onClick={() => void cancelModify()}>Cancel</button><button className="primary" data-testid="modify-ok" onClick={() => void okModify()}>OK</button></div>
           </div>
         )}
 

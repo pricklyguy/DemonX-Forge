@@ -59,6 +59,9 @@ export interface Sketch {
   dof: number;
 }
 
+/** An edge of a body as the engine lists it. The name is the two faces it lies between (`A|B`, with `~1`, `~2` when the same pair meets more than once). */
+export interface BodyEdge { index: number; name: string; mid: Vec3; start: Vec3; end: Vec3; length: number }
+
 export interface Body {
   name: string;
   /** xyz per vertex, flat. */
@@ -68,6 +71,7 @@ export interface Body {
   /** The B-rep face of every triangle. */
   faceIds: number[];
   faces: Face[];
+  edges: BodyEdge[];
 }
 
 export interface Parameter { name: string; expression: string; value: number; unit: string }
