@@ -2,7 +2,7 @@ DEMONX FORGE FOR WINDOWS
 ========================
 
 DemonX Forge is a 3D design (CAD) program that runs in your web browser, on your own computer. Nothing goes to the cloud.
-It is early: you can sketch (line, rectangle, circle, dimensions) and extrude, cut or join. Fillet (F) and Chamfer round or bevel the edges of a body: hover an edge, click it, type a size, OK.
+It is early: you can sketch (line, rectangle, circle, dimensions) and extrude, cut or join. Fillet (F) and Chamfer round or bevel the edges of a body: hover an edge, click it, type a size, OK. Press Pull (Q) pushes or pulls a face: click the face, type a distance (negative cuts), OK.
 
 You need: Windows 10 or 11 (64-bit) and a web browser.
 You do NOT need to install Node, Rust or anything else: it is all in this folder.

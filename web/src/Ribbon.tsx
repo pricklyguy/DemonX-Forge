@@ -10,8 +10,11 @@ interface Props {
   onExtrude(): void;
   onHole(): void;
   canModify: boolean;
+  /** The Modify tool whose dialog is open, if any. */
+  modTool: 'fillet' | 'chamfer' | 'presspull' | null;
   onFillet(): void;
   onChamfer(): void;
+  onPressPull(): void;
   onTool(t: Tool): void;
   onFinish(): void;
 }
@@ -47,8 +50,9 @@ export function Ribbon(p: Props) {
         ) : null}
         {!sketching ? (
           <Group title="MODIFY">
-            <Btn id="btn-fillet" icon={<Icon.bFillet />} label="Fillet" keyHint="F" pressed={p.mode === 'modify'} disabled={!p.canModify} onClick={p.onFillet} />
-            <Btn id="btn-chamfer" icon={<Icon.bChamfer />} label="Chamfer" disabled={!p.canModify} onClick={p.onChamfer} />
+            <Btn id="btn-fillet" icon={<Icon.bFillet />} label="Fillet" keyHint="F" pressed={p.modTool === 'fillet'} disabled={!p.canModify} onClick={p.onFillet} />
+            <Btn id="btn-chamfer" icon={<Icon.bChamfer />} label="Chamfer" pressed={p.modTool === 'chamfer'} disabled={!p.canModify} onClick={p.onChamfer} />
+            <Btn id="btn-presspull" icon={<Icon.bPressPull />} label="Press Pull" keyHint="Q" pressed={p.modTool === 'presspull'} disabled={!p.canModify} onClick={p.onPressPull} />
           </Group>
         ) : (
           <>

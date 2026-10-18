@@ -30,6 +30,7 @@ export const Icon = {
   generic: () => <Svg size={20}><rect x="6" y="6" width="16" height="16" rx="2" /></Svg>,
   bFillet: () => <Svg><path d="M4 22 V12 L11 6 H24" opacity=".5" /><path d="M4 22 H20 A4 4 0 0 0 24 18 V6" /><path d="M20 22 A4 4 0 0 0 24 18" stroke={A} strokeWidth={3} /></Svg>,
   bChamfer: () => <Svg><path d="M4 22 V12 L11 6 H24" opacity=".5" /><path d="M4 22 H19 L24 17 V6" /><path d="M19 22 L24 17" stroke={A} strokeWidth={3} /></Svg>,
+  bPressPull: () => <Svg><path d="M4 22 H24 V13 H4 Z" /><path d="M4 13 L9 8 H24" opacity=".5" /><path d="M14 11 V3 M10.5 6.5 L14 3 L17.5 6.5" stroke={A} strokeWidth={2.5} /></Svg>,
   rectCenter: () => <Svg><rect x="5" y="8" width="18" height="12" stroke={C} /><circle cx="14" cy="14" r="1.8" /><path d="M14 14 L23 20" strokeDasharray="2 2" /></Svg>,
   circle2: () => <Svg><circle cx="14" cy="14" r="9" stroke={C} /><circle cx="5" cy="14" r="1.6" /><circle cx="23" cy="14" r="1.6" /></Svg>,
   arc3: () => <Svg><path d="M5 20 C8 6 20 6 23 20" stroke={C} /><circle cx="5" cy="20" r="1.6" /><circle cx="23" cy="20" r="1.6" /><circle cx="14" cy="8.5" r="1.4" /></Svg>,

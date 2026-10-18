@@ -19,6 +19,7 @@ const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
   modify: 'Click the edges to round or bevel (click again to deselect), set the size, then OK. Esc cancels.',
+  presspull: 'Click a face, then type how far to push (negative) or pull (positive), then OK. Esc cancels.',
 };
 /** Status-bar help for a sketch tool, by how many points are already placed (or picked). */
 const TOOL_HINT: Record<string, string[]> = {
@@ -68,8 +69,9 @@ export function App() {
   const [selTl, setSelTl] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
   const [confirm, setConfirm] = useState<{ text: string; label?: string; ok(): void } | null>(null);
-  const [modTool, setModTool] = useState<'fillet' | 'chamfer'>('fillet');
+  const [modTool, setModTool] = useState<'fillet' | 'chamfer' | 'presspull'>('fillet');
   const [edgesSel, setEdgesSel] = useState<EdgeRef[]>([]);
+  const [pullFace, setPullFace] = useState<FacePick | null>(null);
   const [modValue, setModValue] = useState('2');
   const [modBase, setModBase] = useState<Snapshot | null>(null); // the model when Fillet or Chamfer was opened: edges are picked on this, not on the preview
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
@@ -219,8 +221,13 @@ export function App() {
     catch (e) { const s = await api.state(); setError((e as Error).message); return s; }
   }), [run]);
   const modifyStep = (): { command: string; params: Record<string, unknown> } | null => {
-    const v = modValue.trim(); if (!edgesSel.length || !v) return null;
+    const v = modValue.trim();
     const n = Number(v), size: number | string = Number.isFinite(n) ? n : v;
+    if (modTool === 'presspull') {
+      if (!pullFace || !v || size === 0) return null;
+      return { command: 'solid.press_pull', params: { face: pullFace.point.map((x) => +x.toFixed(3)), distance: size } }; // positive adds material, negative cuts
+    }
+    if (!edgesSel.length || !v) return null;
     if (typeof size === 'number' && !(size > 0)) return null;
     return { command: modTool === 'fillet' ? 'solid.fillet' : 'solid.chamfer', params: { edges: edgesSel.map((e) => ({ body: e.body, index: e.index })), [modTool === 'fillet' ? 'radius' : 'distance']: size } };
   };
@@ -262,15 +269,16 @@ export function App() {
   };
 
   // ---- Fillet and Chamfer: pick edges, set a size, live preview (the same mechanism as the extrude dialog)
-  const edgeSets = useMemo(() => (mode === 'modify' && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modBase]);
-  const startModify = async (t: 'fillet' | 'chamfer') => {
-    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); } return; }
+  const edgeSets = useMemo(() => (mode === 'modify' && modTool !== 'presspull' && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
+  const startModify = async (t: 'fillet' | 'chamfer' | 'presspull') => {
+    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); setModValue(t === 'chamfer' ? '1' : t === 'fillet' ? '2' : '5'); } return; }
     if (mode === 'extrude') await cancelExtrude();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
     if (!s) return;
-    if (!s.bodies.length) { setError('Make a body first (sketch and extrude), then round or bevel its edges.'); return; }
-    chooseTool(null); setSel(null); setEdgesSel([]); setModTool(t); setModBase(s); setModValue(t === 'fillet' ? '2' : '1'); setMode('modify'); setError('');
+    if (!s.bodies.length) { setError('Make a body first (sketch and extrude), then change it.'); return; }
+    const start = t === 'presspull' ? sel : null; // a face that is already selected is the one to push or pull
+    chooseTool(null); setSel(null); setEdgesSel([]); setPullFace(start); setModTool(t); setModBase(s); setModValue(t === 'fillet' ? '2' : t === 'chamfer' ? '1' : '5'); setMode('modify'); setError('');
   };
   const edgePicked = (ref: EdgeRef | null) => {
     if (!ref) return;
@@ -279,10 +287,10 @@ export function App() {
       return [...cur.filter((e) => e.body === ref.body), ref]; // one body at a time
     });
   };
-  const closeModify = () => { setEdgesSel([]); setModBase(null); setMode('model'); setError(''); };
+  const closeModify = () => { setEdgesSel([]); setPullFace(null); setModBase(null); setMode('model'); setError(''); };
   const cancelModify = async () => { closeModify(); await applyPreview(null); };
   const okModify = async () => {
-    const step = modifyStep(); if (!step) { setError('Select at least one edge and enter a size'); return; }
+    const step = modifyStep(); if (!step) { setError(modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : 'Select at least one edge and enter a size'); return; }
     await applyPreview(step);
     if (!preview.current) return; // the engine refused (for example a radius too big): the reason is shown and the dialog stays open
     preview.current = false; closeModify();
@@ -465,6 +473,7 @@ export function App() {
         if (k === 'e') void A.startExtrude();
         else if (k === 'h' && L.sel) A.drillHole();
         else if (k === 'f') void A.startModify('fillet');
+        else if (k === 'q') void A.startModify('presspull');
         else if ((k === 'delete' || k === 'backspace') && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) void A.requestDelete(it); }
         else if (k === 'enter' && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) A.editItem(it); }
       }
@@ -479,7 +488,7 @@ export function App() {
   const face = useMemo(() => snap.bodies.find((b) => b.name === sel?.body)?.faces.find((f) => f.index === sel?.face), [snap, sel]);
   const hint = mode === 'sketch'
     ? (tool ? (TOOL_HINT[tool]?.[Math.min(isDraw(tool) ? pending.length : picks.length, (TOOL_HINT[tool]?.length ?? 1) - 1)] ?? '') : selected.length ? `${selected.length} selected. Delete removes it, X makes it a construction line, Esc clears.` : 'Pick a sketch tool, or click a line to select it. Keys: L R C A T O D.')
-    : HINT[mode] ?? '';
+    : HINT[mode === 'modify' && modTool === 'presspull' ? 'presspull' : mode] ?? '';
   const triangles = snap.bodies.reduce((n, b) => n + b.faceIds.length, 0);
   const placeholder = tool === 'rect' || tool === 'rectCenter' ? 'width, height' : tool === 'circle' || tool === 'circle2' ? 'diameter' : tool === 'slot' ? 'width' : 'length [, angle]';
   const typable = isDraw(tool) && pending.length > 0 && tool !== 'arc3' && !(tool === 'slot' && pending.length < 2);
@@ -496,7 +505,7 @@ export function App() {
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
       </header>
 
-      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
+      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
       <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
         onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
@@ -505,8 +514,8 @@ export function App() {
       <div className="stage">
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
-          selectedFace={sel ? { body: sel.body, face: sel.face } : null} selectedProfiles={profiles}
-          edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          selectedFace={(mode === 'modify' && modTool === 'presspull' ? pullFace : sel) ? { body: (mode === 'modify' && modTool === 'presspull' ? pullFace : sel)!.body, face: (mode === 'modify' && modTool === 'presspull' ? pullFace : sel)!.face } : null} pickFaces={mode === 'modify' && modTool === 'presspull'} selectedProfiles={profiles}
+          edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? setPullFace : setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
@@ -547,11 +556,13 @@ export function App() {
 
         {mode === 'modify' && (
           <div className="dialog" data-testid="modify-dialog">
-            <div className="dhead">{modTool === 'fillet' ? 'FILLET' : 'CHAMFER'}</div>
-            <div className="drow"><span>Edges</span><b data-testid="edge-count">{edgesSel.length ? `${edgesSel.length} selected` : 'Select edges'}</b></div>
+            <div className="dhead">{modTool === 'fillet' ? 'FILLET' : modTool === 'chamfer' ? 'CHAMFER' : 'PRESS PULL'}</div>
+            {modTool === 'presspull'
+              ? <div className="drow"><span>Face</span><b data-testid="edge-count">{pullFace ? '1 selected' : 'Select a face'}</b></div>
+              : <div className="drow"><span>Edges</span><b data-testid="edge-count">{edgesSel.length ? `${edgesSel.length} selected` : 'Select edges'}</b></div>}
             <label className="drow"><span>{modTool === 'fillet' ? 'Radius' : 'Distance'}</span>
               <input aria-label={modTool === 'fillet' ? 'Radius' : 'Distance'} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>
-            <div className="dnote">{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</div>
+            <div className="dnote">{modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div>
             <div className="dbtns"><button onClick={() => void cancelModify()}>Cancel</button><button className="primary" data-testid="modify-ok" onClick={() => void okModify()}>OK</button></div>
           </div>
         )}

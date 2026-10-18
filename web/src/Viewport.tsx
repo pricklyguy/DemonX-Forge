@@ -39,6 +39,8 @@ interface Props {
   /** The edges that can be picked while choosing edges (empty otherwise), and the ones drawn as selected. */
   edgeSets: { body: string; edges: EdgeGeometry[] }[];
   edgeHighlight: EdgeRef[];
+  /** While true (Press Pull), a click in modify mode picks a face instead of an edge. */
+  pickFaces?: boolean;
   onEdgePick(ref: EdgeRef | null, additive: boolean): void;
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
@@ -334,7 +336,7 @@ export function Viewport(props: Props) {
         setRay(e);
         const hit = ray.intersectObjects(planeMeshes, false)[0];
         planeMeshes.forEach((m) => ((m.material as THREE.MeshBasicMaterial).opacity = m === hit?.object ? 0.4 : 0.16));
-      } else if (p.mode === 'modify') {
+      } else if (p.mode === 'modify' && !p.pickFaces) {
         const h = pickEdge(e);
         if (h?.body !== hoverEdge?.body || h?.index !== hoverEdge?.index) { hoverEdge = h; rebuildEdges(); }
       }
@@ -355,7 +357,7 @@ export function Viewport(props: Props) {
         const bodyDist = ray.intersectObjects(gBodies.children, false)[0]?.distance ?? Infinity;
         if (face && bodyDist <= (hit?.distance ?? Infinity)) p.onPlanePick({ face: face.point, body: face.body, index: face.index });
         else if (hit) p.onPlanePick({ plane: hit.object.userData.plane });
-      } else if (p.mode === 'modify') {
+      } else if (p.mode === 'modify' && !p.pickFaces) {
         p.onEdgePick(pickEdge(e), e.shiftKey || e.ctrlKey || e.metaKey);
       } else if (p.mode === 'extrude') {
         setRay(e);
