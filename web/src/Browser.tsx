@@ -5,15 +5,15 @@ import { Icon } from './icons';
 interface Props {
   bodies: Body[]; sketches: Sketch[]; parameters: Parameter[];
   hiddenBodies: Set<string>; hiddenSketches: Set<number>; showOrigin: boolean; busy: boolean;
-  onToggleBody(name: string): void; onToggleSketch(id: number): void; onToggleOrigin(): void;
+  onToggleBody(name: string): void; onToggleSketch(id: number): void; onToggleOrigin(): void; onEditSketch(name: string): void;
   onSetParam(name: string, value: string): Promise<boolean>;
 }
 
-function Node({ label, children, eye, onEye, open: init = true, id, active }: { label: ReactNode; children?: ReactNode; eye?: boolean; onEye?: () => void; open?: boolean; id: string; active?: boolean }) {
+function Node({ label, children, eye, onEye, open: init = true, id, active, onDouble }: { label: ReactNode; children?: ReactNode; eye?: boolean; onEye?: () => void; open?: boolean; id: string; active?: boolean; onDouble?: () => void }) {
   const [open, setOpen] = useState(init);
   return (
     <div>
-      <div className={`bnode${active ? ' active' : ''}`} data-testid={`node-${id}`}>
+      <div className={`bnode${active ? ' active' : ''}`} data-testid={`node-${id}`} onDoubleClick={onDouble} title={onDouble ? 'Double-click to edit' : undefined}>
         <span className={`bcaret${children ? (open ? ' open' : '') : ' none'}`} onClick={() => children && setOpen(!open)}><Icon.caret /></span>
         {onEye && <button className="beye" aria-label={`${eye ? 'Hide' : 'Show'} ${id}`} onClick={onEye}>{eye ? <Icon.eye /> : <Icon.eyeOff />}</button>}
         <span className="blabel">{label}</span>
@@ -47,7 +47,7 @@ export function Browser(p: Props) {
           {p.bodies.map((b) => <Node key={b.name} id={`body-${b.name}`} label={b.name} eye={!p.hiddenBodies.has(b.name)} onEye={() => p.onToggleBody(b.name)} />)}
         </Node>
         <Node id="sketches" label={`Sketches (${p.sketches.length})`}>
-          {p.sketches.map((s) => <Node key={s.id} id={`sketch-${s.name}`} active={s.active} label={s.name} eye={!p.hiddenSketches.has(s.id)} onEye={() => p.onToggleSketch(s.id)} />)}
+          {p.sketches.map((s) => <Node key={s.id} id={`sketch-${s.name}`} active={s.active} onDouble={() => p.onEditSketch(s.name)} label={s.name} eye={!p.hiddenSketches.has(s.id)} onEye={() => p.onToggleSketch(s.id)} />)}
         </Node>
         <Node id="params" label={`Parameters (${p.parameters.length})`}>
           {p.parameters.map((q) => <ParamRow key={`${q.name}:${q.expression}`} name={q.name} expression={q.expression} disabled={p.busy} onSet={(v) => p.onSetParam(q.name, v)} />)}

@@ -33,25 +33,28 @@ A Fusion-style parametric 3D CAD application, local only, in the DemonX look. No
 - **A cut goes along the sketch normal by default**, which for a sketch on a top face is away from the body (it removes nothing). Forge flips a Cut toward the body (using the body's centre), as Fusion does; a negative distance flips it back.
 - **A second dimension on the same line is refused** (over-constrained). To change one, set its parameter (`d1`, `d2`, ...): the line follows. Forge's dimension tool does this when you click a dimensioned line.
 - **Standard planes:** XY is x right, y up (normal +Z); XZ has sketch y pointing down the world's Z (normal +Y); YZ has x = world Y, y = world Z (normal +X). The camera's up vector follows the sketch's y axis, otherwise a sketch on XZ looks upside down.
+- **Editing:** `timeline.edit {feature, set}` changes a feature in place (one undo step): an extrude's `set` is `{extent: {distance, direction}, operation, profiles: {type: 'curves', loops: [[curve ids]]}}`, and the definition calls a new body `new_body` where the command says `new`. `sketch.edit {sketch}` reopens a sketch; `sketch.finish` rebuilds what depends on it. `timeline.roll_to {feature}` moves the history marker (`{}` goes to the end); `timeline.dependents` says what a delete takes with it (the sketch's extrudes, not the sketch itself).
 - Origin planes overlap, so a click picks the nearest one under the pointer (the hover highlight shows which).
 
 - **Face areas from `body_topology` are approximate.** The demo bracket's top face is exactly 2943.451 mm² (width 60) and 4943.451 (width 100), checked by OpenCascade on the exported STEP and by hand; the engine's face list says 2945.06 and 4946.21 (+0.05 to +0.06 %). Volumes and areas from its `measure` command and from the STEP are exact. So: use `measure` for any number shown as a dimension; the face list is for picking and display only. (Not yet checked whether `measure` gives the exact face area; do that before showing areas.)
 - **Unknown parameters are silently ignored** by the engine; our adapter warns (`unknownParamNames`).
 - **A failed batch comes back as JSON** with `rolled_back: true`; the adapter turns it into a sentence and the design is unchanged (tested).
 
-## What works now (0.3.0)
+## What works now (0.4.0)
 
 Fusion-style layout: SOLID tab with Create Sketch, Extrude (E), Hole (H); a SKETCH tab (only while a sketch is open) with CREATE (Line L, 2-Point Rectangle R, Center Rectangle, Center Circle C, 2-Point Circle, 3-Point Arc A, Slot), MODIFY (Trim T, Extend, Offset O, Fillet), CONSTRAINTS (Horizontal/Vertical, Coincident, Parallel, Perpendicular, Tangent, Equal, Midpoint, Concentric, Fix; Sketch Dimension D) and Finish Sketch; the browser tree (origin, bodies, sketches, parameters, with show/hide); an icon timeline; a view cube; a navigation bar; the sketch palette (grid, snap, profile fill).
 Workflow: Create Sketch, pick an origin plane or a flat face, draw (snap to the grid and to existing points, a live outline while drawing, or type sizes), with no tool click a line to select it (Shift adds; Delete removes; X toggles construction), dimension (labels shown; click a dimensioned line again to change it), constrain, Finish Sketch (or press E: it finishes the sketch and opens Extrude), pick regions, set distance, direction and operation (new body, join, cut, intersect) with a **live preview** (applied to the real model and undone when anything changes or on Cancel). Undo and redo (Ctrl+Z, Ctrl+Y). Mouse as in Fusion: middle drag pans, Shift + middle orbits, wheel zooms toward the cursor. Unfinished picks are highlighted; construction geometry is dashed; fully constrained geometry turns to the text colour.
 Tried in a real browser against the real engine: `e2e/sketch.mjs` (rectangle, circle, typed circle, dimension, change a dimension, E, preview, Cancel, OK, sketch on a face, cut, undo/redo, browser tree), `e2e/sketch2.mjs` (every tool in the second set: centre rectangle, arc, slot, 2-point circle, select / X / Delete / undo, Trim, Offset, Fillet, Horizontal, Parallel, Fix, a refused constraint) and `e2e/viewport.mjs` (demo part, picking, parameters, hole, view cube, mouse). Not tried: a Windows PC with this version, a touch or trackpad, sketches on curved faces, Extend, Coincident, Tangent, Equal, Midpoint (success), Concentric and Perpendicular through the browser (their steps are unit-tested only).
-Not there yet: editing an old sketch or feature from the timeline, extrude by dragging an arrow, extrude of a face, polygons, ellipses, splines, mirror and patterns, project edges, fillet and chamfer on bodies (need edge picking), press/pull, save and open, export.
+**Editing (0.4.0):** double-click a sketch in the timeline or the browser to reopen it (finish it and everything built on it rebuilds); double-click an extrude to open the dialog with its current regions, distance, direction and operation, with a live preview, Cancel and one undo step for the whole edit; right-click a timeline step for Edit, Rename, Suppress / Unsuppress, Roll history to here and Delete; the history marker shows when rolled back (later steps dimmed, a "Roll to end" button); Delete on a step warns what goes with it; Enter on a selected step edits it. `e2e/edit.mjs` covers all of it (26 checks).
+Not there yet: editing a hole (delete and redo it), dragging the history marker, reordering steps by dragging, extrude by dragging an arrow, extrude of a face, polygons, ellipses, splines, mirror and patterns, project edges, fillet and chamfer on bodies (need edge picking), press/pull, save and open, export.
 
 ## Next (in this order, one at a time)
 
 1. Run the 0.2.0 Windows zip on the owner's PC and fix what breaks.
-2. Editing: double-click a sketch or feature in the timeline to change it; the rollback bar; delete and suppress a feature.
-3. Sketch tools still missing: polygon, ellipse, spline, mirror, patterns, project edges, break.
-4. Reorder features; a parameters table dialog.
+2. Save and open (our own project file), export (STEP, STL, 3MF, DXF).
+3. Edges you can click (for fillet and chamfer on bodies), press/pull, and the other solid tools.
+4. Sketch tools still missing: polygon, ellipse, spline, mirror, patterns, project edges, break.
+5. Reorder features by dragging; a parameters dialog.
 4. Real B-rep edges in the viewport (pick an edge for fillet and chamfer); a binary mesh call instead of 3MF files.
 5. File menu: save and open our project file, export STEP / STL / 3MF / DXF.
 6. Command console, scripts, and an MCP entry of our own.

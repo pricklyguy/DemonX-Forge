@@ -77,6 +77,8 @@ export interface Snapshot {
   bodies: Body[];
   parameters: Parameter[];
   timeline: TimelineItem[];
+  /** How many timeline items are active; fewer than the list means the history is rolled back. */
+  marker: number;
   sketches: Sketch[];
   /** How long the engine took to produce it, for the status bar. */
   ms: number;
@@ -99,6 +101,8 @@ export interface Engine {
   setParameter(name: string, value: string | number): Promise<void>;
   undo(): Promise<void>;
   redo(): Promise<void>;
+  /** Reads something from the engine without changing the model (a feature's definition, what depends on it). */
+  query(command: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The current model as a face-tagged mesh. Bodies is empty for an empty design. */
   snapshot(): Promise<Snapshot>;
 }

@@ -73,3 +73,10 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .cgrid { display: grid; grid-template-columns: repeat(3, 34px); gap: 2px; align-content: center; margin-right: 4px; }
 .cbtn { background: none; border: 1px solid transparent; padding: 3px; display: inline-flex; justify-content: center; color: var(--text); } .cbtn:hover { background: var(--panel2); border-color: var(--line); } .cbtn.on { background: var(--panel2); border-color: var(--accent); }
 .rbtn { width: 70px; }
+
+.titem { cursor: pointer; } .titem.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); } .titem.future { opacity: .35; }
+.tmarker { width: 3px; align-self: stretch; margin: 6px 2px; background: var(--amber); border-radius: 2px; }
+.tend { margin-left: 8px; font-size: 11px; padding: 3px 8px; }
+.cmenu { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; min-width: 200px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+.cmenu button { background: none; border: none; text-align: left; padding: 5px 10px; border-radius: 4px; } .cmenu button:hover:not(:disabled) { background: var(--panel2); } .cmenu button.danger { color: var(--danger); }
+.confirm { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--danger); border-radius: 6px; padding: 8px 12px; display: flex; gap: 10px; align-items: center; z-index: 5; }

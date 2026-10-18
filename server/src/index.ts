@@ -33,10 +33,18 @@ const readBody = (req: IncomingMessage) => new Promise<any>((ok, bad) => {
   req.on('error', bad);
 });
 
+/** Read-only questions the browser may ask the engine. */
+const QUERY_OK = new Set(['timeline.inspect', 'timeline.dependents']);
+
 async function api(path: string, req: IncomingMessage, res: ServerResponse) {
   if (!engine) return send(res, 503, { error: engineProblem || 'The engine is not running' });
   const e = engine;
   const a = req.method === 'POST' ? await readBody(req) : {};
+  if (path === '/api/query') {
+    if (typeof a.command !== 'string' || !QUERY_OK.has(a.command)) throw new BadRequest(`Not a question Forge can ask: ${String(a.command).slice(0, 60)}`);
+    if (a.params !== undefined && (typeof a.params !== 'object' || a.params === null || Array.isArray(a.params))) throw new BadRequest('"params" must be an object');
+    return send(res, 200, { result: await e.query(a.command, a.params) });
+  }
   let warnings: string[] = [];
   switch (path) {
     case '/api/state': break;

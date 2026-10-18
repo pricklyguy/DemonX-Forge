@@ -33,6 +33,9 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
 - More sketch tools are on the SKETCH tab: center rectangle, 2-point circle, 3-point arc (A), slot, trim (T), extend, offset (O),
   fillet, and the constraints (the small icons). With no tool selected, click a line to select it: Delete removes it, X makes
   it a construction line (dashed). Esc ends a tool.
+- To change something you made: double-click a step in the timeline (the icons along the bottom). A sketch reopens; an
+  extrude opens its dialog, and you can see the result while you type. Right-click a step for Rename, Suppress, Roll
+  history to here, and Delete. Deleting a sketch also deletes what was built on it: Forge tells you first.
 - "Load the demo bracket" gives a ready-made part to look at.
 
 

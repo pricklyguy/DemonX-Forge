@@ -108,6 +108,7 @@ export class SolidCraftEngine implements Engine {
   setParameter(name: string, value: string | number): Promise<void> {
     return this.serial(async () => { await this.tool('set_parameter', { name, value }); });
   }
+  query(command: string, params: Record<string, unknown> = {}): Promise<unknown> { return this.serial(() => this.tool('execute', { command, params })); }
   undo(): Promise<void> { return this.serial(async () => { await this.tool('undo'); }); }
   redo(): Promise<void> { return this.serial(async () => { await this.tool('redo'); }); }
 
@@ -119,7 +120,8 @@ export class SolidCraftEngine implements Engine {
       const parameters: Parameter[] = (info?.params ?? []).filter((p: any) => !p.model).map((p: any) => ({ name: String(p.name), expression: String(p.expression ?? ''), value: Number(p.value), unit: String(p.unit ?? '') }));
       const timeline: TimelineItem[] = (info?.timeline ?? []).map((t: any) => ({ id: Number(t.id), name: String(t.name), type: String(t.type), suppressed: !!t.suppressed, error: t.error ? String(t.error) : null }));
       const sketches: Sketch[] = (info?.sketches ?? []).map((k: any) => toSketch(k, info?.active_sketch));
-      if (!names.length) return { bodies: [], parameters, timeline, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
+      const marker = Number(info?.marker ?? timeline.length);
+      if (!names.length) return { bodies: [], parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
       const path = join(this.work, `mesh-${this.nextId}.3mf`);
       await this.tool('export', { path, format: '3mf-tagged' });
       const meshes = parse3mf(new Uint8Array(readFileSync(path)));
@@ -128,7 +130,7 @@ export class SolidCraftEngine implements Engine {
         const topo = await this.tool('body_topology', { body: m.name });
         bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace) });
       }
-      return { bodies, parameters, timeline, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
+      return { bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
     });
   }
 }

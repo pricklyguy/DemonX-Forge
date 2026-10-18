@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api, type Snapshot, type SketchCurve, type Vec2, type Vec3 } from './api';
+import { api, type Snapshot, type SketchCurve, type TimelineItem, type Vec2, type Vec3 } from './api';
+import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Browser } from './Browser';
 import { Icon } from './icons';
 import { Ribbon } from './Ribbon';
@@ -11,7 +12,7 @@ import { PICK_MODE, constraintStep, dimensionFor, isDraw, onClick, onTyped, type
 import { pickEntity, type Picked } from './sketch/pick';
 import type { Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
-const EMPTY: Snapshot = { bodies: [], parameters: [], timeline: [], sketches: [], ms: 0, warnings: [] };
+const EMPTY: Snapshot = { bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
@@ -40,7 +41,11 @@ const TOOL_HINT: Record<string, string[]> = {
   concentric: ['Click the first circle or arc.', 'Click the second.'],
   fix: ['Click a point or curve to fix it (or release it).'],
 };
-type ExtrudeForm = { distance: string; direction: 'one' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect' };
+type ExtrudeForm = { distance: string; direction: 'one' | 'rev' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect' };
+/** The engine names the operation `new_body` in a feature's definition and `new` in the command. */
+const opFromDef = (o?: string): ExtrudeForm['operation'] => (o === 'join' || o === 'cut' || o === 'intersect' ? o : 'new');
+const opToDef = (o: ExtrudeForm['operation']) => (o === 'new' ? 'new_body' : o);
+const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join('|') === [...b].sort().join('|');
 
 function loadTheme(): string { try { return localStorage.getItem('forge-theme') ?? 'dark'; } catch { return 'dark'; } }
 const lengthOf = (c: SketchCurve) => c.type === 'line' && c.start && c.end ? Math.hypot(c.end[0] - c.start[0], c.end[1] - c.start[1]) : c.type === 'circle' ? 2 * (c.radius ?? 0) : (c.radius ?? 0);
@@ -57,6 +62,11 @@ export function App() {
   const [typed, setTyped] = useState('');
   const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string): void } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [selTl, setSelTl] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
+  const [confirm, setConfirm] = useState<{ text: string; ok(): void } | null>(null);
+  /** Set while an existing extrude is open in the dialog: `key` is the profiles it had, to tell whether they changed. */
+  const [editing, setEditing] = useState<{ name: string; key: string } | null>(null);
   const [picks, setPicks] = useState<Picked[]>([]);
   const [sel, setSel] = useState<FacePick | null>(null);
   const [profiles, setProfiles] = useState<ProfileRef[]>([]);
@@ -101,6 +111,7 @@ export function App() {
     if (activeSketch && mode !== 'sketch') { setMode('sketch'); setTool(null); setPending([]); }
     else if (!activeSketch && mode === 'sketch') { setMode('model'); setTool(null); setPending([]); setEdit(null); setTyped(''); setSelected([]); setPicks([]); }
   }, [activeSketch, mode]);
+  useEffect(() => { setSelTl((id) => (id !== null && snap.timeline.some((t) => t.id === id) ? id : null)); }, [snap]);
   useEffect(() => { setSel((p) => (p && snap.bodies.find((b) => b.name === p.body)?.faces.some((f) => f.index === p.face) ? p : null)); }, [snap]);
 
   // ---- sketching
@@ -178,10 +189,16 @@ export function App() {
     const sk = first && snap.sketches.find((s) => s.id === first.sketch);
     if (!sk || !d) return null;
     const n = Number(d);
-    let distance: number | string = Number.isFinite(n) ? n : d, direction = ext.direction === 'sym' ? 'symmetric' : 'positive';
-    // a cut goes into the material by default (toward the body), like Fusion; a sketch on a top face points outward, so that is "negative"
-    if (ext.operation === 'cut' && direction === 'positive' && bodyCenter && dot3(sub3(bodyCenter, sk.plane.origin), normalOf(sk.plane)) < 0) direction = 'negative';
+    let distance: number | string = Number.isFinite(n) ? n : d, direction = ext.direction === 'sym' ? 'symmetric' : ext.direction === 'rev' ? 'negative' : 'positive';
+    // a new cut goes into the material by default (toward the body), like Fusion; a sketch on a top face points outward, so that is "negative". An existing feature keeps the direction it has.
+    if (!editing && ext.operation === 'cut' && direction === 'positive' && bodyCenter && dot3(sub3(bodyCenter, sk.plane.origin), normalOf(sk.plane)) < 0) direction = 'negative';
     if (typeof distance === 'number') { if (distance === 0) return null; if (distance < 0) { distance = -distance; if (direction !== 'symmetric') direction = direction === 'positive' ? 'negative' : 'positive'; } }
+    if (editing) { // change the existing feature in place; profiles are only sent when the selection changed
+      const key = profiles.map((r) => r.index).sort().join(',');
+      const set: Record<string, unknown> = { extent: { distance: String(distance), direction }, operation: opToDef(ext.operation) };
+      if (key !== editing.key) set.profiles = { type: 'curves', loops: profiles.map((r) => sk.profiles.find((q) => q.index === r.index)?.curves ?? []) };
+      return { command: 'timeline.edit', params: { feature: editing.name, set } };
+    }
     return { command: 'solid.extrude', params: { sketch: sk.name, profiles: profiles.map((r) => r.index), distance, direction, operation: ext.operation } };
   };
   const applyPreview = useCallback((step: ReturnType<typeof extrudeStep>) => run(async () => {
@@ -191,8 +208,11 @@ export function App() {
     catch (e) { const s = await api.state(); setError((e as Error).message); return s; }
   }), [run]);
   const stepKey = JSON.stringify(mode === 'extrude' ? extrudeStep() : null);
+  const skipFirst = useRef(false); // opening an existing extrude must not "change" it to itself
+  const baseKey = useRef('');
   useEffect(() => {
     if (mode !== 'extrude') return;
+    if (skipFirst.current) { skipFirst.current = false; baseKey.current = stepKey; return; }
     const t = setTimeout(() => { void applyPreview(JSON.parse(stepKey)); }, 250);
     return () => clearTimeout(t);
   }, [mode, stepKey, applyPreview]);
@@ -213,23 +233,70 @@ export function App() {
     if (cur.some((r) => r.sketch === sketch && r.index === index)) return cur.filter((r) => !(r.sketch === sketch && r.index === index));
     return [...cur.filter((r) => r.sketch === sketch), { sketch, index, at }]; // one sketch at a time
   });
-  const cancelExtrude = async () => { await applyPreview(null); setProfiles([]); setMode('model'); setError(''); };
+  const cancelExtrude = async () => { await applyPreview(null); setProfiles([]); setEditing(null); setMode('model'); setError(''); };
   const okExtrude = async () => {
     const step = extrudeStep(); if (!step) { setError('Select a profile and enter a distance'); return; }
+    if (editing && !preview.current && stepKey === baseKey.current) { setProfiles([]); setEditing(null); setMode('model'); return; } // nothing was changed
     await applyPreview(step);
     if (!preview.current) return; // the engine refused: the reason is shown and the dialog stays open
-    preview.current = false; setProfiles([]); setMode('model');
+    preview.current = false; setProfiles([]); setEditing(null); setMode('model');
   };
+
+  // ---- editing: timeline items and sketches
+  const noPreviewPending = async () => { if (mode === 'extrude') await cancelExtrude(); };
+  const editSketch = async (name: string) => {
+    await noPreviewPending();
+    chooseTool(null);
+    const steps = activeSketch ? [{ command: 'sketch.finish', params: {} }, { command: 'sketch.edit', params: { sketch: name } }] : [{ command: 'sketch.edit', params: { sketch: name } }];
+    if (activeSketch?.name === name) return;
+    send(steps);
+  };
+  const editExtrude = async (item: TimelineItem) => {
+    await noPreviewPending();
+    if (activeSketch) { const s = await finishSketch(); if (!s) return; }
+    try {
+      const f = await api.inspectFeature(item.name);
+      const sk = snap.sketches.find((k) => k.id === f.definition.sketch);
+      if (!sk) { setError('Cannot find the sketch this extrude was made from'); return; }
+      const loops = f.definition.profiles?.loops ?? [];
+      const chosen = sk.profiles.filter((pr) => loops.some((l) => sameSet(l, pr.curves)));
+      const dir = f.definition.extent?.direction;
+      skipFirst.current = true;
+      setProfiles(chosen.map((pr) => ({ sketch: sk.id, index: pr.index, at: pr.centroid })));
+      setExt({ distance: f.definition.extent?.distance ?? '10', direction: dir === 'symmetric' ? 'sym' : dir === 'negative' ? 'rev' : 'one', operation: opFromDef(f.definition.operation) });
+      setEditing({ name: item.name, key: chosen.map((pr) => pr.index).sort().join(',') });
+      chooseTool(null); setMode('extrude'); setError('');
+    } catch (e) { setError((e as Error).message); }
+  };
+  const editItem = (item: TimelineItem) => {
+    if (/sketch/i.test(item.type)) void editSketch(item.name);
+    else if (/extrude/i.test(item.type)) void editExtrude(item);
+    else setError(`Editing a ${item.type.replace(/Feature$/, '').toLowerCase()} is not available yet: delete it and make it again, or use Undo.`);
+  };
+  const requestDelete = async (item: TimelineItem) => {
+    try {
+      const d = await api.dependents(item.name);
+      const doIt = () => { setConfirm(null); send([{ command: 'timeline.delete', params: { features: [item.name] } }]); };
+      if (d.deleted_with_it.length) setConfirm({ text: `Deleting ${item.name} also deletes: ${d.deleted_with_it.join(', ')}.`, ok: doIt }); else doIt();
+    } catch (e) { setError((e as Error).message); }
+  };
+  const menuItems = (item: TimelineItem): MenuItem[] => [
+    { label: 'Edit', onClick: () => editItem(item), disabled: !/sketch|extrude/i.test(item.type) },
+    { label: 'Rename…', onClick: () => setEdit({ title: `Rename ${item.name}`, value: item.name, submit: (v) => { if (v.trim() && v.trim() !== item.name) send([{ command: 'timeline.rename', params: { feature: item.name, name: v.trim() } }]); } }) },
+    { label: item.suppressed ? 'Unsuppress' : 'Suppress', onClick: () => send([{ command: 'timeline.suppress', params: { feature: item.name } }]) },
+    { label: 'Roll history to here', onClick: () => send([{ command: 'timeline.roll_to', params: { feature: item.name } }]) },
+    { label: 'Delete', danger: true, onClick: () => void requestDelete(item) },
+  ];
 
   const drillHole = () => { if (sel) void run(() => api.command('solid.hole', { position: sel.point.map((v) => +v.toFixed(3)), diameter: 5 })); };
   const undo = () => { if (mode === 'extrude') return; setPending([]); void run(api.undo); };
   const redo = () => { if (mode === 'extrude') return; void run(api.redo); };
 
   // ---- keyboard (the same letters Fusion users know)
-  const latest = useRef({ mode, tool, pending, edit, sel, activeSketch, selected, picks });
-  latest.current = { mode, tool, pending, edit, sel, activeSketch, selected, picks };
-  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction });
-  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction };
+  const latest = useRef({ mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
+  latest.current = { mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
+  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem });
+  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current, A = actions.current, k = e.key.toLowerCase();
@@ -242,7 +309,9 @@ export function App() {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (k === 'escape') {
         if (inField) (e.target as HTMLElement).blur();
-        if (L.edit) setEdit(null);
+        if (L.confirm) setConfirm(null);
+        else if (L.menu) setMenu(null);
+        else if (L.edit) setEdit(null);
         else if (L.mode === 'extrude') void A.cancelExtrude();
         else if (L.mode === 'pickPlane') setMode('model');
         else if (L.pending.length) A.endChain();
@@ -261,7 +330,12 @@ export function App() {
         if (k === 'e') void A.startExtrude();
         return;
       }
-      if (L.mode === 'model') { if (k === 'e') void A.startExtrude(); else if (k === 'h' && L.sel) A.drillHole(); }
+      if (L.mode === 'model') {
+        if (k === 'e') void A.startExtrude();
+        else if (k === 'h' && L.sel) A.drillHole();
+        else if ((k === 'delete' || k === 'backspace') && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) void A.requestDelete(it); }
+        else if (k === 'enter' && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) A.editItem(it); }
+      }
       else if (L.mode === 'extrude' && k === 'enter') void A.okExtrude();
     };
     window.addEventListener('keydown', onKey);
@@ -291,7 +365,7 @@ export function App() {
       <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
       <Browser bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
-        onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)}
+        onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
         onSetParam={async (name, value) => !!(await run(() => api.param(name, value)))} />
 
       <div className="stage">
@@ -324,10 +398,10 @@ export function App() {
 
         {mode === 'extrude' && (
           <div className="dialog" data-testid="extrude-dialog">
-            <div className="dhead">EXTRUDE</div>
+            <div className="dhead">{editing ? `EDIT ${editing.name.toUpperCase()}` : 'EXTRUDE'}</div>
             <div className="drow"><span>Profiles</span><b data-testid="profile-count">{profiles.length ? `${profiles.length} selected` : 'Select profiles'}</b></div>
             <label className="drow"><span>Direction</span>
-              <select aria-label="Direction" value={ext.direction} onChange={(e) => setExt({ ...ext, direction: e.target.value as ExtrudeForm['direction'] })}><option value="one">One Side</option><option value="sym">Symmetric</option></select></label>
+              <select aria-label="Direction" value={ext.direction} onChange={(e) => setExt({ ...ext, direction: e.target.value as ExtrudeForm['direction'] })}><option value="one">One Side</option><option value="rev">One Side (reversed)</option><option value="sym">Symmetric</option></select></label>
             <label className="drow"><span>Distance</span>
               <input aria-label="Distance" type="text" value={ext.distance} onChange={(e) => setExt({ ...ext, distance: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void okExtrude(); }} /></label>
             <label className="drow"><span>Operation</span>
@@ -350,6 +424,9 @@ export function App() {
           </div>
         )}
 
+        {confirm && (
+          <div className="confirm" data-testid="confirm"><span>{confirm.text}</span><button onClick={() => setConfirm(null)}>Cancel</button><button className="primary" data-testid="confirm-ok" onClick={confirm.ok}>Delete</button></div>
+        )}
         {mode === 'model' && face && (
           <div className="seltip" data-testid="selection">Face {face.index} · {face.planeNormal ? 'plane' : face.cylinder ? `cylinder R${face.cylinder.radius.toFixed(2)}` : 'other'} · area ≈ {face.area.toFixed(1)} mm²</div>
         )}
@@ -359,7 +436,9 @@ export function App() {
         )}
       </div>
 
-      <Timeline items={snap.timeline} />
+      <Timeline items={snap.timeline} marker={snap.marker} selected={selTl} onSelect={setSelTl} onEdit={editItem} onMenu={(item, x, y) => setMenu({ x, y, item })}
+        onRollEnd={() => send([{ command: 'timeline.roll_to', params: {} }])} />
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />}
 
       <div className="status" data-testid="status">
         <span data-testid="hint">{busy ? 'Working…' : hint || (snap.bodies.length ? `${snap.bodies.length} body, ${triangles} triangles; engine ${snap.ms} ms` : 'Ready')}</span>
