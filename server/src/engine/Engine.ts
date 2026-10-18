@@ -16,6 +16,42 @@ export interface Face {
   cylinder?: { origin: Vec3; axis: Vec3; radius: number };
 }
 
+export type Vec2 = [number, number];
+
+export interface SketchCurve {
+  id: string;
+  type: 'line' | 'circle' | 'arc' | 'other';
+  construction: boolean;
+  fullyConstrained: boolean;
+  /** Lines and arcs. */
+  start?: Vec2;
+  end?: Vec2;
+  /** Circles and arcs; arcs run counter-clockwise from start to end. */
+  center?: Vec2;
+  radius?: number;
+}
+
+/** A driving dimension (a number the sketch is solved to). `curve` is set for dimensions on one curve. */
+export interface SketchDimension { id: string; kind: string; param: string; expression: string; value: number; curve?: string }
+
+/** A closed region of a sketch that can be extruded. `holes` are the loops inside it, as curve ids. */
+export interface Profile { index: number; area: number; centroid: Vec2; curves: string[]; holes: string[][] }
+
+export interface Sketch {
+  id: number;
+  name: string;
+  visible: boolean;
+  /** True while the sketch is open for drawing. */
+  active: boolean;
+  /** Sketch plane in world millimetres: sketch (x, y) maps to origin + x * xDir + y * yDir. */
+  plane: { origin: Vec3; xDir: Vec3; yDir: Vec3 };
+  curves: SketchCurve[];
+  dimensions: SketchDimension[];
+  profiles: Profile[];
+  /** Degrees of freedom left (0 means fully constrained). */
+  dof: number;
+}
+
 export interface Body {
   name: string;
   /** xyz per vertex, flat. */
@@ -34,6 +70,7 @@ export interface Snapshot {
   bodies: Body[];
   parameters: Parameter[];
   timeline: TimelineItem[];
+  sketches: Sketch[];
   /** How long the engine took to produce it, for the status bar. */
   ms: number;
   /** Things the engine would have ignored silently, found by our own checks. */

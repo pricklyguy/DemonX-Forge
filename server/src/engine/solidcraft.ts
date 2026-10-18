@@ -4,7 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EngineError, type Body, type CommandStep, type Engine, type Face, type Parameter, type Snapshot, type TimelineItem, type Vec3 } from './Engine';
+import { EngineError, type Body, type CommandStep, type Engine, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
 import { parse3mf } from './mesh3mf';
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };
@@ -118,7 +118,8 @@ export class SolidCraftEngine implements Engine {
       const names: string[] = (info?.bodies ?? []).map((b: any) => String(b.name));
       const parameters: Parameter[] = (info?.params ?? []).filter((p: any) => !p.model).map((p: any) => ({ name: String(p.name), expression: String(p.expression ?? ''), value: Number(p.value), unit: String(p.unit ?? '') }));
       const timeline: TimelineItem[] = (info?.timeline ?? []).map((t: any) => ({ id: Number(t.id), name: String(t.name), type: String(t.type), suppressed: !!t.suppressed, error: t.error ? String(t.error) : null }));
-      if (!names.length) return { bodies: [], parameters, timeline, ms: Math.round(performance.now() - t0), warnings: [] };
+      const sketches: Sketch[] = (info?.sketches ?? []).map((k: any) => toSketch(k, info?.active_sketch));
+      if (!names.length) return { bodies: [], parameters, timeline, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
       const path = join(this.work, `mesh-${this.nextId}.3mf`);
       await this.tool('export', { path, format: '3mf-tagged' });
       const meshes = parse3mf(new Uint8Array(readFileSync(path)));
@@ -127,7 +128,7 @@ export class SolidCraftEngine implements Engine {
         const topo = await this.tool('body_topology', { body: m.name });
         bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace) });
       }
-      return { bodies, parameters, timeline, ms: Math.round(performance.now() - t0), warnings: [] };
+      return { bodies, parameters, timeline, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
     });
   }
 }
@@ -139,7 +140,6 @@ export function unknownParamNames(spec: string, keys: string[]): string[] {
 }
 
 function toFace(f: any): Face {
-  const v3 = (v: any): Vec3 => [Number(v?.[0] ?? 0), Number(v?.[1] ?? 0), Number(v?.[2] ?? 0)];
   return {
     index: Number(f.index), name: String(f.name ?? ''), area: Number(f.area ?? 0),
     point: v3(f.point), centroid: v3(f.centroid),
@@ -156,4 +156,31 @@ export function errorText(text: string): string {
     if (typeof j?.error === 'string') return j.error;
   } catch { /* plain text */ }
   return text.replace(/^error:\s*/i, '') || 'The engine refused the command';
+}
+
+const v2 = (v: any): Vec2 => [Number(v?.[0] ?? 0), Number(v?.[1] ?? 0)];
+const v3 = (v: any): Vec3 => [Number(v?.[0] ?? 0), Number(v?.[1] ?? 0), Number(v?.[2] ?? 0)];
+
+/** One sketch from the engine's description. Exported for tests. */
+export function toSketch(k: any, activeId: unknown): Sketch {
+  const curves = (k.curves ?? []).map((c: any) => {
+    const type = c.type === 'line' || c.type === 'circle' || c.type === 'arc' ? c.type : 'other';
+    return {
+      id: String(c.id), type, construction: !!c.construction, fullyConstrained: !!c.fully_constrained,
+      ...(c.start_at ? { start: v2(c.start_at) } : {}), ...(c.end_at ? { end: v2(c.end_at) } : {}),
+      ...(c.center_at ? { center: v2(c.center_at) } : {}), ...(typeof c.radius === 'number' ? { radius: c.radius } : {}),
+    };
+  });
+  const dimensions = (k.constraints ?? []).filter((c: any) => typeof c.param === 'string').map((c: any) => ({
+    id: String(c.id), kind: String(c.type), param: String(c.param), expression: String(c.expression ?? c.value), value: Number(c.value),
+    ...(typeof c.l === 'number' && curves[c.l] ? { curve: curves[c.l].id } : {}),
+  }));
+  const profiles = (k.profiles ?? []).map((p: any) => ({
+    index: Number(p.index), area: Number(p.area_mm2 ?? 0), centroid: v2(p.centroid_sketch), curves: (p.curves ?? []).map(String), holes: (p.holes ?? []).map((h: any) => (h ?? []).map(String)),
+  }));
+  return {
+    id: Number(k.id), name: String(k.name), visible: k.visible !== false, active: activeId != null && Number(activeId) === Number(k.id),
+    plane: { origin: v3(k.plane?.origin), xDir: v3(k.plane?.x_dir), yDir: v3(k.plane?.y_dir) },
+    curves, dimensions, profiles, dof: Number(k.dof ?? 0),
+  };
 }

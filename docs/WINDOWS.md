@@ -2,7 +2,7 @@ DEMONX FORGE FOR WINDOWS
 ========================
 
 DemonX Forge is a 3D design (CAD) program that runs in your web browser, on your own computer. Nothing goes to the cloud.
-It is early: it can show a demo part, pick faces, change a parameter and drill a hole. Sketching tools are not in yet.
+It is early: you can sketch (line, rectangle, circle, dimensions) and extrude, cut or join. There is no save, open or export yet, and no fillets.
 
 You need: Windows 10 or 11 (64-bit) and a web browser.
 You do NOT need to install Node, Rust or anything else: it is all in this folder.
@@ -25,8 +25,12 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
   paid certificate. The engine (solidcraft-cli.exe) may be asked about too: same answer.
 - Windows Firewall may ask about "Node.js JavaScript Runtime". You can press Cancel: Forge only talks to this
   computer and does not need the network.
-- Press "Load the demo bracket". Click a face to select it. Change "width" on the left and press Enter. Click a face, then
-  "Drill hole at click". Undo takes it back.
+- Try a part from nothing: press Create Sketch, click the blue square on the floor (the XY plane), press R, click two
+  corners, press C, click a centre and a point for the radius, press D, click a side of the rectangle and type its
+  length, press E, click the shaded shape, type a distance, press OK. Ctrl+Z undoes, Ctrl+Y redoes.
+- Mouse: the wheel zooms, the middle button pans, Shift + middle button orbits. The cube at the top right looks at the
+  model from a side; the buttons under the model fit it to the window or show the home view.
+- "Load the demo bracket" gives a ready-made part to look at.
 
 
 3. IF SOMETHING GOES WRONG

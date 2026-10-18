@@ -1,6 +1,6 @@
 import type { Snapshot } from '../../server/src/engine/Engine';
 
-export type { Snapshot, Body, Face, Parameter, TimelineItem } from '../../server/src/engine/Engine';
+export type { Snapshot, Body, Face, Parameter, TimelineItem, Sketch, SketchCurve, SketchDimension, Profile, Vec2, Vec3 } from '../../server/src/engine/Engine';
 
 async function call(path: string, body?: unknown): Promise<Snapshot> {
   const r = await fetch(`/api/${path}`, { method: body === undefined ? 'GET' : 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
@@ -13,6 +13,7 @@ export const api = {
   state: () => call('state'),
   demo: () => call('demo', {}),
   command: (command: string, params: Record<string, unknown>) => call('command', { command, params }),
+  batch: (steps: { command: string; params?: Record<string, unknown> }[]) => call('batch', { steps }),
   param: (name: string, value: number | string) => call('param', { name, value }),
   undo: () => call('undo', {}),
   redo: () => call('redo', {}),

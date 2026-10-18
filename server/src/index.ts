@@ -23,6 +23,7 @@ async function startEngine() {
 }
 
 const MAX_BODY = 1_000_000;
+const MAX_STEPS = 200;
 const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.woff2': 'font/woff2' };
 const send = (res: ServerResponse, code: number, v: unknown) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(v)); };
 const readBody = (req: IncomingMessage) => new Promise<any>((ok, bad) => {
@@ -45,6 +46,11 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
       break;
     }
     case '/api/command': warnings = await e.run([checkStep(a)]); break;
+    case '/api/batch': {
+      if (!Array.isArray(a.steps) || a.steps.length < 1 || a.steps.length > MAX_STEPS) throw new BadRequest(`"steps" must be a list of 1 to ${MAX_STEPS} commands`);
+      warnings = await e.run(a.steps.map(checkStep));
+      break;
+    }
     case '/api/param': {
       if (typeof a.name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(a.name)) throw new BadRequest('Bad parameter name');
       if (!(typeof a.value === 'number' && Number.isFinite(a.value)) && !(typeof a.value === 'string' && a.value.length <= 100)) throw new BadRequest('Bad parameter value');

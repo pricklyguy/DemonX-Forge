@@ -13,6 +13,7 @@ A Fusion-style parametric 3D CAD application, local only, in the DemonX look. No
 - **2026-10-18, owner: name is DemonX Forge.** ("Mesh" was rejected: a mesh is only the display approximation of a solid.) Check for name clashes before publishing anywhere.
 - **2026-10-18, owner and Claude: engine = SolidCraft's headless CLI behind our `Engine` interface** (React and Three.js interface of our own). Why: a spike (`docs/evaluation/SPIKE.md`) showed face picking, parameter edits and click-to-command in under half a second on a small part, and checks (`docs/evaluation/SOLIDCRAFT.md`) showed correct STEP/STL output verified by OpenCascade. Fallback: OpenCascade in WebAssembly or as a sidecar, if the kernel proves too weak on the owner's parts.
 - **2026-10-18, owner and Claude: GPL-3.0-or-later**, same as DemonX, so code can move between them. The owner has no plan to sell it; this only keeps things simple.
+- **2026-10-18, owner: follow Fusion's layout, menus and keys as closely as practical, for familiarity** (Solid and Sketch tabs, Create / Modify groups, browser tree, timeline strip, view cube, sketch palette; E extrude, L line, R rectangle, C circle, D dimension, H hole, Ctrl+Z / Ctrl+Y). Order of work: **sketch and extrude first.** Layout and shortcuts were taken from the owner's own screenshots of how they use Fusion (observed behaviour); icons, artwork and wording are ours, never copied.
 - **2026-10-18: work on `main` for the first commits** (empty repository), branches and PRs after that.
 
 ## Engine hand-over and the Windows package
@@ -24,18 +25,28 @@ A Fusion-style parametric 3D CAD application, local only, in the DemonX look. No
 
 ## Engine findings (keep adding)
 
+- **A sketch on a face needs an exact pick:** `sketch.create` with `plane: {face: [x,y,z], body, index}`; the point and body alone are refused.
+- **A full circle extrudes to two half-cylinder faces** (`c1#1`, `c1#2`), so clicking a hole's wall picks half of it. To fix later by grouping faces that share a name before the `#`.
+- **A cut goes along the sketch normal by default**, which for a sketch on a top face is away from the body (it removes nothing). Forge flips a Cut toward the body (using the body's centre), as Fusion does; a negative distance flips it back.
+- **A second dimension on the same line is refused** (over-constrained). To change one, set its parameter (`d1`, `d2`, ...): the line follows. Forge's dimension tool does this when you click a dimensioned line.
+- **Standard planes:** XY is x right, y up (normal +Z); XZ has sketch y pointing down the world's Z (normal +Y); YZ has x = world Y, y = world Z (normal +X). The camera's up vector follows the sketch's y axis, otherwise a sketch on XZ looks upside down.
+- Origin planes overlap, so a click picks the nearest one under the pointer (the hover highlight shows which).
+
 - **Face areas from `body_topology` are approximate.** The demo bracket's top face is exactly 2943.451 mm² (width 60) and 4943.451 (width 100), checked by OpenCascade on the exported STEP and by hand; the engine's face list says 2945.06 and 4946.21 (+0.05 to +0.06 %). Volumes and areas from its `measure` command and from the STEP are exact. So: use `measure` for any number shown as a dimension; the face list is for picking and display only. (Not yet checked whether `measure` gives the exact face area; do that before showing areas.)
 - **Unknown parameters are silently ignored** by the engine; our adapter warns (`unknownParamNames`).
 - **A failed batch comes back as JSON** with `rolled_back: true`; the adapter turns it into a sentence and the design is unchanged (tested).
 
-## What works now (skeleton)
+## What works now (0.2.0)
 
-Server: engine adapter over MCP stdio, 3MF-with-face-tags mesh path, loopback-only HTTP API. Web: browser tree, viewport (Three.js) with face picking, parameter slider, drill-at-click, undo. Demo part: `server/fixtures/bracket.json`.
+Fusion-style layout: SOLID tab with Create Sketch, Extrude (E), Hole (H); a SKETCH tab (only while a sketch is open) with Line (L), Rectangle (R), Circle (C), Sketch Dimension (D) and Finish Sketch; the browser tree (origin, bodies, sketches, parameters, with show/hide); an icon timeline; a view cube; a navigation bar (fit, home, grid, edges); the sketch palette (grid, snap, profile fill).
+Workflow: Create Sketch, pick an origin plane or a flat face, draw (snap to grid and to existing points, a live outline while drawing, or type sizes: rectangle `40,30`, circle diameter, line length and angle), dimension (labels shown; click a dimensioned line again to change it), Finish Sketch (or press E: it finishes the sketch and opens Extrude), pick regions, set distance, direction (one side or symmetric) and operation (new body, join, cut, intersect) with a **live preview** (applied to the real model and undone when anything changes or on Cancel). Undo and redo (Ctrl+Z, Ctrl+Y). Mouse as in Fusion: middle drag pans, Shift + middle orbits, wheel zooms toward the cursor.
+Tried in a real browser against the real engine: `e2e/sketch.mjs` (rectangle, circle, typed circle, dimension, change a dimension, E, preview, Cancel, OK, sketch on a face, cut, undo/redo, browser tree) and `e2e/viewport.mjs` (demo part, picking, parameters, hole, view cube, mouse). Not tried: a Windows PC with this version, a touch or trackpad, sketches on curved faces.
+Not there yet: arcs, trim, offset, sketch constraints (only dimensions), editing an old sketch or feature from the timeline, extrude by dragging an arrow, extrude of a face, fillet and chamfer (need edge picking), press/pull, patterns, save and open, export, dark/light for the view cube text.
 
 ## Next (in this order, one at a time)
 
-1. Run the Windows zip on the owner's PC and fix what breaks.
-2. Sketch on a face or plane: lines, rectangles, circles, dimensions, finish; extrude as a feature.
+1. Run the 0.2.0 Windows zip on the owner's PC and fix what breaks.
+2. Sketch tools to finish: arc, trim, offset, constraints (horizontal, vertical, coincident, tangent), editing a sketch from the timeline (double-click), project edges.
 3. Feature timeline (edit, suppress, reorder) and a parameters table.
 4. Real B-rep edges in the viewport (pick an edge for fillet and chamfer); a binary mesh call instead of 3MF files.
 5. File menu: save and open our project file, export STEP / STL / 3MF / DXF.
