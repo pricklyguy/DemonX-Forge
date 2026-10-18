@@ -34,7 +34,7 @@ interface Props {
   showEdges: boolean;
   showProfiles: boolean;
   snap: boolean;
-  selectedFace: { body: string; face: number } | null;
+  selectedFaces: { body: string; face: number }[];
   selectedProfiles: ProfileRef[];
   /** The edges that can be picked while choosing edges (empty otherwise), and the ones drawn as selected. */
   edgeSets: { body: string; edges: EdgeGeometry[] }[];
@@ -114,7 +114,7 @@ export function Viewport(props: Props) {
         if (p.hiddenBodies.has(b.name)) continue;
         const n = b.indices.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) { const v = (b.indices[i] ?? 0) * 3; pos[i * 3] = b.positions[v] ?? 0; pos[i * 3 + 1] = b.positions[v + 1] ?? 0; pos[i * 3 + 2] = b.positions[v + 2] ?? 0; }
-        for (let t = 0; t < b.faceIds.length; t++) { const on = p.selectedFace?.body === b.name && p.selectedFace.face === b.faceIds[t]; const c = on ? hi : base; for (let k = 0; k < 3; k++) { col[(t * 3 + k) * 3] = c.r; col[(t * 3 + k) * 3 + 1] = c.g; col[(t * 3 + k) * 3 + 2] = c.b; } }
+        for (let t = 0; t < b.faceIds.length; t++) { const on = p.selectedFaces.some((f) => f.body === b.name && f.face === b.faceIds[t]); const c = on ? hi : base; for (let k = 0; k < 3; k++) { col[(t * 3 + k) * 3] = c.r; col[(t * 3 + k) * 3 + 1] = c.g; col[(t * 3 + k) * 3 + 2] = c.b; } }
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.computeVertexNormals();
         const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
         mesh.userData.body = b;
@@ -412,7 +412,7 @@ export function Viewport(props: Props) {
   }, []);
 
   const p = props;
-  useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFace, p.showEdges, p.theme]);
+  useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.showEdges, p.theme]);
   useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.showProfiles, p.selectedProfiles, p.theme]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints]);

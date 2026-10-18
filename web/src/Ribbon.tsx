@@ -8,13 +8,17 @@ interface Props {
   canHole: boolean;
   onCreateSketch(): void;
   onExtrude(): void;
+  onRevolve(): void;
+  /** The Extrude-dialog tool that is open, if any. */
+  extKind: 'extrude' | 'revolve' | null;
   onHole(): void;
   canModify: boolean;
   /** The Modify tool whose dialog is open, if any. */
-  modTool: 'fillet' | 'chamfer' | 'presspull' | null;
+  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | null;
   onFillet(): void;
   onChamfer(): void;
   onPressPull(): void;
+  onShell(): void;
   onTool(t: Tool): void;
   onFinish(): void;
 }
@@ -44,7 +48,8 @@ export function Ribbon(p: Props) {
         {!sketching ? (
           <Group title="CREATE">
             <Btn id="btn-sketch" icon={<Icon.sketch />} label="Create Sketch" pressed={p.mode === 'pickPlane'} onClick={p.onCreateSketch} />
-            <Btn id="btn-extrude" icon={<Icon.extrude />} label="Extrude" keyHint="E" pressed={p.mode === 'extrude'} onClick={p.onExtrude} />
+            <Btn id="btn-extrude" icon={<Icon.extrude />} label="Extrude" keyHint="E" pressed={p.extKind === 'extrude'} onClick={p.onExtrude} />
+            <Btn id="btn-revolve" icon={<Icon.revolve />} label="Revolve" pressed={p.extKind === 'revolve'} onClick={p.onRevolve} />
             <Btn id="btn-hole" icon={<Icon.hole />} label="Hole" keyHint="H" disabled={!p.canHole} onClick={p.onHole} />
           </Group>
         ) : null}
@@ -53,6 +58,7 @@ export function Ribbon(p: Props) {
             <Btn id="btn-fillet" icon={<Icon.bFillet />} label="Fillet" keyHint="F" pressed={p.modTool === 'fillet'} disabled={!p.canModify} onClick={p.onFillet} />
             <Btn id="btn-chamfer" icon={<Icon.bChamfer />} label="Chamfer" pressed={p.modTool === 'chamfer'} disabled={!p.canModify} onClick={p.onChamfer} />
             <Btn id="btn-presspull" icon={<Icon.bPressPull />} label="Press Pull" keyHint="Q" pressed={p.modTool === 'presspull'} disabled={!p.canModify} onClick={p.onPressPull} />
+            <Btn id="btn-shell" icon={<Icon.bShell />} label="Shell" pressed={p.modTool === 'shell'} disabled={!p.canModify} onClick={p.onShell} />
           </Group>
         ) : (
           <>

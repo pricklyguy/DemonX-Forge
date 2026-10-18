@@ -71,9 +71,9 @@ await p.getByTestId('extrude-ok').click();
 await p.getByTestId('extrude-dialog').waitFor({ state: 'detached' });
 s = await state();
 check(JSON.stringify(await names()) === '["Sketch1","Extrude1"]' && near(ranges(s)[2][1], 25), 'OK keeps 25, still one Extrude1');
-await p.keyboard.press('Control+z'); await settle(800);
-s = await state();
-check(near(ranges(s)[2][1], 10) && s.timeline.length === 2, 'one Ctrl+Z undoes the whole edit');
+await p.keyboard.press('Control+z');
+for (let i = 0; i < 20; i++) { await settle(250); s = await state(); if (near(ranges(s)[2][1], 10)) break; } // polled: the undo goes through the same queue as the OK
+check(near(ranges(s)[2][1], 10) && s.timeline.length === 2, 'one Ctrl+Z undoes the whole edit', `z ${ranges(s)[2][1]}, ${s.timeline.length} steps, ${JSON.stringify(s.timeline.map((t) => t.name))}`);
 await p.keyboard.press('Control+y'); await settle(800);
 s = await state();
 check(near(ranges(s)[2][1], 25), 'and Ctrl+Y redoes it');

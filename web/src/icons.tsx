@@ -31,6 +31,8 @@ export const Icon = {
   bFillet: () => <Svg><path d="M4 22 V12 L11 6 H24" opacity=".5" /><path d="M4 22 H20 A4 4 0 0 0 24 18 V6" /><path d="M20 22 A4 4 0 0 0 24 18" stroke={A} strokeWidth={3} /></Svg>,
   bChamfer: () => <Svg><path d="M4 22 V12 L11 6 H24" opacity=".5" /><path d="M4 22 H19 L24 17 V6" /><path d="M19 22 L24 17" stroke={A} strokeWidth={3} /></Svg>,
   bPressPull: () => <Svg><path d="M4 22 H24 V13 H4 Z" /><path d="M4 13 L9 8 H24" opacity=".5" /><path d="M14 11 V3 M10.5 6.5 L14 3 L17.5 6.5" stroke={A} strokeWidth={2.5} /></Svg>,
+  revolve: () => <Svg><path d="M14 3 V25" strokeDasharray="2 2" opacity=".6" /><path d="M14 8 H22 V20 H14" /><path d="M14 8 C8 8 6 12 6 14 C6 16 8 20 14 20" stroke={A} strokeWidth={2.5} /></Svg>,
+  bShell: () => <Svg><path d="M4 10 L14 5 L24 10 V20 L14 25 L4 20 Z" /><path d="M9 12 L14 9.5 L19 12 V18 L14 20.5 L9 18 Z" stroke={A} strokeWidth={2} /></Svg>,
   rectCenter: () => <Svg><rect x="5" y="8" width="18" height="12" stroke={C} /><circle cx="14" cy="14" r="1.8" /><path d="M14 14 L23 20" strokeDasharray="2 2" /></Svg>,
   circle2: () => <Svg><circle cx="14" cy="14" r="9" stroke={C} /><circle cx="5" cy="14" r="1.6" /><circle cx="23" cy="14" r="1.6" /></Svg>,
   arc3: () => <Svg><path d="M5 20 C8 6 20 6 23 20" stroke={C} /><circle cx="5" cy="20" r="1.6" /><circle cx="23" cy="20" r="1.6" /><circle cx="14" cy="8.5" r="1.4" /></Svg>,

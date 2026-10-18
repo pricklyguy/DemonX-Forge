@@ -15,10 +15,14 @@ import { pickEntity, type Picked } from './sketch/pick';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
 const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
+const MOD_DEFAULT = { fillet: '2', chamfer: '1', presspull: '5', shell: '2' } as const;
+/** The dialog's axis choice as the engine's `axis` parameter: a sketch axis (x, y), a sketch line's id, or a world axis (X, Y, Z). */
+const axisParam = (v: string) => v.slice(v.indexOf(':') + 1);
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
   modify: 'Click the edges to round or bevel (click again to deselect), set the size, then OK. Esc cancels.',
+  shell: 'Click the face(s) to leave open (click again to deselect), set the wall thickness, then OK. Esc cancels.',
   presspull: 'Click a face, then type how far to push (negative) or pull (positive), then OK. Esc cancels.',
 };
 /** Status-bar help for a sketch tool, by how many points are already placed (or picked). */
@@ -45,7 +49,7 @@ const TOOL_HINT: Record<string, string[]> = {
   concentric: ['Click the first circle or arc.', 'Click the second.'],
   fix: ['Click a point or curve to fix it (or release it).'],
 };
-type ExtrudeForm = { distance: string; direction: 'one' | 'rev' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect' };
+type ExtrudeForm = { distance: string; direction: 'one' | 'rev' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect'; axis: string; angle: string };
 /** The engine names the operation `new_body` in a feature's definition and `new` in the command. */
 const opFromDef = (o?: string): ExtrudeForm['operation'] => (o === 'join' || o === 'cut' || o === 'intersect' ? o : 'new');
 const opToDef = (o: ExtrudeForm['operation']) => (o === 'new' ? 'new_body' : o);
@@ -69,9 +73,9 @@ export function App() {
   const [selTl, setSelTl] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
   const [confirm, setConfirm] = useState<{ text: string; label?: string; ok(): void } | null>(null);
-  const [modTool, setModTool] = useState<'fillet' | 'chamfer' | 'presspull'>('fillet');
+  const [modTool, setModTool] = useState<'fillet' | 'chamfer' | 'presspull' | 'shell'>('fillet');
   const [edgesSel, setEdgesSel] = useState<EdgeRef[]>([]);
-  const [pullFace, setPullFace] = useState<FacePick | null>(null);
+  const [facesSel, setFacesSel] = useState<FacePick[]>([]); // Press Pull: one face; Shell: the faces to open
   const [modValue, setModValue] = useState('2');
   const [modBase, setModBase] = useState<Snapshot | null>(null); // the model when Fillet or Chamfer was opened: edges are picked on this, not on the preview
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
@@ -82,7 +86,8 @@ export function App() {
   const [picks, setPicks] = useState<Picked[]>([]);
   const [sel, setSel] = useState<FacePick | null>(null);
   const [profiles, setProfiles] = useState<ProfileRef[]>([]);
-  const [ext, setExt] = useState<ExtrudeForm>({ distance: '10', direction: 'one', operation: 'new' });
+  const [ext, setExt] = useState<ExtrudeForm>({ distance: '10', direction: 'one', operation: 'new', axis: 'axis:y', angle: '360' });
+  const [extKind, setExtKind] = useState<'extrude' | 'revolve'>('extrude'); // Revolve shares the Extrude dialog: profiles, then an axis and an angle
   const [hiddenBodies, setHiddenBodies] = useState<Set<string>>(new Set());
   const [hiddenSketches, setHiddenSketches] = useState<Set<number>>(new Set());
   const [showOrigin, setShowOrigin] = useState(false);
@@ -196,10 +201,21 @@ export function App() {
     for (const b of snap.bodies) for (let i = 0; i < b.positions.length; i++) { const k = i % 3; lo[k] = Math.min(lo[k]!, b.positions[i]!); hi[k] = Math.max(hi[k]!, b.positions[i]!); }
     return Number.isFinite(lo[0]!) ? [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2] : null;
   }, [snap.bodies]);
+  const pickedSketch = snap.sketches.find((s) => s.id === profiles[0]?.sketch);
+  const axisOptions = useMemo(() => [
+    { value: 'axis:x', label: 'Sketch X axis' }, { value: 'axis:y', label: 'Sketch Y axis' },
+    ...(pickedSketch?.curves ?? []).filter((c) => c.type === 'line').map((c) => ({ value: `line:${c.id}`, label: `${c.construction ? 'Construction line' : 'Line'} ${c.id}` })),
+    { value: 'world:X', label: 'World X axis' }, { value: 'world:Y', label: 'World Y axis' }, { value: 'world:Z', label: 'World Z axis' },
+  ], [pickedSketch]);
   const preview = useRef(false);
   const extrudeStep = (): { command: string; params: Record<string, unknown> } | null => {
     const first = profiles[0]; const d = ext.distance.trim();
     const sk = first && snap.sketches.find((s) => s.id === first.sketch);
+    if (sk && extKind === 'revolve') {
+      const an = ext.angle.trim(), na = Number(an);
+      if (!an || (Number.isFinite(na) && (na <= 0 || na > 360))) return null;
+      return { command: 'solid.revolve', params: { sketch: sk.name, profiles: profiles.map((r) => r.index), axis: axisParam(ext.axis), angle: Number.isFinite(na) ? na : an, operation: ext.operation } };
+    }
     if (!sk || !d) return null;
     const n = Number(d);
     let distance: number | string = Number.isFinite(n) ? n : d, direction = ext.direction === 'sym' ? 'symmetric' : ext.direction === 'rev' ? 'negative' : 'positive';
@@ -223,26 +239,34 @@ export function App() {
   const modifyStep = (): { command: string; params: Record<string, unknown> } | null => {
     const v = modValue.trim();
     const n = Number(v), size: number | string = Number.isFinite(n) ? n : v;
+    const pts = facesSel.map((f) => f.point.map((x) => +x.toFixed(3)));
     if (modTool === 'presspull') {
-      if (!pullFace || !v || size === 0) return null;
-      return { command: 'solid.press_pull', params: { face: pullFace.point.map((x) => +x.toFixed(3)), distance: size } }; // positive adds material, negative cuts
+      if (!pts.length || !v || size === 0) return null;
+      return { command: 'solid.press_pull', params: { face: pts[0], distance: size } }; // positive adds material, negative cuts
+    }
+    if (modTool === 'shell') {
+      if (!pts.length || !v || typeof size === 'number' && !(size > 0)) return null;
+      return { command: 'solid.shell', params: { faces: pts, thickness: size, direction: 'inside' } };
     }
     if (!edgesSel.length || !v) return null;
     if (typeof size === 'number' && !(size > 0)) return null;
     return { command: modTool === 'fillet' ? 'solid.fillet' : 'solid.chamfer', params: { edges: edgesSel.map((e) => ({ body: e.body, index: e.index })), [modTool === 'fillet' ? 'radius' : 'distance']: size } };
   };
   const stepKey = JSON.stringify(mode === 'extrude' ? extrudeStep() : mode === 'modify' ? modifyStep() : null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout>>(); // OK must not be followed by a late preview of the same step (it would be a second undo step)
   const skipFirst = useRef(false); // opening an existing extrude must not "change" it to itself
   const baseKey = useRef('');
   useEffect(() => {
     if (mode !== 'extrude' && mode !== 'modify') return;
     if (skipFirst.current) { skipFirst.current = false; baseKey.current = stepKey; return; }
     const t = setTimeout(() => { void applyPreview(JSON.parse(stepKey)); }, 250);
+    previewTimer.current = t;
     return () => clearTimeout(t);
   }, [mode, stepKey, applyPreview]);
 
-  const startExtrude = async () => {
-    if (mode === 'extrude') return;
+  const startExtrude = async (kind: 'extrude' | 'revolve' = 'extrude') => {
+    if (mode === 'extrude') { if (!editing && kind !== extKind) { await applyPreview(null); setExtKind(kind); } return; }
+    setExtKind(kind);
     if (mode === 'modify') await cancelModify();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
@@ -261,7 +285,8 @@ export function App() {
   // leave the mode first: that cancels a debounced preview that has not fired yet, so it cannot re-apply after the undo
   const cancelExtrude = async () => { setProfiles([]); setEditing(null); setMode('model'); setError(''); await applyPreview(null); };
   const okExtrude = async () => {
-    const step = extrudeStep(); if (!step) { setError('Select a profile and enter a distance'); return; }
+    clearTimeout(previewTimer.current);
+    const step = extrudeStep(); if (!step) { setError(extKind === 'revolve' ? 'Select a profile and enter an angle between 0 and 360' : 'Select a profile and enter a distance'); return; }
     if (editing && !preview.current && stepKey === baseKey.current) { setProfiles([]); setEditing(null); setMode('model'); return; } // nothing was changed
     await applyPreview(step);
     if (!preview.current) return; // the engine refused: the reason is shown and the dialog stays open
@@ -269,16 +294,16 @@ export function App() {
   };
 
   // ---- Fillet and Chamfer: pick edges, set a size, live preview (the same mechanism as the extrude dialog)
-  const edgeSets = useMemo(() => (mode === 'modify' && modTool !== 'presspull' && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
-  const startModify = async (t: 'fillet' | 'chamfer' | 'presspull') => {
-    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); setModValue(t === 'chamfer' ? '1' : t === 'fillet' ? '2' : '5'); } return; }
+  const edgeSets = useMemo(() => (mode === 'modify' && modTool !== 'presspull' && modTool !== 'shell' && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
+  const startModify = async (t: 'fillet' | 'chamfer' | 'presspull' | 'shell') => {
+    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); } return; }
     if (mode === 'extrude') await cancelExtrude();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
     if (!s) return;
     if (!s.bodies.length) { setError('Make a body first (sketch and extrude), then change it.'); return; }
-    const start = t === 'presspull' ? sel : null; // a face that is already selected is the one to push or pull
-    chooseTool(null); setSel(null); setEdgesSel([]); setPullFace(start); setModTool(t); setModBase(s); setModValue(t === 'fillet' ? '2' : t === 'chamfer' ? '1' : '5'); setMode('modify'); setError('');
+    const start = t === 'presspull' || t === 'shell' ? sel : null; // a face that is already selected is the one to push or pull
+    chooseTool(null); setSel(null); setEdgesSel([]); setFacesSel(start ? [start] : []); setModTool(t); setModBase(s); setModValue(MOD_DEFAULT[t]); setMode('modify'); setError('');
   };
   const edgePicked = (ref: EdgeRef | null) => {
     if (!ref) return;
@@ -287,10 +312,16 @@ export function App() {
       return [...cur.filter((e) => e.body === ref.body), ref]; // one body at a time
     });
   };
-  const closeModify = () => { setEdgesSel([]); setPullFace(null); setModBase(null); setMode('model'); setError(''); };
+  const facePicked = (f: FacePick | null) => {
+    if (!f) return;
+    if (modTool === 'presspull') { setFacesSel([f]); return; }
+    setFacesSel((cur) => (cur.some((c) => c.body === f.body && c.face === f.face) ? cur.filter((c) => !(c.body === f.body && c.face === f.face)) : [...cur.filter((c) => c.body === f.body), f])); // Shell: one body at a time
+  };
+  const closeModify = () => { setEdgesSel([]); setFacesSel([]); setModBase(null); setMode('model'); setError(''); };
   const cancelModify = async () => { closeModify(); await applyPreview(null); };
   const okModify = async () => {
-    const step = modifyStep(); if (!step) { setError(modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : 'Select at least one edge and enter a size'); return; }
+    clearTimeout(previewTimer.current);
+    const step = modifyStep(); if (!step) { setError(modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : modTool === 'shell' ? 'Select the face(s) to open and enter a wall thickness' : 'Select at least one edge and enter a size'); return; }
     await applyPreview(step);
     if (!preview.current) return; // the engine refused (for example a radius too big): the reason is shown and the dialog stays open
     preview.current = false; closeModify();
@@ -400,7 +431,7 @@ export function App() {
       const dir = f.definition.extent?.direction;
       skipFirst.current = true;
       setProfiles(chosen.map((pr) => ({ sketch: sk.id, index: pr.index, at: pr.centroid })));
-      setExt({ distance: f.definition.extent?.distance ?? '10', direction: dir === 'symmetric' ? 'sym' : dir === 'negative' ? 'rev' : 'one', operation: opFromDef(f.definition.operation) });
+      setExtKind('extrude'); setExt((x) => ({ ...x, distance: f.definition.extent?.distance ?? '10', direction: dir === 'symmetric' ? 'sym' : dir === 'negative' ? 'rev' : 'one', operation: opFromDef(f.definition.operation) }));
       setEditing({ name: item.name, key: chosen.map((pr) => pr.index).sort().join(',') });
       chooseTool(null); setMode('extrude'); setError('');
     } catch (e) { setError((e as Error).message); }
@@ -488,7 +519,7 @@ export function App() {
   const face = useMemo(() => snap.bodies.find((b) => b.name === sel?.body)?.faces.find((f) => f.index === sel?.face), [snap, sel]);
   const hint = mode === 'sketch'
     ? (tool ? (TOOL_HINT[tool]?.[Math.min(isDraw(tool) ? pending.length : picks.length, (TOOL_HINT[tool]?.length ?? 1) - 1)] ?? '') : selected.length ? `${selected.length} selected. Delete removes it, X makes it a construction line, Esc clears.` : 'Pick a sketch tool, or click a line to select it. Keys: L R C A T O D.')
-    : HINT[mode === 'modify' && modTool === 'presspull' ? 'presspull' : mode] ?? '';
+    : HINT[mode === 'modify' && (modTool === 'presspull' || modTool === 'shell') ? modTool : mode] ?? '';
   const triangles = snap.bodies.reduce((n, b) => n + b.faceIds.length, 0);
   const placeholder = tool === 'rect' || tool === 'rectCenter' ? 'width, height' : tool === 'circle' || tool === 'circle2' ? 'diameter' : tool === 'slot' ? 'width' : 'length [, angle]';
   const typable = isDraw(tool) && pending.length > 0 && tool !== 'arc3' && !(tool === 'slot' && pending.length < 2);
@@ -505,7 +536,7 @@ export function App() {
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
       </header>
 
-      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
+      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} extKind={mode === 'extrude' ? extKind : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onShell={() => void startModify('shell')} onCreateSketch={createSketch} onExtrude={() => void startExtrude('extrude')} onRevolve={() => void startExtrude('revolve')} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
       <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
         onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
@@ -514,8 +545,8 @@ export function App() {
       <div className="stage">
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
-          selectedFace={(mode === 'modify' && modTool === 'presspull' ? pullFace : sel) ? { body: (mode === 'modify' && modTool === 'presspull' ? pullFace : sel)!.body, face: (mode === 'modify' && modTool === 'presspull' ? pullFace : sel)!.face } : null} pickFaces={mode === 'modify' && modTool === 'presspull'} selectedProfiles={profiles}
-          edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? setPullFace : setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (modTool === 'presspull' || modTool === 'shell')} selectedProfiles={profiles}
+          edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
@@ -541,28 +572,35 @@ export function App() {
 
         {mode === 'extrude' && (
           <div className="dialog" data-testid="extrude-dialog">
-            <div className="dhead">{editing ? `EDIT ${editing.name.toUpperCase()}` : 'EXTRUDE'}</div>
+            <div className="dhead">{editing ? `EDIT ${editing.name.toUpperCase()}` : extKind === 'revolve' ? 'REVOLVE' : 'EXTRUDE'}</div>
             <div className="drow"><span>Profiles</span><b data-testid="profile-count">{profiles.length ? `${profiles.length} selected` : 'Select profiles'}</b></div>
+            {extKind === 'revolve' ? <>
+              <label className="drow"><span>Axis</span>
+                <select aria-label="Axis" value={ext.axis} onChange={(e) => setExt({ ...ext, axis: e.target.value })}>{axisOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+              <label className="drow"><span>Angle</span>
+                <input aria-label="Angle" type="text" value={ext.angle} onChange={(e) => setExt({ ...ext, angle: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void okExtrude(); }} /></label>
+            </> : <>
             <label className="drow"><span>Direction</span>
               <select aria-label="Direction" value={ext.direction} onChange={(e) => setExt({ ...ext, direction: e.target.value as ExtrudeForm['direction'] })}><option value="one">One Side</option><option value="rev">One Side (reversed)</option><option value="sym">Symmetric</option></select></label>
             <label className="drow"><span>Distance</span>
               <input aria-label="Distance" type="text" value={ext.distance} onChange={(e) => setExt({ ...ext, distance: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void okExtrude(); }} /></label>
+            </>}
             <label className="drow"><span>Operation</span>
               <select aria-label="Operation" value={ext.operation} onChange={(e) => setExt({ ...ext, operation: e.target.value as ExtrudeForm['operation'] })}><option value="new">New Body</option><option value="join">Join</option><option value="cut">Cut</option><option value="intersect">Intersect</option></select></label>
-            <div className="dnote">{ext.operation === 'cut' ? 'Cut goes into the body. A negative distance flips the direction.' : 'A negative distance flips the direction.'}</div>
+            <div className="dnote">{extKind === 'revolve' ? 'The profile turns about the axis; it must not cross it. Angle is in degrees (360 is a full turn).' : ext.operation === 'cut' ? 'Cut goes into the body. A negative distance flips the direction.' : 'A negative distance flips the direction.'}</div>
             <div className="dbtns"><button onClick={() => void cancelExtrude()}>Cancel</button><button className="primary" data-testid="extrude-ok" onClick={() => void okExtrude()}>OK</button></div>
           </div>
         )}
 
         {mode === 'modify' && (
           <div className="dialog" data-testid="modify-dialog">
-            <div className="dhead">{modTool === 'fillet' ? 'FILLET' : modTool === 'chamfer' ? 'CHAMFER' : 'PRESS PULL'}</div>
-            {modTool === 'presspull'
-              ? <div className="drow"><span>Face</span><b data-testid="edge-count">{pullFace ? '1 selected' : 'Select a face'}</b></div>
+            <div className="dhead">{modTool === 'fillet' ? 'FILLET' : modTool === 'chamfer' ? 'CHAMFER' : modTool === 'shell' ? 'SHELL' : 'PRESS PULL'}</div>
+            {modTool === 'presspull' || modTool === 'shell'
+              ? <div className="drow"><span>{modTool === 'shell' ? 'Faces' : 'Face'}</span><b data-testid="edge-count">{facesSel.length ? `${facesSel.length} selected` : modTool === 'shell' ? 'Select faces' : 'Select a face'}</b></div>
               : <div className="drow"><span>Edges</span><b data-testid="edge-count">{edgesSel.length ? `${edgesSel.length} selected` : 'Select edges'}</b></div>}
-            <label className="drow"><span>{modTool === 'fillet' ? 'Radius' : 'Distance'}</span>
-              <input aria-label={modTool === 'fillet' ? 'Radius' : 'Distance'} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>
-            <div className="dnote">{modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div>
+            <label className="drow"><span>{modTool === 'fillet' ? 'Radius' : modTool === 'shell' ? 'Thickness' : 'Distance'}</span>
+              <input aria-label={modTool === 'fillet' ? 'Radius' : modTool === 'shell' ? 'Thickness' : 'Distance'} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>
+            <div className="dnote">{modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div>
             <div className="dbtns"><button onClick={() => void cancelModify()}>Cancel</button><button className="primary" data-testid="modify-ok" onClick={() => void okModify()}>OK</button></div>
           </div>
         )}
