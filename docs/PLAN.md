@@ -15,9 +15,12 @@ A Fusion-style parametric 3D CAD application, local only, in the DemonX look. No
 - **2026-10-18, owner and Claude: GPL-3.0-or-later**, same as DemonX, so code can move between them. The owner has no plan to sell it; this only keeps things simple.
 - **2026-10-18: work on `main` for the first commits** (empty repository), branches and PRs after that.
 
-## Engine hand-over (open question)
+## Engine hand-over and the Windows package
 
-The engine is not committed here. For now: build SolidCraft's `solidcraft-cli` from source (Rust, about 7 minutes), or take a release from its repository, and put it at `data/engine/solidcraft-cli` (or set `FORGE_ENGINE`). Whether Forge bundles a stripped binary in its Windows package (licence notices must travel with it) or builds it in CI is not decided. SolidCraft changes daily: the adapter pins a tested version and checks command names at start.
+- **2026-10-18: the Windows zip is built by GitHub Actions** (`.github/workflows/windows-package.yml`), like DemonX's: a Windows job compiles SolidCraft's `solidcraft-cli.exe` from the commit in `engine/SOLIDCRAFT_REF` (no debug info, stripped, so the file is much smaller than the 384 MB debug build used in the evaluation), runs a smoke test on it, then a Linux job bundles the server, the web app, its own Node, the engine and the engine's licence files into `DemonX-Forge-<version>-windows-x64.zip` (+ `.sha256`). A tag `v<version>` also attaches it to a release (notes in `docs/releases/`).
+- The engine commit is pinned on purpose: SolidCraft changes daily and its command names are not stable. Change `engine/SOLIDCRAFT_REF` only after trying the new one.
+- **Tried:** the packaging script on Linux (zip builds, Node download checked against its published checksum) and the bundled server run from the package folder against the real Linux engine with the full browser check (`e2e/viewport.mjs`, all passed). **Not tried:** the Windows engine build in CI, and the zip on a Windows PC. The first Windows build compiles the whole engine (expect 20 to 40 minutes; later runs use a cache) and may need fixing.
+- Not in the package yet: auto-update (DemonX has it), a Start menu entry, code signing.
 
 ## Engine findings (keep adding)
 
@@ -31,7 +34,7 @@ Server: engine adapter over MCP stdio, 3MF-with-face-tags mesh path, loopback-on
 
 ## Next (in this order, one at a time)
 
-1. Make the skeleton run on the owner's Windows PC (engine binary, `npm.cmd`), and fix what breaks.
+1. Run the Windows zip on the owner's PC and fix what breaks.
 2. Sketch on a face or plane: lines, rectangles, circles, dimensions, finish; extrude as a feature.
 3. Feature timeline (edit, suppress, reorder) and a parameters table.
 4. Real B-rep edges in the viewport (pick an edge for fillet and chamfer); a binary mesh call instead of 3MF files.

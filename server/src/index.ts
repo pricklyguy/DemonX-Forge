@@ -8,7 +8,8 @@ import { EngineError, type Engine } from './engine/Engine';
 import { BadRequest, checkStep } from './commands';
 import { SolidCraftEngine } from './engine/solidcraft';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// FORGE_ROOT is set by the Windows start file (the packaged app folder); from a checkout the root is two folders up
+const root = process.env.FORGE_ROOT ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PORT = Number(process.env.FORGE_PORT ?? 8120);
 const exe = process.platform === 'win32' ? 'solidcraft-cli.exe' : 'solidcraft-cli';
 const ENGINE_PATH = process.env.FORGE_ENGINE ?? join(root, 'data', 'engine', exe);

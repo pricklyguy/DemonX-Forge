@@ -1,0 +1,3 @@
+# The SolidCraft version the Windows package builds its engine from (a full commit hash). Change it on purpose, after trying the new one:
+# SolidCraft changes daily and its command names are not stable. This is the commit the engine tests and the spike were run against.
+f498d23a79ece3a5a2fac6ebf43882ec25eb7b2d

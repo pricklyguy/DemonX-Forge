@@ -14,12 +14,14 @@
     "build": "npm run build -w web",
     "start": "npm run start -w server",
     "test": "npm test -w server",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "package:windows": "node scripts/build-windows.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "playwright": "1.56.1"
+    "playwright": "1.56.1",
+    "esbuild": "^0.28.2"
   }
 }

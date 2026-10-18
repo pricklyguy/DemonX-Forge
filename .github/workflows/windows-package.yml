@@ -1,0 +1,96 @@
+name: Windows package
+
+# Builds DemonX-Forge-<version>-windows-x64.zip: Forge, its own Node, the modelling engine (SolidCraft's solidcraft-cli.exe, compiled here
+# from the commit in engine/SOLIDCRAFT_REF) and a start file. Run it by hand (Actions tab, "Run workflow") to get the zip as a download,
+# or push a tag like v0.1.0 to also attach it to a GitHub release. The first engine build takes a while (20 to 40 minutes); later ones reuse a cache.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  engine:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Which SolidCraft commit
+        id: ref
+        shell: bash
+        run: echo "sha=$(grep -E '^[0-9a-f]{40}$' engine/SOLIDCRAFT_REF)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: tangency-labs/solidcraft
+          ref: ${{ steps.ref.outputs.sha }}
+          path: solidcraft
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: solidcraft
+          key: ${{ steps.ref.outputs.sha }}
+      - name: Build the engine (no debug info: the file is much smaller)
+        working-directory: solidcraft
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: 'false'
+          CARGO_PROFILE_RELEASE_STRIP: 'true'
+        run: cargo build --release -p solidcraft-cli
+      - name: Collect the engine and its licence files
+        shell: bash
+        run: |
+          mkdir engine-out
+          cp solidcraft/target/release/solidcraft-cli.exe engine-out/
+          for f in LICENSE-MIT LICENSE-APACHE NOTICE THIRD-PARTY-LICENSES.txt; do cp "solidcraft/$f" engine-out/; done
+          echo "${{ steps.ref.outputs.sha }}" > engine-out/SOLIDCRAFT_COMMIT.txt
+          ls -l engine-out
+      - name: The engine starts and builds a part
+        shell: bash
+        run: |
+          printf '%s' '{"commands":[{"command":"sketch.create","params":{"plane":"XY"}},{"command":"sketch.rectangle.two_point","params":{"p0":[0,0],"p1":[10,10]}},{"command":"sketch.finish","params":{}},{"command":"solid.extrude","params":{"distance":5}}]}' > smoke.json
+          ./engine-out/solidcraft-cli.exe eval smoke.json | grep -q '"volume_mm3": 500'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-windows-x64
+          path: engine-out
+          if-no-files-found: error
+
+  package:
+    needs: engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: The tag must match the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
+      - run: npm ci
+        env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
+      - run: npm run typecheck
+      - run: npm test
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-windows-x64
+          path: engine-out
+      - run: node scripts/build-windows.mjs --engine-dir engine-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DemonX-Forge-windows-x64
+          path: |
+            dist-windows/DemonX-Forge-*-windows-x64.zip
+            dist-windows/DemonX-Forge-*-windows-x64.zip.sha256
+          if-no-files-found: error
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-windows/DemonX-Forge-*-windows-x64.zip
+            dist-windows/DemonX-Forge-*-windows-x64.zip.sha256
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: docs/releases/${{ github.ref_name }}.md
+          fail_on_unmatched_files: true
