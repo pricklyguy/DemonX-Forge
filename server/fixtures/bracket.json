@@ -1,0 +1,13 @@
+{"commands":[
+ {"command":"parameters.change","params":{"name":"width","expression":"60 mm"}},
+ {"command":"sketch.create","params":{"plane":"XZ","name":"Profile"}},
+ {"command":"sketch.line","params":{"points":[[0,0],[50,0],[50,8],[8,8],[8,40],[0,40]],"closed":true,"ids":["a","b","c","d","e","f"]}},
+ {"command":"sketch.finish","params":{}},
+ {"command":"solid.extrude","params":{"distance":"width","direction":"negative","body_name":"Bracket"}},
+ {"command":"sketch.create","params":{"plane":"XY","name":"BaseHoles"}},
+ {"command":"sketch.circle.center","params":{"center":[30,-15],"diameter":6}},
+ {"command":"sketch.circle.center","params":{"center":[30,-45],"diameter":6}},
+ {"command":"sketch.finish","params":{}},
+ {"command":"solid.extrude","params":{"distance":8,"direction":"negative","operation":"cut"}},
+ {"command":"solid.fillet","params":{"edges":[[8,-30,-8]],"radius":4}}
+]}

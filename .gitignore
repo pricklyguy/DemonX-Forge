@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.env
+data/
+# private working notes (not part of the project)
+docs/private/
