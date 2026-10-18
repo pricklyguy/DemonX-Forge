@@ -14,6 +14,7 @@ A Fusion-style parametric 3D CAD application, local only, in the DemonX look. No
 - **2026-10-18, owner and Claude: engine = SolidCraft's headless CLI behind our `Engine` interface** (React and Three.js interface of our own). Why: a spike (`docs/evaluation/SPIKE.md`) showed face picking, parameter edits and click-to-command in under half a second on a small part, and checks (`docs/evaluation/SOLIDCRAFT.md`) showed correct STEP/STL output verified by OpenCascade. Fallback: OpenCascade in WebAssembly or as a sidecar, if the kernel proves too weak on the owner's parts.
 - **2026-10-18, owner and Claude: GPL-3.0-or-later**, same as DemonX, so code can move between them. The owner has no plan to sell it; this only keeps things simple.
 - **2026-10-18, owner: follow Fusion's layout, menus and keys as closely as practical, for familiarity** (Solid and Sketch tabs, Create / Modify groups, browser tree, timeline strip, view cube, sketch palette; E extrude, L line, R rectangle, C circle, D dimension, H hole, Ctrl+Z / Ctrl+Y). Order of work: **sketch and extrude first.** Layout and shortcuts were taken from the owner's own screenshots of how they use Fusion (observed behaviour); icons, artwork and wording are ours, never copied.
+- **2026-10-18, owner: Z is up** (the owner uses Z-up in Fusion too; the engine is Z-up). The TOP view looks down Z. No Y-up option is planned.
 - **2026-10-18: work on `main` for the first commits** (empty repository), branches and PRs after that.
 
 ## Engine hand-over and the Windows package
