@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isLocalRequest } from './access';
-import { EngineError, type Engine } from './engine/Engine';
+import { EngineError, type Engine, type ExportFormat } from './engine/Engine';
+import { FileError, safeName } from './forgeFile';
 import { BadRequest, checkStep } from './commands';
 import { SolidCraftEngine } from './engine/solidcraft';
 
@@ -18,12 +19,15 @@ let engine: Engine | undefined;
 let engineProblem = '';
 async function startEngine() {
   if (!existsSync(ENGINE_PATH)) { engineProblem = `The modelling engine was not found at ${ENGINE_PATH}. See docs/PLAN.md ("Engine hand-over").`; return; }
-  const e = new SolidCraftEngine(ENGINE_PATH);
+  const e = new SolidCraftEngine(ENGINE_PATH, undefined, appVersion);
   try { await e.start(); engine = e; } catch (err) { engineProblem = String((err as Error).message); }
 }
 
 const MAX_BODY = 1_000_000;
 const MAX_STEPS = 200;
+const MAX_FILE = 512 * 1024 * 1024; // an uploaded .forge file
+const appVersion = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version as string; } catch { return 'dev'; } })();
+const EXPORTS: Record<string, { format: ExportFormat; ext: string }> = { step: { format: 'step', ext: 'step' }, stl: { format: 'stl', ext: 'stl' }, stla: { format: 'stla', ext: 'stl' }, '3mf': { format: '3mf', ext: '3mf' }, obj: { format: 'obj', ext: 'obj' } };
 const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.woff2': 'font/woff2' };
 const send = (res: ServerResponse, code: number, v: unknown) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(v)); };
 const readBody = (req: IncomingMessage) => new Promise<any>((ok, bad) => {
@@ -36,10 +40,43 @@ const readBody = (req: IncomingMessage) => new Promise<any>((ok, bad) => {
 /** Read-only questions the browser may ask the engine. */
 const QUERY_OK = new Set(['timeline.inspect', 'timeline.dependents']);
 
+const readBytes = (req: IncomingMessage, max: number) => new Promise<Buffer>((ok, bad) => {
+  const declared = Number(req.headers['content-length'] ?? 0);
+  if (declared > max) { req.destroy(); return bad(new BadRequest('That file is too large')); }
+  let n = 0; const parts: Buffer[] = [];
+  req.on('data', (d: Buffer) => { n += d.length; if (n > max) { bad(new BadRequest('That file is too large')); req.destroy(); } else parts.push(d); });
+  req.on('end', () => ok(Buffer.concat(parts)));
+  req.on('error', bad);
+});
+const sendFile = (res: ServerResponse, bytes: Uint8Array, filename: string) => {
+  res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': bytes.length, 'x-forge-filename': encodeURIComponent(filename), 'cache-control': 'no-store', 'access-control-expose-headers': 'x-forge-filename' });
+  res.end(Buffer.from(bytes));
+};
+
 async function api(path: string, req: IncomingMessage, res: ServerResponse) {
   if (!engine) return send(res, 503, { error: engineProblem || 'The engine is not running' });
   const e = engine;
+  if (path === '/api/open') { // the body is the bytes of a .forge file; ?name= is what to call the design
+    if (req.method !== 'POST') throw new BadRequest('POST the file');
+    const name = safeName(new URL(req.url ?? '/', 'http://localhost').searchParams.get('name'));
+    await e.load(new Uint8Array(await readBytes(req, MAX_FILE)), name);
+    return send(res, 200, await e.snapshot());
+  }
   const a = req.method === 'POST' ? await readBody(req) : {};
+  if (path === '/api/save') { const name = safeName(a.name, (await e.snapshot()).doc.name); return sendFile(res, await e.save(name), `${name}.forge`); }
+  if (path === '/api/export') {
+    const snap = await e.snapshot(); const name = safeName(a.name, snap.doc.name);
+    if (a.format === 'dxf') {
+      const sk = snap.sketches.find((k) => k.name === a.sketch);
+      if (typeof a.sketch !== 'string' || !sk) throw new BadRequest('Choose a sketch to export');
+      return sendFile(res, await e.exportSketchDxf(sk.name), `${name} ${sk.name}.dxf`);
+    }
+    const spec = typeof a.format === 'string' ? EXPORTS[a.format] : undefined;
+    if (!spec) throw new BadRequest('Unknown export format');
+    if (!snap.bodies.length) throw new BadRequest('There is nothing to export yet: make a body first');
+    return sendFile(res, await e.exportBodies(spec.format), `${name}.${spec.ext}`);
+  }
+  if (path === '/api/new') { await e.newDesign(); return send(res, 200, await e.snapshot()); }
   if (path === '/api/query') {
     if (typeof a.command !== 'string' || !QUERY_OK.has(a.command)) throw new BadRequest(`Not a question Forge can ask: ${String(a.command).slice(0, 60)}`);
     if (a.params !== undefined && (typeof a.params !== 'object' || a.params === null || Array.isArray(a.params))) throw new BadRequest('"params" must be an object');
@@ -92,7 +129,7 @@ export function makeServer() {
     if (!u.pathname.startsWith('/api/')) return serveStatic(u.pathname, res);
     api(u.pathname, req, res).catch((err) => {
       if (res.headersSent) return;
-      if (err instanceof BadRequest) return send(res, 400, { error: err.message });
+      if (err instanceof BadRequest || err instanceof FileError) return send(res, 400, { error: err.message });
       if (err instanceof EngineError) return send(res, 422, { error: err.message });
       console.error(err);
       send(res, 500, { error: 'Internal error' });

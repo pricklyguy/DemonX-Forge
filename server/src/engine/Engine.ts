@@ -73,7 +73,11 @@ export interface Body {
 export interface Parameter { name: string; expression: string; value: number; unit: string }
 export interface TimelineItem { id: number; name: string; type: string; suppressed: boolean; error: string | null }
 
+export interface Doc { name: string; /** True when there are changes since the last save or open. */ dirty: boolean }
+export type ExportFormat = 'step' | 'stl' | 'stla' | '3mf' | 'obj';
+
 export interface Snapshot {
+  doc: Doc;
   bodies: Body[];
   parameters: Parameter[];
   timeline: TimelineItem[];
@@ -101,6 +105,15 @@ export interface Engine {
   setParameter(name: string, value: string | number): Promise<void>;
   undo(): Promise<void>;
   redo(): Promise<void>;
+  /** The design as the bytes of a .forge file; the design is then called `name` and counts as saved. */
+  save(name: string): Promise<Uint8Array>;
+  /** Replaces the design with the one in a .forge file (FileError when it is not one); the design is then called `name`. */
+  load(bytes: Uint8Array, name: string): Promise<void>;
+  newDesign(): Promise<void>;
+  /** Every visible body in an exchange format. */
+  exportBodies(format: ExportFormat): Promise<Uint8Array>;
+  /** The shapes of one sketch as an ASCII DXF (millimetres). */
+  exportSketchDxf(sketch: string): Promise<Uint8Array>;
   /** Reads something from the engine without changing the model (a feature's definition, what depends on it). */
   query(command: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The current model as a face-tagged mesh. Bodies is empty for an empty design. */

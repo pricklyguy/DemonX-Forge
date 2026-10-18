@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api, type Snapshot, type SketchCurve, type TimelineItem, type Vec2, type Vec3 } from './api';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Browser } from './Browser';
+import { canPick, download, extOf, FORGE_TYPE, pickOpenFile, pickSaveHandle, stripExt, typeForExt, writeHandle, type Handle } from './files';
 import { Icon } from './icons';
 import { Ribbon } from './Ribbon';
 import { Timeline } from './Timeline';
@@ -12,7 +13,7 @@ import { PICK_MODE, constraintStep, dimensionFor, isDraw, onClick, onTyped, type
 import { pickEntity, type Picked } from './sketch/pick';
 import type { Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
-const EMPTY: Snapshot = { bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
+const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
@@ -64,7 +65,10 @@ export function App() {
   const [selected, setSelected] = useState<string[]>([]);
   const [selTl, setSelTl] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
-  const [confirm, setConfirm] = useState<{ text: string; ok(): void } | null>(null);
+  const [confirm, setConfirm] = useState<{ text: string; label?: string; ok(): void } | null>(null);
+  const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
+  const [notice, setNotice] = useState('');
+  const fileHandle = useRef<Handle | null>(null); // the file Save writes back to (Chrome and Edge)
   /** Set while an existing extrude is open in the dialog: `key` is the profiles it had, to tell whether they changed. */
   const [editing, setEditing] = useState<{ name: string; key: string } | null>(null);
   const [picks, setPicks] = useState<Picked[]>([]);
@@ -242,6 +246,89 @@ export function App() {
     preview.current = false; setProfiles([]); setEditing(null); setMode('model');
   };
 
+  // ---- files: new, open, save, export
+  const resetAfterLoad = () => {
+    chooseTool(null); setSel(null); setSelected([]); setPicks([]); setProfiles([]); setEditing(null); setSelTl(null); setMenu(null);
+    setHiddenBodies(new Set()); setHiddenSketches(new Set());
+    setTimeout(() => viewApi.current?.setView('home'), 80);
+  };
+  const guardUnsaved = (go: () => void) => { if (snap.doc.dirty) setConfirm({ text: 'Discard the unsaved changes?', label: 'Discard', ok: () => { setConfirm(null); go(); } }); else go(); };
+  const doNew = () => guardUnsaved(() => { void (async () => {
+    await noPreviewPending();
+    const s = await run(api.newDesign);
+    if (s) { fileHandle.current = null; resetAfterLoad(); setNotice('New design'); }
+  })(); });
+  const doOpen = () => guardUnsaved(() => { void (async () => {
+    try {
+      await noPreviewPending();
+      const picked = await pickOpenFile([FORGE_TYPE]);
+      if (!picked) return;
+      const data = await picked.file.arrayBuffer();
+      const s = await run(() => api.open(data, stripExt(picked.file.name)));
+      if (s) { fileHandle.current = picked.handle; resetAfterLoad(); setNotice(`Opened ${picked.file.name}`); }
+    } catch (e) { setError((e as Error).message); }
+  })(); });
+  const saveTo = async (target: Handle | null, name: string) => {
+    const { data, filename } = await api.save(name);
+    const blob = new Blob([data], { type: 'application/octet-stream' });
+    if (target) {
+      try { await writeHandle(target, blob); }
+      catch { // the browser would not let us write back (permission refused, read-only file): ask where to save instead
+        const other = await pickSaveHandle(`${name}.forge`, [FORGE_TYPE]);
+        if (!other) { setError('Not saved: the file could not be written and no other place was chosen.'); return; }
+        await writeHandle(other, blob); target = other;
+      }
+      fileHandle.current = target;
+    } else download(blob, filename);
+    setNotice(`Saved ${target ? target.name : filename}`);
+    await run(api.state); // the name and the unsaved marker
+  };
+  const doSave = async (saveAs: boolean) => {
+    if (mode === 'extrude') { setError('Finish or cancel the extrude first, then save.'); return; }
+    const name = snap.doc.name;
+    try {
+      let target = saveAs ? null : fileHandle.current;
+      if (!target && canPick()) { target = await pickSaveHandle(`${name}.forge`, [FORGE_TYPE]); if (!target) return; }
+      if (!target && saveAs) { setEdit({ title: 'Save as (the file goes to your Downloads folder)', value: name, submit: (v) => void saveTo(null, v.trim() || name).catch((e) => setError((e as Error).message)) }); return; }
+      await saveTo(target, target ? stripExt(target.name) : name);
+    } catch (e) { setError((e as Error).message); }
+  };
+  const doExport = async (format: string, sketch?: string) => {
+    try {
+      const base = snap.doc.name, ext = format === 'stla' ? 'stl' : format;
+      const suggested = sketch ? `${base} ${sketch}.${ext}` : `${base}.${ext}`;
+      const target = canPick() ? await pickSaveHandle(suggested, [typeForExt(ext)]) : null;
+      if (canPick() && !target) return;
+      const { data, filename } = await api.exportAs(format, sketch);
+      const blob = new Blob([data], { type: 'application/octet-stream' });
+      if (target) { await writeHandle(target, blob); setNotice(`Exported ${target.name}`); } else { download(blob, filename); setNotice(`Exported ${filename} (see your Downloads folder)`); }
+    } catch (e) { setError((e as Error).message); }
+  };
+  const fileItems = (): MenuItem[] => {
+    const none = snap.bodies.length === 0;
+    return [
+      { label: 'New', onClick: doNew },
+      { label: 'Open…   Ctrl+O', onClick: doOpen },
+      { label: 'Save   Ctrl+S', onClick: () => void doSave(false) },
+      { label: 'Save As…   Ctrl+Shift+S', onClick: () => void doSave(true) },
+      { label: 'Export bodies', heading: true, onClick: () => {} },
+      { label: 'STEP (.step)', disabled: none, onClick: () => void doExport('step') },
+      { label: 'STL (.stl)', disabled: none, onClick: () => void doExport('stl') },
+      { label: '3MF (.3mf)', disabled: none, onClick: () => void doExport('3mf') },
+      { label: 'OBJ (.obj)', disabled: none, onClick: () => void doExport('obj') },
+      { label: 'Export a sketch as DXF', heading: true, onClick: () => {} },
+      ...(snap.sketches.length ? snap.sketches.map((k) => ({ label: k.name, onClick: () => void doExport('dxf', k.name) })) : [{ label: 'No sketches yet', disabled: true, onClick: () => {} }]),
+    ];
+  };
+  useEffect(() => { document.title = `${snap.doc.name}${snap.doc.dirty ? ' ●' : ''} - DemonX Forge`; }, [snap.doc]);
+  useEffect(() => {
+    if (!snap.doc.dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [snap.doc.dirty]);
+  useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(t); }, [notice]);
+
   // ---- editing: timeline items and sketches
   const noPreviewPending = async () => { if (mode === 'extrude') await cancelExtrude(); };
   const editSketch = async (name: string) => {
@@ -295,13 +382,14 @@ export function App() {
   // ---- keyboard (the same letters Fusion users know)
   const latest = useRef({ mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
   latest.current = { mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
-  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem });
-  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem };
+  const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen });
+  actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, drillHole, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current, A = actions.current, k = e.key.toLowerCase();
       // text boxes and lists own the keyboard; a ticked checkbox does not (clicking Snap must not turn the L, R, C keys off)
       const inField = (e.target as HTMLElement)?.closest?.('input:not([type=checkbox]):not([type=radio]), select, textarea');
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 's' || k === 'o')) { e.preventDefault(); if (k === 'o') A.doOpen(); else void A.doSave(e.shiftKey); return; }
       if ((e.ctrlKey || e.metaKey) && !inField) {
         if (k === 'z' && !e.shiftKey) { e.preventDefault(); A.undo(); } else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); A.redo(); }
         return;
@@ -355,7 +443,8 @@ export function App() {
     <div className="app">
       <header>
         <span className="brand"><b>DemonX</b> Forge</span>
-        <span className="muted">(Unsaved)</span>
+        <button data-testid="file-menu" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setFileMenu({ x: r.left, y: r.bottom + 2 }); }}>File ▾</button>
+        <span className="docname" data-testid="docname">{snap.doc.name}{snap.doc.dirty && <span className="dirty" data-testid="dirty" title="Unsaved changes">●</span>}</span>
         <span className="spacer" />
         <button className="hbtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy && mode === 'extrude'} onClick={undo}><Icon.undo /></button>
         <button className="hbtn" aria-label="Redo" title="Redo (Ctrl+Y)" onClick={redo}><Icon.redo /></button>
@@ -364,7 +453,7 @@ export function App() {
 
       <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} onCreateSketch={createSketch} onExtrude={startExtrude} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
-      <Browser bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
+      <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
         onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
         onSetParam={async (name, value) => !!(await run(() => api.param(name, value)))} />
 
@@ -425,7 +514,7 @@ export function App() {
         )}
 
         {confirm && (
-          <div className="confirm" data-testid="confirm"><span>{confirm.text}</span><button onClick={() => setConfirm(null)}>Cancel</button><button className="primary" data-testid="confirm-ok" onClick={confirm.ok}>Delete</button></div>
+          <div className="confirm" data-testid="confirm"><span>{confirm.text}</span><button onClick={() => setConfirm(null)}>Cancel</button><button className="primary" data-testid="confirm-ok" onClick={confirm.ok}>{confirm.label ?? 'Delete'}</button></div>
         )}
         {mode === 'model' && face && (
           <div className="seltip" data-testid="selection">Face {face.index} · {face.planeNormal ? 'plane' : face.cylinder ? `cylinder R${face.cylinder.radius.toFixed(2)}` : 'other'} · area ≈ {face.area.toFixed(1)} mm²</div>
@@ -438,11 +527,13 @@ export function App() {
 
       <Timeline items={snap.timeline} marker={snap.marker} selected={selTl} onSelect={setSelTl} onEdit={editItem} onMenu={(item, x, y) => setMenu({ x, y, item })}
         onRollEnd={() => send([{ command: 'timeline.roll_to', params: {} }])} />
+      {fileMenu && <ContextMenu x={fileMenu.x} y={fileMenu.y} items={fileItems()} onClose={() => setFileMenu(null)} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />}
 
       <div className="status" data-testid="status">
         <span data-testid="hint">{busy ? 'Working…' : hint || (snap.bodies.length ? `${snap.bodies.length} body, ${triangles} triangles; engine ${snap.ms} ms` : 'Ready')}</span>
         {mode === 'sketch' && cursor && <span className="coords" data-testid="coords">X {cursor[0].toFixed(2)}  Y {cursor[1].toFixed(2)} mm</span>}
+        {notice && <span className="ok" data-testid="notice">{notice}</span>}
         {error && <span className="err" data-testid="error">{error}</span>}
         {snap.warnings.map((w) => <span className="warn" key={w}>{w}</span>)}
       </div>

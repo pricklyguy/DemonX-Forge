@@ -2,7 +2,7 @@ DEMONX FORGE FOR WINDOWS
 ========================
 
 DemonX Forge is a 3D design (CAD) program that runs in your web browser, on your own computer. Nothing goes to the cloud.
-It is early: you can sketch (line, rectangle, circle, dimensions) and extrude, cut or join. There is no save, open or export yet, and no fillets.
+It is early: you can sketch (line, rectangle, circle, dimensions) and extrude, cut or join. There are no fillets yet.
 
 You need: Windows 10 or 11 (64-bit) and a web browser.
 You do NOT need to install Node, Rust or anything else: it is all in this folder.
@@ -36,6 +36,12 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
 - To change something you made: double-click a step in the timeline (the icons along the bottom). A sketch reopens; an
   extrude opens its dialog, and you can see the result while you type. Right-click a step for Rename, Suppress, Roll
   history to here, and Delete. Deleting a sketch also deletes what was built on it: Forge tells you first.
+- Saving: File menu, Save (Ctrl+S). Forge files end in .forge. The first Save asks where to put it; after that Ctrl+S
+  writes to the same file. A dot next to the name at the top means there are unsaved changes. Open is Ctrl+O.
+  (Chrome or Edge give you the normal Windows save and open windows; other browsers download the file to your
+  Downloads folder.)
+- Getting a part out: File, Export: STEP (for other CAD programs), STL or 3MF (for a slicer), OBJ, and "Export a
+  sketch as DXF" (the outline of a sketch, in millimetres, for DemonX Design or a laser/CNC program).
 - "Load the demo bracket" gives a ready-made part to look at.
 
 
@@ -58,4 +64,4 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
                            licence texts and those of the parts it is made of
   LICENSE.txt              Forge's own licence (GPL-3.0-or-later)
 
-Parts you make leave Forge as STEP, STL, 3MF or DXF files (export is not in this early version yet).
+Parts you make leave Forge as STEP, STL, 3MF or DXF files (File, Export).

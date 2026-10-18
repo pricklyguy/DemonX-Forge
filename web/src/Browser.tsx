@@ -3,6 +3,7 @@ import type { Body, Parameter, Sketch } from './api';
 import { Icon } from './icons';
 
 interface Props {
+  docName: string;
   bodies: Body[]; sketches: Sketch[]; parameters: Parameter[];
   hiddenBodies: Set<string>; hiddenSketches: Set<number>; showOrigin: boolean; busy: boolean;
   onToggleBody(name: string): void; onToggleSketch(id: number): void; onToggleOrigin(): void; onEditSketch(name: string): void;
@@ -38,7 +39,7 @@ export function Browser(p: Props) {
   return (
     <aside className="browser" data-testid="browser">
       <div className="bhead">BROWSER</div>
-      <Node id="root" label="(Unsaved)">
+      <Node id="root" label={p.docName}>
         <Node id="settings" label="Document Settings"><div className="bleaf">Units: mm</div></Node>
         <Node id="origin" label="Origin" eye={p.showOrigin} onEye={p.onToggleOrigin} open={false}>
           <div className="bleaf">XY plane</div><div className="bleaf">XZ plane</div><div className="bleaf">YZ plane</div>

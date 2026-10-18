@@ -80,3 +80,7 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .cmenu { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; min-width: 200px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 .cmenu button { background: none; border: none; text-align: left; padding: 5px 10px; border-radius: 4px; } .cmenu button:hover:not(:disabled) { background: var(--panel2); } .cmenu button.danger { color: var(--danger); }
 .confirm { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--danger); border-radius: 6px; padding: 8px 12px; display: flex; gap: 10px; align-items: center; z-index: 5; }
+
+.cmenu .mhead { font-size: 10px; letter-spacing: .08em; color: var(--muted); padding: 6px 10px 2px; border-top: 1px solid var(--line); margin-top: 3px; }
+.status .ok { color: var(--ok); }
+.docname { color: var(--muted); } .docname .dirty { color: var(--amber); margin-left: 4px; }

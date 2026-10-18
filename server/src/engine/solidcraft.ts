@@ -1,10 +1,11 @@
 // The Engine implementation that drives SolidCraft's headless CLI (`solidcraft-cli mcp`, MIT OR Apache-2.0) over stdio.
 // This is the only file that knows SolidCraft's tool and command names.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EngineError, type Body, type CommandStep, type Engine, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
+import { FileError, packForge, unpackForge } from '../forgeFile';
+import { EngineError, type Body, type CommandStep, type ExportFormat, type Engine, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
 import { parse3mf } from './mesh3mf';
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };
@@ -17,8 +18,10 @@ export class SolidCraftEngine implements Engine {
   private work = '';
   private specs = new Map<string, string | null>();
   private queue: Promise<unknown> = Promise.resolve();
+  private docName = 'Untitled';
+  private fileNo = 0;
 
-  constructor(private readonly binary: string, private readonly timeoutMs = 120_000) {}
+  constructor(private readonly binary: string, private readonly timeoutMs = 120_000, private readonly appVersion = 'dev') {}
 
   async start(): Promise<void> {
     this.work = mkdtempSync(join(tmpdir(), 'forge-engine-'));
@@ -109,6 +112,47 @@ export class SolidCraftEngine implements Engine {
     return this.serial(async () => { await this.tool('set_parameter', { name, value }); });
   }
   query(command: string, params: Record<string, unknown> = {}): Promise<unknown> { return this.serial(() => this.tool('execute', { command, params })); }
+  private tmp(ext: string) { return join(this.work, `f${++this.fileNo}.${ext}`); }
+
+  save(name: string): Promise<Uint8Array> {
+    return this.serial(async () => {
+      const path = this.tmp('solidcraft');
+      try {
+        await this.tool('save', { path });
+        this.docName = name;
+        return packForge(new Uint8Array(readFileSync(path)), this.appVersion);
+      } finally { rmSync(path, { force: true }); }
+    });
+  }
+
+  load(bytes: Uint8Array, name: string): Promise<void> {
+    return this.serial(async () => {
+      const { design } = unpackForge(bytes); // throws FileError before the design is touched
+      const path = this.tmp('solidcraft');
+      try {
+        writeFileSync(path, design);
+        try { await this.tool('open', { path }); } catch (e) { throw new FileError(`The design inside this file could not be opened: ${(e as Error).message}`); }
+        this.docName = name;
+      } finally { rmSync(path, { force: true }); }
+    });
+  }
+
+  newDesign(): Promise<void> { return this.serial(async () => { await this.tool('new_design', {}); this.docName = 'Untitled'; }); }
+
+  exportBodies(format: ExportFormat): Promise<Uint8Array> {
+    return this.serial(async () => {
+      const path = this.tmp(format === 'stla' ? 'stl' : format);
+      try { await this.tool('export', { path, format }); return new Uint8Array(readFileSync(path)); } finally { rmSync(path, { force: true }); }
+    });
+  }
+
+  exportSketchDxf(sketch: string): Promise<Uint8Array> {
+    return this.serial(async () => {
+      const path = this.tmp('dxf');
+      try { await this.tool('execute', { command: 'sketch.export_dxf', params: { sketch, path } }); return new Uint8Array(readFileSync(path)); } finally { rmSync(path, { force: true }); }
+    });
+  }
+
   undo(): Promise<void> { return this.serial(async () => { await this.tool('undo'); }); }
   redo(): Promise<void> { return this.serial(async () => { await this.tool('redo'); }); }
 
@@ -121,7 +165,8 @@ export class SolidCraftEngine implements Engine {
       const timeline: TimelineItem[] = (info?.timeline ?? []).map((t: any) => ({ id: Number(t.id), name: String(t.name), type: String(t.type), suppressed: !!t.suppressed, error: t.error ? String(t.error) : null }));
       const sketches: Sketch[] = (info?.sketches ?? []).map((k: any) => toSketch(k, info?.active_sketch));
       const marker = Number(info?.marker ?? timeline.length);
-      if (!names.length) return { bodies: [], parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
+      const doc = { name: this.docName, dirty: !!info?.dirty };
+      if (!names.length) return { doc, bodies: [], parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
       const path = join(this.work, `mesh-${this.nextId}.3mf`);
       await this.tool('export', { path, format: '3mf-tagged' });
       const meshes = parse3mf(new Uint8Array(readFileSync(path)));
@@ -130,7 +175,7 @@ export class SolidCraftEngine implements Engine {
         const topo = await this.tool('body_topology', { body: m.name });
         bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace) });
       }
-      return { bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
+      return { doc, bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
     });
   }
 }
