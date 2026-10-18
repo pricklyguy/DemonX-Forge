@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 360" fill="none" stroke-linejoin="round" stroke-linecap="round">
+  <!-- DemonX mark, draft 3 (tail instead of arrow): horned D and X, one arrow running through both. Colours: the letters use currentColor, the arrow uses --dx-accent. -->
+  <g stroke="currentColor" stroke-width="14">
+    <!-- D: outer and inner outline -->
+    <path d="M96 118 H176 A82 82 0 0 1 176 282 H96 Z"/>
+    <path d="M122 144 H176 A56 56 0 0 1 176 256 H122 Z" stroke-width="9"/>
+    <!-- X -->
+    <path d="M232 124 L346 282"/>
+    <path d="M346 124 L232 282" />
+  </g>
+  <!-- horns: crescents rising from the top corners of D and X -->
+  <g fill="currentColor" stroke="none">
+    <path d="M92 124 V104 C64 90 56 54 80 18 C88 52 108 74 138 84 V124 Z"/>
+    <path d="M350 124 V104 C378 90 386 54 362 18 C354 52 334 74 304 84 V124 Z"/>
+  </g>
+  <!-- the tail: curls out from the foot of the D, sweeps through both letters, ends in a spade tip -->
+  <g stroke="var(--dx-accent, #2bb5c9)" stroke-width="11" fill="none">
+    <path d="M112 292 C34 304 20 214 104 204 C176 196 232 236 292 214 C322 203 340 190 352 174"/>
+  </g>
+  <path d="M338 176 L372 148 L366 192 Z" fill="var(--dx-accent, #2bb5c9)" stroke="var(--dx-accent, #2bb5c9)" stroke-width="4" stroke-linejoin="round"/>
+</svg>
