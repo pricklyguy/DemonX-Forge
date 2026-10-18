@@ -30,7 +30,7 @@ jobs:
         with:
           workspaces: solidcraft
           key: ${{ steps.ref.outputs.sha }}
-      - name: Build the engine (no debug info: the file is much smaller)
+      - name: Build the engine (no debug info, so the file is much smaller)
         working-directory: solidcraft
         shell: bash
         env:
