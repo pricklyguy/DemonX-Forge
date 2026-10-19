@@ -8,7 +8,8 @@ import type { Body, Sketch, SketchCurve, Vec2, Vec3 } from './api';
 import { loopPolygon, curvePoints } from './sketch/loops';
 import { findRegions } from './sketch/regions';
 import { ORIGIN_PLANES, normalOf, rayToSketch, toWorld, type Plane } from './sketch/plane';
-import { niceStep, round3, snapGrid, snapPoints } from './sketch/snap';
+import { niceStep, round3, snapGrid } from './sketch/snap';
+import { inferSnap, type Inference } from './sketch/inference';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
 import { isDraw, preview as previewOf } from './sketch/tools';
 import type { EdgeGeometry } from '../../server/src/engine/meshEdges';
@@ -17,6 +18,8 @@ import type { EdgeRef, Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
 
 export interface FacePick { body: string; face: number; point: Vec3 }
 
+/** A draggable arrow: starts `base` mm along `dir` from `origin` and ends `value` further on. */
+export type Handle = { origin: Vec3; dir: Vec3; value: number; base?: number; color?: string; label?: string; onChange(v: number): void; onSubmit?(): void };
 interface Props {
   bodies: Body[];
   sketches: Sketch[];
@@ -46,7 +49,9 @@ interface Props {
   /** While true (Press Pull), a click in modify mode picks a face instead of an edge. */
   pickFaces?: boolean;
   /** An arrow that can be dragged to set a distance (Press Pull and Extrude): it starts at `origin`, points along `dir` and ends `value` away. */
-  handle?: { origin: Vec3; dir: Vec3; value: number; onChange(v: number): void; onSubmit?(): void } | null;
+  handle?: Handle | null;
+  /** Several arrows at once (Move: one per axis). Used in place of `handle` when given. */
+  handles?: Handle[];
   onEdgePick(ref: EdgeRef | null, additive: boolean): void;
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
@@ -54,6 +59,8 @@ interface Props {
   onSketchClick(pt: Vec2, tol: number, additive: boolean): void;
   /** The pointer was pressed at `a`, dragged and released at `b` with a drawing tool and nothing placed yet: the same as clicking a then b. */
   onSketchDrag(a: Vec2, b: Vec2): void;
+  /** A rubber band dragged over empty space with no tool: `crossing` is true when dragged right to left (curves it touches count, not only those inside). */
+  onSketchBox?(a: Vec2, b: Vec2, crossing: boolean, additive: boolean): void;
   /** Show the sizes of the sketch's curves (driving dimensions, and measured sizes where there is none) as labels you can double-click to change. */
   showDims?: boolean;
   /** A dimension label was double-clicked and a new value typed into it. */
@@ -289,6 +296,7 @@ export function Viewport(props: Props) {
 
     // ---- the cursor, the shape being drawn, what is under the pointer and what is selected
     let cursor: Vec2 | null = null;
+    let lastSnap: Inference | null = null; // what the pointer snapped to last (drawn as a marker while drawing)
     let hover: Picked | null = null;
     const rebuildPreview = () => {
       clear(gPreview);
@@ -312,6 +320,14 @@ export function Viewport(props: Props) {
       for (const id of p.highlight) { const c = s.curves.find((x) => x.id === id); showEntity(c ? { kind: 'curve', id } : { kind: 'point', id }, 4); }
       if (hover && p.pickMode) showEntity(hover, 3);
       if (cursor && isDraw(p.tool)) gPreview.add(mark(cursor, wpp() * 6, 1.5));
+      if (cursor && isDraw(p.tool) && lastSnap) { // Fusion-style hints: a square for an end or centre, a triangle for a middle, a cross for a crossing, dashed lines for alignment
+        const k = wpp() * 7, [x, y] = cursor, sn = lastSnap, cyan = css('--cyan');
+        if (sn.kind === 'mid') gPreview.add(thick(flat([[x - k, y - k], [x + k, y - k], [x, y + k], [x - k, y - k]]), cyan, 2.5));
+        else if (sn.kind === 'inter') { gPreview.add(thick(flat([[x - k, y - k], [x + k, y + k]]), cyan, 2.5)); gPreview.add(thick(flat([[x - k, y + k], [x + k, y - k]]), cyan, 2.5)); }
+        else if (sn.kind === 'align') {
+          for (const g of [sn.x && { from: sn.x.from, to: [sn.x.value, y] as Vec2 }, sn.y && { from: sn.y.from, to: [x, sn.y.value] as Vec2 }]) if (g) gPreview.add(thick(flat([g.from, g.to]), css('--amber'), 1.25));
+        } else gPreview.add(thick(flat([[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k], [x - k, y - k]]), cyan, 2.5));
+      }
     };
 
     // ---- edges: the one under the pointer and the selected ones
@@ -324,58 +340,71 @@ export function Viewport(props: Props) {
       if (hoverEdge && p.mode === 'modify') { const g = find(hoverEdge); if (g) gEdges.add(thick(g.segments, css('--amber'), 3.5)); }
     };
     // ---- the drag arrow of Press Pull and Extrude: a line from the face to the distance, with a cone at the tip
-    const handleGeometry = () => {
-      const h = P.current.handle; if (!h) return null;
-      const o = new THREE.Vector3(...h.origin), d = new THREE.Vector3(...h.dir).normalize(), tip = o.clone().addScaledVector(d, h.value);
+    const handleList = (): Handle[] => P.current.handles ?? (P.current.handle ? [P.current.handle] : []);
+    const geomOf = (h: Handle) => {
+      const d = new THREE.Vector3(...h.dir).normalize(), o = new THREE.Vector3(...h.origin).addScaledVector(d, h.base ?? 0), tip = o.clone().addScaledVector(d, h.value);
       return { o, d, tip };
     };
+    const handleGeometry = () => { const h = handleList()[0]; return h ? geomOf(h) : null; };
     const rebuildHandle = () => {
       clear(gHandle);
-      const g = handleGeometry(); if (!g) return;
       const k = wpp() * 11; // the cone is about 11 px across
-      gHandle.add(thick([g.o.x, g.o.y, g.o.z, g.tip.x, g.tip.y, g.tip.z], css('--accent'), 3));
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(k, k * 2.4, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(css('--accent')), depthTest: false }));
-      cone.position.copy(g.tip).addScaledVector(g.d, Math.sign(P.current.handle!.value || 1) * k * 1.2);
-      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), g.d.clone().multiplyScalar(Math.sign(P.current.handle!.value || 1)));
-      cone.renderOrder = 10; gHandle.add(cone);
-    };
-    // the distance box beside the arrow's tip: shows the value while dragging, and typing a number into it moves the arrow
-    let handleInput: HTMLInputElement | null = null;
-    const syncHandleInput = () => {
-      const g = handleGeometry(), h = P.current.handle;
-      if (!g || !h) { if (handleInput) { handleInput.remove(); handleInput = null; } return; }
-      if (!handleInput) {
-        const el3 = document.createElement('input'); el3.type = 'text'; el3.className = 'dimlabel live dimin handle-input'; el3.setAttribute('aria-label', 'Drag arrow value'); el3.autocomplete = 'off'; el3.spellcheck = false;
-        el3.addEventListener('focus', () => el3.select());
-        el3.addEventListener('input', () => { const n = Number(el3.value.replace(',', '.')); if (el3.value.trim() !== '' && Number.isFinite(n)) P.current.handle?.onChange(n); });
-        el3.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); P.current.handle?.onSubmit?.(); } });
-        liveLayer.appendChild(el3); handleInput = el3;
+      for (const h of handleList()) {
+        const g = geomOf(h), col = new THREE.Color(h.color ?? css('--accent')), s = Math.sign(h.value || 1);
+        gHandle.add(thick([g.o.x, g.o.y, g.o.z, g.tip.x, g.tip.y, g.tip.z], h.color ?? css('--accent'), 3));
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(k, k * 2.4, 20), new THREE.MeshBasicMaterial({ color: col, depthTest: false }));
+        cone.position.copy(g.tip).addScaledVector(g.d, s * k * 1.2);
+        cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), g.d.clone().multiplyScalar(s));
+        cone.renderOrder = 10; gHandle.add(cone);
       }
-      const q = g.tip.clone().project(cam);
-      handleInput.style.left = `${((q.x + 1) / 2) * size.x + 54}px`; handleInput.style.top = `${((1 - q.y) / 2) * size.y - 16}px`;
-      if (document.activeElement !== handleInput) handleInput.value = `${Math.round(h.value * 100) / 100}`;
-      handleInput.style.width = `${Math.max(5, handleInput.value.length + 3)}ch`;
+    };
+    // the distance box beside each arrow's tip: shows the value while dragging, and typing a number into it moves the arrow
+    const handleInputs: HTMLInputElement[] = [];
+    const syncHandleInput = () => {
+      const hs = handleList();
+      while (handleInputs.length > hs.length) handleInputs.pop()!.remove();
+      hs.forEach((h, i) => {
+        let el3 = handleInputs[i];
+        if (!el3) {
+          el3 = document.createElement('input'); el3.type = 'text'; el3.className = 'dimlabel live dimin handle-input'; el3.autocomplete = 'off'; el3.spellcheck = false;
+          el3.addEventListener('focus', () => el3!.select());
+          el3.addEventListener('input', () => { const n = Number(el3!.value.replace(',', '.')); if (el3!.value.trim() !== '' && Number.isFinite(n)) handleList()[i]?.onChange(n); });
+          el3.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); handleList()[i]?.onSubmit?.(); } });
+          liveLayer.appendChild(el3); handleInputs[i] = el3;
+        }
+        el3.setAttribute('aria-label', h.label ?? 'Drag arrow value');
+        const q = geomOf(h).tip.clone().project(cam);
+        el3.style.left = `${((q.x + 1) / 2) * size.x + 54}px`; el3.style.top = `${((1 - q.y) / 2) * size.y - 16}px`;
+        if (document.activeElement !== el3) el3.value = `${Math.round(h.value * 100) / 100}`;
+        el3.style.width = `${Math.max(5, el3.value.length + 3)}ch`;
+      });
     };
     const toPx = (v: THREE.Vector3) => { const q = v.clone().project(cam), r = dom.getBoundingClientRect(); return new THREE.Vector2(((q.x + 1) / 2) * r.width, ((1 - q.y) / 2) * r.height); };
-    let drag: { m0: THREE.Vector2; v0: number; u: THREE.Vector2; pxPerMm: number } | null = null;
-    /** Whether a pointer press at (mx, my) grabs the arrow (near its tip or its shaft), and the drag it starts. */
+    let drag: { i: number; m0: THREE.Vector2; v0: number; u: THREE.Vector2; pxPerMm: number } | null = null;
+    /** Whether a pointer press grabs an arrow (near its tip or its shaft; the nearest of several), and the drag it starts. */
     const grabHandle = (e: PointerEvent) => {
-      const g = handleGeometry(), h = P.current.handle; if (!g || !h) return false;
       const r = dom.getBoundingClientRect(), m = new THREE.Vector2(e.clientX - r.left, e.clientY - r.top);
-      const a = toPx(g.o), t = toPx(g.tip), ab = t.clone().sub(a), len2 = ab.lengthSq();
-      const s = len2 > 1 ? Math.max(0, Math.min(1, m.clone().sub(a).dot(ab) / len2)) : 0;
-      const nearest = a.clone().addScaledVector(ab, s);
-      if (m.distanceTo(nearest) > 12 && m.distanceTo(t) > 18) return false;
-      const unit = toPx(g.o.clone().addScaledVector(g.d, 10)).sub(a); // 10 mm along the arrow, in pixels
-      if (unit.length() < 3) return false; // looking straight down the arrow: it cannot be dragged
-      drag = { m0: m, v0: h.value, u: unit.clone().normalize(), pxPerMm: unit.length() / 10 };
+      let best = -1, bd = Infinity, bu: THREE.Vector2 | null = null;
+      handleList().forEach((h, i) => {
+        const g = geomOf(h), a = toPx(g.o), tp = toPx(g.tip), ab = tp.clone().sub(a), len2 = ab.lengthSq();
+        const s = len2 > 1 ? Math.max(0, Math.min(1, m.clone().sub(a).dot(ab) / len2)) : 0;
+        const dist = Math.min(m.distanceTo(a.clone().addScaledVector(ab, s)) - 12, m.distanceTo(tp) - 18);
+        if (dist > 0) return;
+        const unit = toPx(g.o.clone().addScaledVector(g.d, 10)).sub(a); // 10 mm along the arrow, in pixels
+        if (unit.length() < 3) return; // looking straight down the arrow: it cannot be dragged
+        const near = m.distanceTo(tp);
+        if (near < bd) { bd = near; best = i; bu = unit; }
+      });
+      if (best < 0 || !bu) return false;
+      const u: THREE.Vector2 = bu;
+      drag = { i: best, m0: m, v0: handleList()[best]!.value, u: u.clone().normalize(), pxPerMm: u.length() / 10 };
       return true;
     };
     const dragHandle = (e: PointerEvent) => {
-      if (!drag || !P.current.handle) return;
+      const h = drag && handleList()[drag.i]; if (!drag || !h) return;
       const r = dom.getBoundingClientRect(), m = new THREE.Vector2(e.clientX - r.left, e.clientY - r.top);
       const raw = drag.v0 + m.sub(drag.m0).dot(drag.u) / drag.pxPerMm, step = e.shiftKey ? 0.1 : 0.5;
-      P.current.handle.onChange(Math.round(raw / step) * step);
+      h.onChange(Math.round(raw / step) * step);
     };
     /** How far from the camera the edge a-b is where the pick ray passes it (the closest point of the segment to the ray; a screen-space fraction would be wrong under perspective). */
     const depthAlong = (a: THREE.Vector3, b: THREE.Vector3) => {
@@ -443,12 +472,13 @@ export function Viewport(props: Props) {
       const s = P.current.activeSketch; if (!s) return null;
       const raw = rawPoint(e);
       if (!raw) return null;
-      const known: Vec2[] = [[0, 0]];
-      for (const c of s.curves) { if (c.start) known.push(c.start); if (c.end) known.push(c.end); if (c.center) known.push(c.center); }
-      const tol = wpp() * 9;
-      const hit = snapPoints(raw, known, tol);
-      if (hit) return hit;
-      return P.current.snap ? snapGrid(raw, niceStep(wpp() * 14)) : ([round3(raw[0]), round3(raw[1])] as Vec2);
+      const tol = wpp() * 9, grid = (): Vec2 => (P.current.snap ? snapGrid(raw, niceStep(wpp() * 14)) : ([round3(raw[0]), round3(raw[1])] as Vec2));
+      const hit = inferSnap(raw, s.curves, tol, P.current.pending.length ? P.current.pending[P.current.pending.length - 1] : undefined);
+      lastSnap = hit;
+      if (!hit) return grid();
+      if (hit.kind !== 'align') return hit.point;
+      const g = grid(); // aligned in one direction (or both): the other direction follows the grid
+      return [round3(hit.x ? hit.x.value : g[0]), round3(hit.y ? hit.y.value : g[1])];
     };
     const planarFaceHit = (): { body: string; point: Vec3; index: number } | null => {
       for (const h of ray.intersectObjects(gBodies.children, false)) {
@@ -462,6 +492,8 @@ export function Viewport(props: Props) {
 
     let down: [number, number] | null = null;
     let drawFrom: Vec2 | null = null; // where a drag with a drawing tool began
+    let band: { from: Vec2; at: [number, number]; el: HTMLDivElement | null } | null = null; // the rubber band of a drag over empty space
+    const endBand = () => { band?.el?.remove(); band = null; };
     let entDrag: { ent: Picked; from: Vec2; at: [number, number]; started: boolean; last: Vec2 } | null = null; // a point or curve being dragged in a sketch
     dom.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -471,6 +503,8 @@ export function Viewport(props: Props) {
       entDrag = null;
       if (q.mode === 'sketch' && !q.tool && q.activeSketch && q.onEntityDrag) { const raw = rawPoint(e); const ent = raw ? pickEntity(q.activeSketch, raw, wpp() * 9, 'any') : null; if (ent && raw) entDrag = { ent, from: raw, at: [e.clientX, e.clientY], started: false, last: raw }; }
       drawFrom = q.mode === 'sketch' && isDraw(q.tool) && q.pending.length === 0 ? sketchPoint(e) : null;
+      endBand();
+      if (q.mode === 'sketch' && !q.tool && !entDrag && q.activeSketch && q.onSketchBox) { const raw = rawPoint(e); if (raw) band = { from: raw, at: [e.clientX, e.clientY], el: null }; }
     });
     // the shape under the pointer lights up (model view and Extrude), so it is clear what can be clicked
     let hoverFill: THREE.Object3D | null = null;
@@ -491,6 +525,14 @@ export function Viewport(props: Props) {
     };
     dom.addEventListener('pointermove', (e) => {
       if (drag) { dragHandle(e); return; }
+      if (band && (band.el || Math.hypot(e.clientX - band.at[0], e.clientY - band.at[1]) > 4)) {
+        const r = dom.getBoundingClientRect();
+        if (!band.el) { band.el = document.createElement('div'); band.el.className = 'rubberband'; band.el.setAttribute('data-testid', 'rubberband'); liveLayer.appendChild(band.el); dom.setPointerCapture(e.pointerId); }
+        const x0 = band.at[0] - r.left, y0 = band.at[1] - r.top, x1 = e.clientX - r.left, y1 = e.clientY - r.top;
+        Object.assign(band.el.style, { left: `${Math.min(x0, x1)}px`, top: `${Math.min(y0, y1)}px`, width: `${Math.abs(x1 - x0)}px`, height: `${Math.abs(y1 - y0)}px` });
+        band.el.classList.toggle('crossing', x1 < x0); // right to left touches, left to right needs the whole curve inside
+        return;
+      }
       if (entDrag && (entDrag.started || Math.hypot(e.clientX - entDrag.at[0], e.clientY - entDrag.at[1]) > 4)) {
         const to = sketchPoint(e) ?? rawPoint(e); if (!to) return;
         if (!entDrag.started) { entDrag.started = true; dom.setPointerCapture(e.pointerId); dom.style.cursor = 'grabbing'; P.current.onEntityDrag!('start', entDrag.ent, entDrag.from, entDrag.from); }
@@ -518,6 +560,13 @@ export function Viewport(props: Props) {
       if (drag) { drag = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
       if (entDrag?.started) { P.current.onEntityDrag!('end', entDrag.ent, entDrag.last, entDrag.last); entDrag = null; down = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
       entDrag = null;
+      if (band?.el) {
+        const to = rawPoint(e), crossing = e.clientX < band.at[0], from = band.from, additive = e.shiftKey || e.ctrlKey || e.metaKey;
+        endBand(); down = null; drawFrom = null; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+        if (to) P.current.onSketchBox?.(from, to, crossing, additive);
+        return;
+      }
+      endBand();
       if (e.button !== 0 || !down) return;
       const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4; down = null;
       if (moved) { // press, drag and release draws a shape in one go (the same as two clicks)
@@ -600,16 +649,18 @@ export function Viewport(props: Props) {
       project: (w: number[]) => { const v = new THREE.Vector3(w[0], w[1], w[2]).project(cam); const r = dom.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; },
       sketchToScreen: (q: Vec2) => { const s = P.current.activeSketch; if (!s) return null; const w = toWorld(planeOf(s), q); return (window as any).__forge.project(w); },
       pointerSnap: () => cursor,
+      /** test hook: what the pointer snapped to last */
+      snapKind: () => lastSnap?.kind ?? null,
       /** test hook: the pickable shapes of the sketches and whether each is lit (hovered or selected) */
       fills: () => gSketch.children.filter((o) => o.userData.extrude).map((o) => ({ sketch: o.userData.sketch, index: o.userData.index, opacity: Math.round(((o as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity * 100) / 100 })),
       /** test hook: where the drag arrow's tip is on screen, and its value */
-      handleTip: () => { const g = handleGeometry(); return g ? { at: (window as any).__forge.project([g.tip.x, g.tip.y, g.tip.z]), value: P.current.handle!.value } : null; },
+      handleTip: (i = 0) => { const h = handleList()[i]; if (!h) return null; const g = geomOf(h); return { at: (window as any).__forge.project([g.tip.x, g.tip.y, g.tip.z]), value: h.value }; },
       // test hook: what the edge picker finds at the screen position of a world point
       edgeAt: (w: number[]) => { const [x, y] = (window as any).__forge.project(w); const sets = P.current.edgeSets; return { sets: sets.length, edges: sets.reduce((n, t) => n + t.edges.length, 0), pick: pickEdge({ clientX: x, clientY: y }), mode: P.current.mode }; },
     };
     const fitOnce = () => { if (!firstFit && gBodies.children.length) { firstFit = true; fit(); } };
     (S.current as any).fitOnce = fitOnce;
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; labelLayer.remove(); handleInput?.remove(); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; endBand(); labelLayer.remove(); handleInputs.forEach((x) => x.remove()); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
   }, []);
 
   const p = props;
@@ -618,7 +669,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
-  useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.theme]);
+  useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.handles?.map((h) => `${h.origin.join()}|${h.dir.join()}|${h.value}|${h.base}`).join(';'), p.theme]);
   useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);
 
   return <div className="viewport" ref={host} data-testid="viewport" />;

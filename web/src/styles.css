@@ -25,7 +25,7 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .rtabs { display: flex; gap: 2px; padding: 4px 12px 0; }
 .rtab { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 3px 12px; font-size: 11px; letter-spacing: .08em; color: var(--muted); }
 .rtab.active { color: var(--text); border-bottom-color: var(--accent); opacity: 1; }
-.rtools { display: flex; align-items: stretch; padding: 2px 12px 4px; min-height: 76px; overflow-x: auto; scrollbar-width: thin; }
+.rtools { display: flex; align-items: stretch; padding: 2px 12px 4px; min-height: 76px; flex-wrap: wrap; row-gap: 2px; }
 .rgroup { flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 0 10px; border-right: 1px solid var(--line); }
 .rbtns { display: flex; gap: 2px; }
 .rtitle { text-align: center; font-size: 10px; letter-spacing: .08em; color: var(--muted); padding-top: 2px; }
@@ -102,3 +102,13 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .dimlabel.dimedit { pointer-events: auto; cursor: text; }
 .dimlabel.measured { border-style: dashed; color: var(--muted); transform: translate(-50%, -50%); } /* centred on its anchor, which stands off the curve, so it never sits on the line it measures */
 .dimlabel .dimedit-input { width: 6ch; font: inherit; font-size: 11px; background: var(--panel); color: var(--text); border: 0; outline: none; padding: 0; text-align: center; }
+
+.dialog.compact { min-width: 0; width: 190px; padding: 6px 8px; gap: 4px; }
+.dialog.compact .drow { grid-template-columns: 54px 1fr; gap: 6px; }
+.drow.axis > span { font-weight: 700; }
+.stepper { display: flex; gap: 3px; align-items: center; }
+.stepper input { width: 0; flex: 1 1 auto; min-width: 0; }
+.stepper button { padding: 2px 8px; line-height: 1.1; }
+.rubberband { position: absolute; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); } .rubberband.crossing { border-style: dashed; background: color-mix(in srgb, var(--green, var(--accent)) 14%, transparent); }
+
+.viewport { user-select: none; -webkit-user-select: none; }
