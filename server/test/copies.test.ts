@@ -58,4 +58,40 @@ describe.skipIf(!existsSync(bin))('mirror, patterns, sweep, loft (real engine)',
     await e.run([{ command: 'solid.combine', params: { target: 'Body1', tools: ['Body2'], operation: 'intersect' } }]);
     expect(await boxes()).toEqual(['30,5,0,40,25,10']);
   });
+
+  it('moves, splits, drills and edits a hole, threads it, and grows a rib', async () => {
+    await e.newDesign();
+    await e.run([{ command: 'solid.box', params: { length: 40, width: 30, height: 10, corner: [0, 0, 0] } }]);
+    await e.run([{ command: 'solid.move', params: { bodies: ['Body1'], translate: [50, 0, 0], copy: true } }]);
+    expect(await boxes()).toEqual(['0,0,0,40,30,10', '50,0,0,90,30,10']); await e.undo();
+    await e.run([{ command: 'solid.move', params: { bodies: ['Body1'], axis: [0, 0, 1], angle: 90 } }]);
+    expect(await boxes()).toEqual(['-30,0,0,0,40,10']); await e.undo();
+    await e.run([{ command: 'solid.split_body', params: { body: 'Body1', plane: { origin: [15, 0, 0], normal: [1, 0, 0] } } }]);
+    expect(await boxes()).toEqual(['0,0,0,15,30,10', '15,0,0,40,30,10']); await e.undo();
+    await expect(e.run([{ command: 'solid.split_body', params: { body: 'Body1', plane: { origin: [50, 0, 0], normal: [1, 0, 0] } } }])).rejects.toThrow();
+    // a hole, edited in place (diameter, depth removed, position)
+    await e.run([{ command: 'solid.hole', params: { position: [30, 12, 10], diameter: 10, depth: 4 } }]);
+    const radii = async () => (await e.snapshot()).bodies[0]!.faces.filter((f) => f.cylinder).map((f) => Math.round(f.cylinder!.radius * 100) / 100);
+    expect(await radii()).toEqual([5, 5]);
+    await e.run([{ command: 'timeline.edit', params: { feature: 'Hole1', set: { diameter: '6', depth: null, position: [20, 15, 10] } } }]);
+    expect(await radii()).toEqual([3, 3]);
+    const def = ((await e.query('timeline.inspect', { feature: 'Hole1' })) as { definition: Record<string, unknown> }).definition;
+    expect(def.depth).toBeUndefined(); expect(def.position).toEqual([20, 15, 10]);
+    await e.undo(); expect(await radii()).toEqual([5, 5]);
+    await e.undo(); // the blind hole
+    await e.run([{ command: 'solid.hole', params: { position: [30, 12, 10], diameter: 10 } }]);
+    const wall = (await e.snapshot()).bodies[0]!.faces.find((f) => f.cylinder)!;
+    await e.run([{ command: 'solid.thread', params: { face: wall.point, designation: 'M10', modeled: false } }]);
+    expect((await e.snapshot()).timeline.map((t) => t.type)).toContain('ThreadFeature');
+    await expect(e.run([{ command: 'solid.thread', params: { face: wall.point, designation: 'M20' } }])).rejects.toThrow(/does not fit/);
+    // a rib from a line across the floor of an open box
+    await e.newDesign();
+    await e.run([{ command: 'solid.box', params: { length: 40, width: 30, height: 20, corner: [0, 0, 0] } }, { command: 'solid.shell', params: { faces: [[20, 15, 20]], thickness: 2 } },
+      { command: 'sketch.create', params: { plane: 'XZ', name: 'R', offset: 15 } }, { command: 'sketch.line', params: { points: [[2, -2], [38, -2]] } }, { command: 'sketch.finish' }]);
+    const before = (await e.snapshot()).bodies[0]!.faces.length;
+    await e.run([{ command: 'solid.rib', params: { sketch: 'R', curves: ['l1'], thickness: 3, depth: 8 } }]);
+    expect((await e.snapshot()).bodies[0]!.faces.length).toBeGreaterThan(before);
+    await e.undo();
+    await expect(e.run([{ command: 'solid.rib', params: { sketch: 'R', curves: ['l1'], thickness: 3 } }])).rejects.toThrow(/depth/);
+  });
 });

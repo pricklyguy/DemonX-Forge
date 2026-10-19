@@ -43,13 +43,16 @@ await p.waitForFunction(async () => { const s = await (await fetch('/api/state')
 check(true, 'width 100 mm rebuilt the part');
 await p.screenshot({ path: `${shots}/forge-2-width100.png` });
 
-// H drills a hole at the clicked point
+// H opens the Hole dialog with the clicked face; OK drills it at the clicked point
 const f0 = (await state()).bodies[0].faces.length;
 const [hx, hy] = await proj([40, -50, 0]);
 await p.mouse.click(hx, hy);
 await p.keyboard.press('h');
-await p.waitForFunction(async (n) => (await (await fetch('/api/state')).json()).bodies[0].faces.length > n, f0, { timeout: 60000 });
-check(true, 'H drills a hole at the clicked point', `${f0} -> ${(await state()).bodies[0].faces.length} faces`);
+await p.getByTestId('modify-dialog').waitFor();
+await p.waitForFunction(async (n) => (await (await fetch('/api/state')).json()).bodies[0].faces.length > n, f0, { timeout: 60000 }); // the live preview
+await p.getByTestId('modify-ok').click();
+await p.getByTestId('modify-dialog').waitFor({ state: 'detached' });
+check(true, 'H and OK drill a hole at the clicked point', `${f0} -> ${(await state()).bodies[0].faces.length} faces`);
 await p.getByLabel('Undo').click();
 await p.waitForFunction(async (n) => (await (await fetch('/api/state')).json()).bodies[0].faces.length === n, f0, { timeout: 60000 });
 check(true, 'Undo removes the hole');
