@@ -6,9 +6,11 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 13px system-ui, 'Segoe UI', sans-serif; overflow: hidden; }
 .muted { color: var(--muted); }
 
-.app { display: grid; grid-template-columns: 264px minmax(0, 1fr); grid-template-rows: 38px auto minmax(0, 1fr) 52px 26px; height: 100%; }
+.app { display: grid; grid-template-columns: 264px minmax(0, 1fr); grid-template-rows: 50px auto minmax(0, 1fr) 52px 26px; height: 100%; }
 header { grid-column: 1 / 3; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 12px; }
-header .brand { font-weight: 700; letter-spacing: .02em; } header .brand b { color: var(--accent); }
+header .brand { display: flex; align-items: center; gap: 8px; margin-right: 4px; }
+header .brand img { display: block; width: auto; user-select: none; -webkit-user-drag: none; }
+header .brand img.brand-mark { height: 38px; } header .brand img.brand-name { height: 34px; }
 header .spacer { flex: 1; }
 
 button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer; font: inherit; }

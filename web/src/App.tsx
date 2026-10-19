@@ -956,7 +956,7 @@ export function App() {
   return (
     <div className="app">
       <header>
-        <span className="brand"><b>DemonX</b> Forge</span>
+        <span className="brand" data-testid="brand" aria-label="DemonX Forge"><img className="brand-mark" src="/forge-mark.png" alt="" width="60" height="38" /><img className="brand-name" src="/forge-wordmark.png" alt="DemonX Forge" width="185" height="34" /></span>
         <button data-testid="file-menu" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setFileMenu({ x: r.left, y: r.bottom + 2 }); }}>File ▾</button>
         <span className="docname" data-testid="docname">{snap.doc.name}{snap.doc.dirty && <span className="dirty" data-testid="dirty" title="Unsaved changes">●</span>}</span>
         <span className="spacer" />
