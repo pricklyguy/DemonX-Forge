@@ -166,6 +166,8 @@ export function App() {
   const [pending, setPending] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [typed, setTyped] = useState('');
+  const [offsetPick, setOffsetPick] = useState<string | null>(null); // Offset: the curve being offset; the pointer sets the distance until a click
+  const offsetRef = useRef<HTMLInputElement>(null);
   const [typed2, setTyped2] = useState(''); // the second box (height, angle) of the typed sizes
   const clearTyped = () => { setTyped(''); setTyped2(''); };
   const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string): void } | null>(null);
@@ -239,7 +241,7 @@ export function App() {
   useEffect(() => { setSel((p) => (p && snap.bodies.find((b) => b.name === p.body)?.faces.some((f) => f.index === p.face) ? p : null)); }, [snap]);
 
   // ---- sketching
-  const chooseTool = (t: Tool | null) => { setTool(t); setPending([]); clearTyped(); setEdit(null); setPicks([]); if (t) setSelected([]); setError(''); };
+  const chooseTool = (t: Tool | null) => { setOffsetPick(null); setTool(t); setPending([]); clearTyped(); setEdit(null); setPicks([]); if (t) setSelected([]); setError(''); };
   const applyResult = (r: ReturnType<typeof onClick>) => {
     setError(r.message ?? '');
     setPending(r.pending);
@@ -251,6 +253,7 @@ export function App() {
   const sketchClick = (pt: Vec2, tol: number, additive: boolean) => {
     const sk = activeSketch; if (!sk) return;
     if (isDraw(tool)) { applyResult(onClick(tool, pending, pt)); return; }
+    if (tool === 'offset' && offsetPick) { commitOffset(); return; }
     const hit = pickEntity(sk, pt, tol, tool ? PICK_MODE[tool] : 'curve');
     if (!tool) { // no tool: select curves (Shift adds), then Delete removes them or X makes them construction lines
       setSelected((cur) => (!hit ? (additive ? cur : []) : additive ? (cur.includes(hit.id) ? cur.filter((i) => i !== hit.id) : [...cur, hit.id]) : [hit.id]));
@@ -262,7 +265,7 @@ export function App() {
       case 'dimension': { const c = sk.curves.find((x) => x.id === hit.id); if (c) curvePick(c); break; }
       case 'trim': send([{ command: 'sketch.trim', params: { curve: hit.id, at: pt } }]); break;
       case 'extend': send([{ command: 'sketch.extend', params: { curve: hit.id, at: pt } }]); break;
-      case 'offset': setEdit({ title: 'Offset distance (negative goes the other way)', value: '5', submit: (v) => send([{ command: 'sketch.offset', params: { curves: [hit.id], distance: numOrExpr(v), chain: true } }]) }); break;
+      case 'offset': setOffsetPick(hit.id); clearTyped(); break; // the pointer now sets the distance; a click places it
       case 'fillet': setEdit({ title: 'Fillet radius', value: '2', submit: (v) => send([{ command: 'sketch.fillet', params: { point: hit.id, radius: numOrExpr(v) } }]) }); break;
       default: { // constraint tools collect the picks they need, then send one constraint
         const next = [...picks, hit];
@@ -286,6 +289,28 @@ export function App() {
   };
   const showSize = (x: number | undefined) => (x === undefined ? '' : String(Math.round(x * 100) / 100));
   /** Press, drag, release with a drawing tool: the same as clicking the two corners. */
+  /** Offset: the signed distance the pointer sets from the picked curve. Positive is to the left of a line's direction and inside a circle or arc, as the engine does it. */
+  const offsetCurve = activeSketch?.curves.find((c) => c.id === offsetPick);
+  const liveOffset = (): number | null => {
+    const c = offsetCurve, q = cursor; if (!c || !q) return null;
+    if (c.type === 'line' && c.start && c.end) { const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], l = Math.hypot(dx, dy); return l < 1e-9 ? null : (dx * (q[1] - c.start[1]) - dy * (q[0] - c.start[0])) / l; }
+    if ((c.type === 'circle' || c.type === 'arc') && c.center && c.radius !== undefined) return c.radius - Math.hypot(q[0] - c.center[0], q[1] - c.center[1]);
+    return null;
+  };
+  const offsetValue = (): number | string | null => { const t = typed.trim(); if (t !== '') return numOrExpr(t); const d = liveOffset(); return d === null ? null : Math.round(d * 10) / 10; };
+  const commitOffset = () => {
+    const d = offsetValue();
+    if (offsetPick === null || d === null || d === 0) { setError('Move the pointer to one side of the curve, or type a distance'); return; }
+    send([{ command: 'sketch.offset', params: { curves: [offsetPick], distance: d, chain: true } }]);
+    setOffsetPick(null); clearTyped();
+  };
+  const offsetOutline = useMemo((): Vec2[][] => {
+    const c = offsetCurve, d = typed.trim() !== '' && Number.isFinite(Number(typed)) ? Number(typed) : liveOffset(); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!c || d === null || d === 0) return [];
+    if (c.type === 'line' && c.start && c.end) { const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], l = Math.hypot(dx, dy) || 1, nx = (-dy / l) * d, ny = (dx / l) * d; return [[[c.start[0] + nx, c.start[1] + ny], [c.end[0] + nx, c.end[1] + ny]]]; }
+    if (c.type === 'circle' && c.center && c.radius !== undefined) { const r = c.radius - d; return r > 0 ? [Array.from({ length: 65 }, (_, i) => [c.center![0] + r * Math.cos((i / 64) * Math.PI * 2), c.center![1] + r * Math.sin((i / 64) * Math.PI * 2)] as Vec2)] : []; }
+    return [];
+  }, [offsetCurve, cursor, typed]); // eslint-disable-line react-hooks/exhaustive-deps
   const sketchDrag = (a: Vec2, b: Vec2) => {
     if (!isDraw(tool) || pending.length) return;
     const first = onClick(tool, [], a);
@@ -355,7 +380,7 @@ export function App() {
   const pipeChoice = pipeOptions.some((o) => o.value === ext.pipeSketch) ? ext.pipeSketch : pipeOptions[0]?.value ?? '';
   /** The arrow to drag in the view: Press Pull's face, or the extrude's profile. Its value is the dialog's distance. */
   const dragHandle = useMemo(() => {
-    if (mode === 'modify' && modTool === 'presspull' && facesSel[0] && !valueEdit) {
+    if (mode === 'modify' && (modTool === 'presspull' || modTool === 'offsetface') && facesSel[0] && !valueEdit) {
       const f = modBase?.bodies.find((b) => b.name === facesSel[0]!.body)?.faces.find((q) => q.index === facesSel[0]!.face);
       const n = Number(modValue); if (!f?.planeNormal || !Number.isFinite(n)) return null;
       return { origin: facesSel[0]!.point as Vec3, dir: f.planeNormal as Vec3, value: n, onChange: (x: number) => setModValue(String(+x.toFixed(2))) };
@@ -831,8 +856,8 @@ export function App() {
   const redo = () => { if (mode === 'extrude' || mode === 'modify') return; void run(api.redo); };
 
   // ---- keyboard (the same letters Fusion users know)
-  const latest = useRef({ mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
-  latest.current = { mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
+  const latest = useRef({ offsetPick, mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
+  latest.current = { offsetPick, mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
   const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify });
   actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify };
   useEffect(() => {
@@ -854,6 +879,7 @@ export function App() {
         else if (L.mode === 'extrude') void A.cancelExtrude();
         else if (L.mode === 'modify') void A.cancelModify();
         else if (L.mode === 'pickPlane') setMode('model');
+        else if (L.offsetPick) setOffsetPick(null);
         else if (L.pending.length) A.endChain();
         else if (L.picks.length) setPicks([]);
         else if (L.tool) A.chooseTool(null);
@@ -862,6 +888,7 @@ export function App() {
       }
       if (inField) return;
       if (L.mode === 'sketch') {
+        if (L.tool === 'offset' && L.offsetPick && (k === 'tab' || /^[0-9.\-]$/.test(e.key))) { e.preventDefault(); if (k !== 'tab') setTyped(e.key); setTimeout(() => offsetRef.current?.focus(), 0); return; }
         if (L.pending.length && k === 'tab' && L.tool !== 'arc3') { e.preventDefault(); entryRef.current?.focus(); entryRef.current?.select(); return; } // Tab goes to the size boxes, then between them
         if (L.pending.length && /^[0-9.\-]$/.test(e.key)) { setTyped(e.key); setTimeout(() => entryRef.current?.focus(), 0); e.preventDefault(); return; }
         const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', a: 'arc3', d: 'dimension', t: 'trim', o: 'offset' };
@@ -918,7 +945,7 @@ export function App() {
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
-          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onSketchDrag={sketchDrag} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onSketchDrag={sketchDrag} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
@@ -1005,6 +1032,12 @@ export function App() {
           </div>
         )}
 
+        {mode === 'sketch' && tool === 'offset' && offsetPick && (
+          <div className="entry" data-testid="offset-entry">
+            <label>Offset<input ref={offsetRef} aria-label="Offset distance" type="text" value={typed !== '' ? typed : showSize(liveOffset() === null ? undefined : Math.round(liveOffset()! * 10) / 10)} onFocus={(e) => e.target.select()} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitOffset(); }} /></label>
+            <span className="hint">Move the mouse to the side you want and click, or type a distance and press Enter</span>
+          </div>
+        )}
         {mode === 'sketch' && typable && (
           <div className="entry" data-testid="entry">
             <label>{fieldNames[0]}<input ref={entryRef} aria-label="Typed size" type="text" value={typed !== '' ? typed : showSize(liveSizes()[0])} placeholder={placeholder} onFocus={(e) => e.target.select()} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} /></label>

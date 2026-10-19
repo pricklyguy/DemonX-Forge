@@ -54,6 +54,8 @@ interface Props {
   onSketchDrag(a: Vec2, b: Vec2): void;
   /** Sketches whose closed shapes can be clicked in the model view (the ones no feature has used yet). */
   fillSketches?: Set<number>;
+  /** Extra outline drawn in the sketch while a tool shows what it would do (the Offset preview), as polylines in sketch coordinates. */
+  extraPreview?: Vec2[][];
   onSketchRightClick(): void;
   onProfilePick(sketch: number, index: number, at: Vec2): void;
   onCursor(pt: Vec2 | null): void;
@@ -239,6 +241,7 @@ export function Viewport(props: Props) {
         else if (p.tool === 'circle2') tag([(a[0] + cursor[0]) / 2, (a[1] + cursor[1]) / 2], `Ø${n(Math.hypot(dx, dy))}`);
         else if (p.tool === 'line') { const f = p.pending[p.pending.length - 1]!; tag([(f[0] + cursor[0]) / 2, (f[1] + cursor[1]) / 2], `${n(Math.hypot(cursor[0] - f[0], cursor[1] - f[1]))}`); }
       }
+      if (p.extraPreview?.length) { const seg = p.extraPreview.flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
       const mark = (at: Vec2, k: number, w: number) => { const [x, y] = at, sq: Vec2[] = [[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k], [x - k, y - k]]; return thick(flat(sq), amber, w); };
       if (p.showPoints) for (const q of s.points) gPreview.add(mark(q.at, wpp() * 3, 1.25));
       const showEntity = (e: Picked, w: number) => {
@@ -492,7 +495,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.selectedBodies, p.showEdges, p.theme]);
   useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.showProfiles, p.selectedProfiles, p.theme]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
-  useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints]);
+  useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
   useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.theme]);
   useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);

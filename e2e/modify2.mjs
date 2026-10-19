@@ -46,6 +46,8 @@ check(/OFFSET FACE/.test(await text('modify-dialog')) && /Select faces/.test(awa
 await clickWorld([20, 0, 5]); await settle(300);
 check(/1 selected/.test(await text('edge-count')), 'clicking the front wall selects it');
 check(await waitTrue(async () => JSON.stringify(await boxes()) === JSON.stringify(['0,-2,0,40,30,10'])), 'the preview moves it out by the default 2 mm', JSON.stringify(await boxes()));
+const tipO = await p.evaluate(() => window.__forge.handleTip());
+check(tipO && tipO.value === 2, 'Offset Face shows a drag arrow with the distance (2)', JSON.stringify(tipO));
 await p.getByLabel('Distance').fill('-6');
 check(await waitTrue(async () => JSON.stringify(await boxes()) === JSON.stringify(['0,6,0,40,30,10'])), 'a negative distance moves it in: the block is 24 deep', JSON.stringify(await boxes()));
 await p.keyboard.press('Escape');

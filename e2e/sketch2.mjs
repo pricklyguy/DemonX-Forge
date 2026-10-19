@@ -17,6 +17,7 @@ p.on('pageerror', (e) => { console.log('PAGE ERROR', e.message); failed++; });
 const sketch = async () => (await p.evaluate(async () => (await fetch('/api/state')).json())).sketches.find((k) => k.active);
 const at = (q) => p.evaluate((q) => window.__forge.sketchToScreen(q), q);
 const click = async (q, opts) => { const [x, y] = await at(q); await p.mouse.move(x, y); await p.mouse.click(x, y, opts); };
+const moveTo = async (q) => { const [x, y] = await at(q); await p.mouse.move(x, y); await settle(300); };
 const settle = (ms = 450) => p.waitForTimeout(ms);
 const text = (id) => p.getByTestId(id).innerText();
 const dist = (c, q) => { // distance from point q to a line or circle curve, in sketch mm
@@ -107,11 +108,29 @@ await p.keyboard.press('Escape');
 // ---- Offset (O): the 2-point circle by 3 mm
 await p.keyboard.press('o');
 await click([70, 40]); // on the circle's rim
-await p.getByTestId('value-entry').waitFor();
-await p.getByLabel('Value').fill('3'); await p.getByLabel('Value').press('Enter'); await settle(700);
+await p.getByTestId('offset-entry').waitFor();
+check(await p.getByLabel('Offset distance').count() === 1, 'picking the curve opens an Offset box (the pointer sets the distance)');
+await p.keyboard.type('3'); await p.getByLabel('Offset distance').press('Enter'); await settle(700);
 k = await sketch();
 const radii = k.curves.filter((c) => c.type === 'circle' && near(c.center[0], 65, 0.1) && near(c.center[1], 40, 0.1)).map((c) => c.radius).sort();
 check(radii.length === 2 && near(Math.abs(radii[1] - radii[0]), 3, 0.01), 'Offset made a concentric circle 3 mm away', JSON.stringify(radii));
+await p.keyboard.press('Escape');
+
+// ---- Offset by moving the mouse: the preview and the box follow the pointer, a click places it
+{
+  const big = Math.max(...radii);
+  await p.keyboard.press('o');
+  await click([65 + big, 40]); // on the outer circle's rim
+  await p.getByTestId('offset-entry').waitFor();
+  await moveTo([65 + big - 4, 40]);                    // 4 mm inside the rim
+  check(near(Number(await p.getByLabel('Offset distance').inputValue()), 4, 0.15), 'the Offset box shows the distance the pointer is at (about 4)', await p.getByLabel('Offset distance').inputValue());
+  await p.screenshot({ path: `${shots}/s4-offset-drag.png` });
+  await click([65 + big - 4, 40]); await settle(800);
+  k = await sketch();
+  const rs = k.curves.filter((c) => c.type === 'circle' && near(c.center[0], 65, 0.1) && near(c.center[1], 40, 0.1)).map((c) => c.radius).sort((a, b) => a - b);
+  check(rs.length === 3 && near(big - rs[1], 4, 0.15) || rs.some((r) => near(big - r, 4, 0.15)), 'a click places the offset circle where the preview was (4 mm in)', JSON.stringify(rs));
+  check((await p.getByTestId('offset-entry').count()) === 0, 'and the box closes');
+}
 await p.keyboard.press('Escape');
 
 // ---- Fillet: a right-angle corner at (-20,0) rounded with radius 4
