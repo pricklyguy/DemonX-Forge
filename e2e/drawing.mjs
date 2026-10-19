@@ -86,6 +86,38 @@ s = await state(); sk = s.sketches[0];
 const circ = sk.curves.find((c) => c.type === 'circle');
 check(circ && near(circ.radius, 6) && near(circ.center[0], -30), 'Enter places a circle of diameter 12', JSON.stringify(circ));
 
+// ---- a 3-point arc: length and angle of the chord first, then the radius
+await p.keyboard.press('a');
+await click([-60, -10]);
+await moveTo([-30, -10]);
+check((await p.locator('input.dimin').count()) === 2 && (await p.getByLabel('Typed size', { exact: true }).inputValue()) === '30', 'an arc first shows Length and Angle boxes (30)', `${await p.locator('input.dimin').count()}`);
+await p.keyboard.press('Tab'); await p.keyboard.type('40'); await p.keyboard.press('Tab'); await p.keyboard.type('0'); await p.keyboard.press('Enter'); await settle(500);
+check((await p.locator('input.dimin').count()) === 1, 'after the chord is set one Radius box is left');
+await moveTo([-40, 0]);
+await p.keyboard.press('Tab'); await p.keyboard.type('30'); await p.keyboard.press('Enter'); await settle(900);
+s = await state(); sk = s.sketches[0];
+const arc = sk.curves.find((c) => c.type === 'arc');
+check(arc && near(arc.radius, 30), 'Enter places an arc of radius 30', JSON.stringify(arc && { r: arc.radius, c: arc.center }));
+check(arc && near(Math.hypot(arc.start[0] - arc.end[0], arc.start[1] - arc.end[1]), 40), 'on a chord of length 40');
+
+// ---- a slot: centre-to-centre length and angle, then the width
+await p.keyboard.press('Escape');
+const nBefore = (await state()).sketches[0].curves.length;
+await p.getByTestId('tool-slot').click();
+await click([0, -40]);
+await moveTo([30, -40]);
+check((await p.locator('input.dimin').count()) === 2, 'a slot first shows Length and Angle');
+await p.keyboard.press('Tab'); await p.keyboard.type('35'); await p.keyboard.press('Tab'); await p.keyboard.type('0'); await p.keyboard.press('Enter'); await settle(500);
+await moveTo([17, -30]);
+check((await p.locator('input.dimin').count()) === 1, 'then one Width box');
+await p.keyboard.press('Tab'); await p.keyboard.type('12'); await p.keyboard.press('Enter'); await settle(900);
+s = await state(); sk = s.sketches[0];
+const slotCurves = sk.curves.slice(nBefore);
+const sys = slotCurves.flatMap((c) => c.type === 'arc' ? [c.center[1] + c.radius, c.center[1] - c.radius] : [c.start[1], c.end[1]]);
+check(slotCurves.length >= 4 && near(Math.max(...sys) - Math.min(...sys), 12), 'Enter places a slot 12 wide', `${slotCurves.length} curves, ${Math.max(...sys) - Math.min(...sys)}`);
+const sxs = slotCurves.flatMap((c) => c.type === 'arc' ? [c.center[0] + c.radius, c.center[0] - c.radius] : [c.start[0], c.end[0]]);
+check(near(Math.max(...sxs) - Math.min(...sxs), 35 + 12), 'with its two centres 35 apart (47 overall)', `${Math.max(...sxs) - Math.min(...sxs)}`);
+
 // ---- press, drag, release draws a rectangle in one go
 await p.keyboard.press('r');
 const [ax, ay] = await at([-50, -30]), [bx, by] = await at([-20, -50]);

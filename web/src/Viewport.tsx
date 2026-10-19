@@ -12,7 +12,7 @@ import { niceStep, round3, snapGrid, snapPoints } from './sketch/snap';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
 import { isDraw, preview as previewOf } from './sketch/tools';
 import type { EdgeGeometry } from '../../server/src/engine/meshEdges';
-import { applyTyped, sizeFields } from './sketch/tools';
+import { applyTyped, sizeBoxes } from './sketch/tools';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
 
 export interface FacePick { body: string; face: number; point: Vec3 }
@@ -258,15 +258,9 @@ export function Viewport(props: Props) {
       const flat = (poly: Vec2[]) => { const o: number[] = []; for (let i = 0; i < poly.length - 1; i++) o.push(...toWorld(plane, poly[i]!), ...toWorld(plane, poly[i + 1]!)); return o; };
       if (isDraw(p.tool) && cursor && p.pending.length) { const seg = previewOf(p.tool, p.pending, applyTyped(p.tool, p.pending, cursor, p.sizes ?? [])).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
       liveAnchors = [];
-      if (isDraw(p.tool) && cursor && p.pending.length && sizeFields(p.tool).length) { // the boxes on the shape being drawn
-        const a = p.pending[0]!, c = applyTyped(p.tool, p.pending, cursor, p.sizes ?? []);
-        const n = (x: number) => String(Math.round(x * 100) / 100), dx = c[0] - a[0], dy = c[1] - a[1];
-        const at = (q: Vec2, text: string) => liveAnchors.push({ w: new THREE.Vector3(...toWorld(plane, q)), text });
-        if (p.tool === 'rect') { at([(a[0] + c[0]) / 2, a[1]], n(Math.abs(dx))); at([c[0], (a[1] + c[1]) / 2], n(Math.abs(dy))); }
-        else if (p.tool === 'rectCenter') { at([a[0], a[1] - Math.abs(dy)], n(2 * Math.abs(dx))); at([a[0] + Math.abs(dx), a[1]], n(2 * Math.abs(dy))); }
-        else if (p.tool === 'circle') at([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], n(2 * Math.hypot(dx, dy)));
-        else if (p.tool === 'circle2') at([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], n(Math.hypot(dx, dy)));
-        else if (p.tool === 'line') { const f = p.pending[p.pending.length - 1]!; at([(f[0] + c[0]) / 2, (f[1] + c[1]) / 2], n(Math.hypot(c[0] - f[0], c[1] - f[1]))); at([f[0], f[1]], n((Math.atan2(c[1] - f[1], c[0] - f[0]) * 180) / Math.PI)); }
+      if (isDraw(p.tool) && cursor && p.pending.length) { // the boxes on the shape being drawn, for the stage it is at
+        const n = (x: number) => String(Math.round(x * 100) / 100);
+        for (const bx of sizeBoxes(p.tool, p.pending, applyTyped(p.tool, p.pending, cursor, p.sizes ?? []))) liveAnchors.push({ w: new THREE.Vector3(...toWorld(plane, bx.at)), text: n(bx.value) });
       }
       ensureInputs(liveAnchors.length);
       const mark = (at: Vec2, k: number, w: number) => { const [x, y] = at, sq: Vec2[] = [[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k], [x - k, y - k]]; return thick(flat(sq), amber, w); };

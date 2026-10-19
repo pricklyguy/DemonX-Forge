@@ -919,8 +919,8 @@ export function App() {
       if (inField) return;
       if (L.mode === 'sketch') {
         if (L.tool === 'offset' && L.offsetPick && (k === 'tab' || /^[0-9.\-]$/.test(e.key))) { e.preventDefault(); if (k !== 'tab') setTyped(e.key); setTimeout(() => offsetRef.current?.focus(), 0); return; }
-        if (L.pending.length && k === 'tab' && sizeFields(L.tool).length) { e.preventDefault(); viewApi.current?.focusSize(0); return; } // Tab goes to the size boxes on the shape, then between them
-        if (L.pending.length && sizeFields(L.tool).length && /^[0-9.\-]$/.test(e.key)) { if (viewApi.current?.focusSize(0, e.key)) e.preventDefault(); return; }
+        if (L.pending.length && k === 'tab' && sizeFields(L.tool, L.pending.length).length) { e.preventDefault(); viewApi.current?.focusSize(0); return; } // Tab goes to the size boxes on the shape, then between them
+        if (L.pending.length && sizeFields(L.tool, L.pending.length).length && /^[0-9.\-]$/.test(e.key)) { if (viewApi.current?.focusSize(0, e.key)) e.preventDefault(); return; }
         const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', a: 'arc3', d: 'dimension', t: 'trim', o: 'offset' };
         if (map[k]) { A.chooseTool(map[k]!); return; }
         if (k === 'delete' || k === 'backspace') { A.deleteSelected(); return; }

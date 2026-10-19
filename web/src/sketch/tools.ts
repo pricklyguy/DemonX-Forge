@@ -185,46 +185,83 @@ export function dimensionFor(curve: { id: string; type: string }, value: string)
   return { command: 'sketch.dimension', params: { entities: [curve.id], type, value: value.trim() !== '' && Number.isFinite(n) ? n : value.trim() } };
 }
 
-/** The boxes on a shape being drawn: what each is called, for a tool. Empty for tools that are placed by clicking only. */
-export function sizeFields(tool: Tool | null): string[] {
+export interface SizeBox { label: string; at: Vec2; value: number }
+
+/** The unit normal of the line a-b on the side of c (to the left when c is on the line). */
+function sideOf(a: Vec2, b: Vec2, c: Vec2): Vec2 {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+  let nx = -dy / l, ny = dx / l;
+  if ((c[0] - a[0]) * nx + (c[1] - a[1]) * ny < 0) { nx = -nx; ny = -ny; }
+  return [nx, ny];
+}
+
+/** The boxes on the shape being drawn for the stage it is at: each has a name, where it sits and the value the pointer gives it right now. Empty for a tool placed by clicking only. */
+export function sizeBoxes(tool: Tool | null, pending: Vec2[], cursor: Vec2): SizeBox[] {
+  if (!isDraw(tool)) return [];
+  const a = pending[0], b = pending[1]; if (!a) return [];
+  const dx = cursor[0] - a[0], dy = cursor[1] - a[1];
+  const polar = (from: Vec2): SizeBox[] => [
+    { label: 'Length', at: [(from[0] + cursor[0]) / 2, (from[1] + cursor[1]) / 2], value: Math.hypot(cursor[0] - from[0], cursor[1] - from[1]) },
+    { label: 'Angle', at: [from[0], from[1]], value: (Math.atan2(cursor[1] - from[1], cursor[0] - from[0]) * 180) / Math.PI },
+  ];
   switch (tool) {
-    case 'rect': case 'rectCenter': return ['Width', 'Height'];
-    case 'circle': case 'circle2': return ['Diameter'];
-    case 'line': return ['Length', 'Angle'];
-    default: return [];
+    case 'rect': return [{ label: 'Width', at: [(a[0] + cursor[0]) / 2, a[1]], value: Math.abs(dx) }, { label: 'Height', at: [cursor[0], (a[1] + cursor[1]) / 2], value: Math.abs(dy) }];
+    case 'rectCenter': return [{ label: 'Width', at: [a[0], a[1] - Math.abs(dy)], value: 2 * Math.abs(dx) }, { label: 'Height', at: [a[0] + Math.abs(dx), a[1]], value: 2 * Math.abs(dy) }];
+    case 'circle': return [{ label: 'Diameter', at: [(a[0] + cursor[0]) / 2, (a[1] + cursor[1]) / 2], value: 2 * Math.hypot(dx, dy) }];
+    case 'circle2': return [{ label: 'Diameter', at: [(a[0] + cursor[0]) / 2, (a[1] + cursor[1]) / 2], value: Math.hypot(dx, dy) }];
+    case 'line': return polar(pending[pending.length - 1]!);
+    case 'arc3': {
+      if (!b) return polar(a);
+      const c = circleThrough(a, b, cursor);
+      return [{ label: 'Radius', at: cursor, value: c ? c.r : 0 }];
+    }
+    case 'slot': {
+      if (!b) return polar(a);
+      const w = lineDist(a, b, cursor), n = sideOf(a, b, cursor), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      return [{ label: 'Width', at: [m[0] + (n[0] * w) , m[1] + (n[1] * w)], value: 2 * w }];
+    }
   }
 }
 
-/** The sizes the shape has at `cursor`, in the order of sizeFields (angle in degrees). */
-export function liveSizes(tool: DrawTool, pending: Vec2[], cursor: Vec2): number[] {
-  const a = pending[0]; if (!a) return [];
-  const dx = cursor[0] - a[0], dy = cursor[1] - a[1];
-  switch (tool) {
-    case 'rect': return [Math.abs(dx), Math.abs(dy)];
-    case 'rectCenter': return [2 * Math.abs(dx), 2 * Math.abs(dy)];
-    case 'circle': return [2 * Math.hypot(dx, dy)];
-    case 'circle2': return [Math.hypot(dx, dy)];
-    case 'line': { const f = pending[pending.length - 1]!; return [Math.hypot(cursor[0] - f[0], cursor[1] - f[1]), (Math.atan2(cursor[1] - f[1], cursor[0] - f[0]) * 180) / Math.PI]; }
-    default: return [];
-  }
-}
+/** What each box is called, for a tool at a stage. */
+export const sizeFields = (tool: Tool | null, pendingCount = 1): string[] => sizeBoxes(tool, Array.from({ length: Math.max(1, pendingCount) }, (_, i) => [i, 0] as Vec2), [0.5, 1]).map((x) => x.label);
+
+/** The sizes the shape has at `cursor`, in the order of the boxes (angle in degrees). */
+export const liveSizes = (tool: DrawTool, pending: Vec2[], cursor: Vec2): number[] => sizeBoxes(tool, pending, cursor).map((x) => x.value);
 
 /** The point the pointer would have to be at to give the typed sizes ('' keeps what the pointer gives). Which way the shape goes still follows the pointer. */
 export function applyTyped(tool: DrawTool, pending: Vec2[], cursor: Vec2, typed: string[]): Vec2 {
   const a = pending[0]; if (!a) return cursor;
   const num = (i: number): number | null => { const s = (typed[i] ?? '').trim(); const n = Number(s); return s !== '' && Number.isFinite(n) ? n : null; };
-  const live = liveSizes(tool, pending, cursor);
+  const pos = (i: number, live: number) => { const v = num(i); return v !== null && v > 0 ? v : live; };
+  const live = liveSizes(tool, pending, cursor), b = pending[1];
   const sx = cursor[0] >= a[0] ? 1 : -1, sy = cursor[1] >= a[1] ? 1 : -1;
   const ang = Math.atan2(cursor[1] - a[1], cursor[0] - a[0]);
+  const polarFrom = (f: Vec2): Vec2 => {
+    const len = num(0), an = num(1);
+    const L = len !== null && len > 0 ? len : live[0]!, A = an !== null ? (an * Math.PI) / 180 : Math.atan2(cursor[1] - f[1], cursor[0] - f[0]);
+    return [f[0] + L * Math.cos(A), f[1] + L * Math.sin(A)];
+  };
   switch (tool) {
-    case 'rect': { const w = num(0), h = num(1); return [a[0] + sx * (w !== null && w > 0 ? w : live[0]!), a[1] + sy * (h !== null && h > 0 ? h : live[1]!)]; }
-    case 'rectCenter': { const w = num(0), h = num(1); return [a[0] + (sx * (w !== null && w > 0 ? w : live[0]!)) / 2, a[1] + (sy * (h !== null && h > 0 ? h : live[1]!)) / 2]; }
-    case 'circle': { const d = num(0); const r = (d !== null && d > 0 ? d : live[0]!) / 2; return [a[0] + r * Math.cos(ang), a[1] + r * Math.sin(ang)]; }
-    case 'circle2': { const d = num(0); const r = d !== null && d > 0 ? d : live[0]!; return [a[0] + r * Math.cos(ang), a[1] + r * Math.sin(ang)]; }
-    case 'line': {
-      const f = pending[pending.length - 1]!, len = num(0), an = num(1);
-      const L = len !== null && len > 0 ? len : live[0]!, A = an !== null ? (an * Math.PI) / 180 : Math.atan2(cursor[1] - f[1], cursor[0] - f[0]);
-      return [f[0] + L * Math.cos(A), f[1] + L * Math.sin(A)];
+    case 'rect': return [a[0] + sx * pos(0, live[0]!), a[1] + sy * pos(1, live[1]!)];
+    case 'rectCenter': return [a[0] + (sx * pos(0, live[0]!)) / 2, a[1] + (sy * pos(1, live[1]!)) / 2];
+    case 'circle': { const r = pos(0, live[0]!) / 2; return [a[0] + r * Math.cos(ang), a[1] + r * Math.sin(ang)]; }
+    case 'circle2': { const r = pos(0, live[0]!); return [a[0] + r * Math.cos(ang), a[1] + r * Math.sin(ang)]; }
+    case 'line': return polarFrom(pending[pending.length - 1]!);
+    case 'arc3': {
+      if (!b) return polarFrom(a);
+      const R = num(0); if (R === null || !(R > 0)) return cursor;
+      const half = dist(a, b) / 2; if (R < half - 1e-9 || half < EPS) return cursor; // a radius smaller than half the chord cannot reach
+      const n = sideOf(a, b, cursor), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d = Math.sqrt(Math.max(R * R - half * half, 0));
+      const along = (cursor[0] - m[0]) * n[0] + (cursor[1] - m[1]) * n[1]; // past the middle of the circle: the long way round
+      const h = along > R ? R + d : R - d;
+      return [m[0] + n[0] * h, m[1] + n[1] * h];
+    }
+    case 'slot': {
+      if (!b) return polarFrom(a);
+      const w = num(0); if (w === null || !(w > 0)) return cursor;
+      const n = sideOf(a, b, cursor), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      return [m[0] + (n[0] * w) / 2, m[1] + (n[1] * w) / 2];
     }
     default: return cursor;
   }
