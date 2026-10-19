@@ -16,11 +16,14 @@ interface Props {
   onHole(): void;
   canModify: boolean;
   /** The Modify tool whose dialog is open, if any. */
-  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'mirror' | 'rpattern' | 'cpattern' | null;
+  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | null;
   onFillet(): void;
   onChamfer(): void;
   onPressPull(): void;
   onShell(): void;
+  onOffsetFace(): void;
+  onDraft(): void;
+  onCombine(): void;
   onMirror(): void;
   onRPattern(): void;
   onCPattern(): void;
@@ -69,6 +72,9 @@ export function Ribbon(p: Props) {
             <Btn id="btn-chamfer" icon={<Icon.bChamfer />} label="Chamfer" pressed={p.modTool === 'chamfer'} disabled={!p.canModify} onClick={p.onChamfer} />
             <Btn id="btn-presspull" icon={<Icon.bPressPull />} label="Press Pull" keyHint="Q" pressed={p.modTool === 'presspull'} disabled={!p.canModify} onClick={p.onPressPull} />
             <Btn id="btn-shell" icon={<Icon.bShell />} label="Shell" pressed={p.modTool === 'shell'} disabled={!p.canModify} onClick={p.onShell} />
+            <Btn id="btn-offsetface" icon={<Icon.bOffsetFace />} label="Offset Face" pressed={p.modTool === 'offsetface'} disabled={!p.canModify} onClick={p.onOffsetFace} />
+            <Btn id="btn-draft" icon={<Icon.bDraft />} label="Draft" pressed={p.modTool === 'draft'} disabled={!p.canModify} onClick={p.onDraft} />
+            <Btn id="btn-combine" icon={<Icon.bCombine />} label="Combine" pressed={p.modTool === 'combine'} disabled={!p.canModify} onClick={p.onCombine} />
           </Group>
         ) : (
           <>

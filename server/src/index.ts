@@ -66,6 +66,14 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
   if (path === '/api/save') { const name = safeName(a.name, (await e.snapshot()).doc.name); return sendFile(res, await e.save(name), `${name}.forge`); }
   if (path === '/api/export') {
     const snap = await e.snapshot(); const name = safeName(a.name, snap.doc.name);
+    if (a.format === 'dxf' && a.face) { // a flat face of a body: its outline for DemonX Design (the sketch made to do it is not kept)
+      const f = a.face as { body?: unknown; index?: unknown; point?: unknown };
+      const pt = Array.isArray(f.point) && f.point.length === 3 && f.point.every((v) => typeof v === 'number' && Number.isFinite(v)) ? (f.point as [number, number, number]) : null;
+      if (typeof f.body !== 'string' || !Number.isInteger(f.index) || !pt) throw new BadRequest('Choose a flat face');
+      if (!snap.bodies.some((b) => b.name === f.body)) throw new BadRequest('That body does not exist');
+      if (snap.sketches.some((k) => k.active)) throw new BadRequest('Finish the sketch first');
+      return sendFile(res, await e.exportFaceDxf({ body: f.body, index: f.index as number, point: pt }), `${name} face.dxf`);
+    }
     if (a.format === 'dxf') {
       const sk = snap.sketches.find((k) => k.name === a.sketch);
       if (typeof a.sketch !== 'string' || !sk) throw new BadRequest('Choose a sketch to export');

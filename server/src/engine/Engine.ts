@@ -118,6 +118,8 @@ export interface Engine {
   exportBodies(format: ExportFormat): Promise<Uint8Array>;
   /** The shapes of one sketch as an ASCII DXF (millimetres). */
   exportSketchDxf(sketch: string): Promise<Uint8Array>;
+  /** A flat face's outline as DXF. The face is picked by body, face index and a point on it. The design is not changed. */
+  exportFaceDxf(face: { body: string; index: number; point: [number, number, number] }): Promise<Uint8Array>;
   /** Reads something from the engine without changing the model (a feature's definition, what depends on it). */
   query(command: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The current model as a face-tagged mesh. Bodies is empty for an empty design. */

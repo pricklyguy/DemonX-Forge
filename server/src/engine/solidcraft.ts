@@ -153,6 +153,25 @@ export class SolidCraftEngine implements Engine {
     });
   }
 
+  /** The outline of a flat face (its outer edge and any holes) as DXF: a sketch on the face with its edges projected, exported, then taken back out of the design. */
+  exportFaceDxf(face: { body: string; index: number; point: [number, number, number] }): Promise<Uint8Array> {
+    return this.serial(async () => {
+      const name = '__face_dxf';
+      const path = this.tmp('dxf');
+      await this.tool('batch', { commands: [
+        { command: 'sketch.create', params: { plane: { face: face.point, body: face.body, index: face.index }, project_edges: true, name } },
+        { command: 'sketch.finish', params: {} },
+      ], rollback: true, verbose: false });
+      try {
+        await this.tool('execute', { command: 'sketch.export_dxf', params: { sketch: name, path } });
+        return new Uint8Array(readFileSync(path));
+      } finally {
+        rmSync(path, { force: true });
+        await this.tool('undo'); // the design is left as it was
+      }
+    });
+  }
+
   undo(): Promise<void> { return this.serial(async () => { await this.tool('undo'); }); }
   redo(): Promise<void> { return this.serial(async () => { await this.tool('redo'); }); }
 

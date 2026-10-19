@@ -16,11 +16,17 @@ import { pickEntity, type Picked } from './sketch/pick';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
 const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
-const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '5', shell: '2', mirror: '', rpattern: '', cpattern: '' };
+const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '5', shell: '2', offsetface: '2', draft: '5', mirror: '', rpattern: '', cpattern: '', combine: '' };
 /** The dialog's axis choice as the engine's `axis` parameter: a sketch axis (x, y), a sketch line's id, or a world axis (X, Y, Z). */
 const axisParam = (v: string) => v.slice(v.indexOf(':') + 1);
 const EXT_TITLE: Record<ExtKind, string> = { extrude: 'EXTRUDE', revolve: 'REVOLVE', sweep: 'SWEEP', loft: 'LOFT' };
-const MOD_TITLE: Record<ModTool, string> = { fillet: 'FILLET', chamfer: 'CHAMFER', shell: 'SHELL', presspull: 'PRESS PULL', mirror: 'MIRROR', rpattern: 'RECTANGULAR PATTERN', cpattern: 'CIRCULAR PATTERN' };
+/** The bodies already chosen when a body tool opens: the only body, the body of a selected face, or for Combine the second of two bodies (the first is the target). */
+const initialBodies = (t: ModTool, names: string[], picked: string | undefined): string[] => {
+  if (!BODY_TOOLS.includes(t)) return [];
+  if (t === 'combine') return names.length === 2 ? [names[1]!] : picked && picked !== names[0] ? [picked] : [];
+  return names.length === 1 ? [names[0]!] : picked ? [picked] : [];
+};
+const MOD_TITLE: Record<ModTool, string> = { fillet: 'FILLET', chamfer: 'CHAMFER', shell: 'SHELL', presspull: 'PRESS PULL', offsetface: 'OFFSET FACE', draft: 'DRAFT', mirror: 'MIRROR', rpattern: 'RECTANGULAR PATTERN', cpattern: 'CIRCULAR PATTERN', combine: 'COMBINE' };
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
@@ -29,6 +35,9 @@ const HINT: Record<string, string> = {
   rpattern: 'Click the body to repeat, choose the direction, count and spacing, then OK. Esc cancels.',
   cpattern: 'Click the body to repeat, choose the axis, count and angle, then OK. Esc cancels.',
   shell: 'Click the face(s) to leave open (click again to deselect), set the wall thickness, then OK. Esc cancels.',
+  offsetface: 'Click the face(s) to move (click again to deselect), type the distance (positive moves them out), then OK. Esc cancels.',
+  draft: 'Click the wall face(s) to tilt, choose the neutral plane (the level that stays put), type the angle, then OK. Esc cancels.',
+  combine: 'Pick the target below, click the body or bodies to combine with it, choose the operation, then OK. Esc cancels.',
   presspull: 'Click a face, then type how far to push (negative) or pull (positive), then OK. Esc cancels.',
 };
 /** Status-bar help for a sketch tool, by how many points are already placed (or picked). */
@@ -56,12 +65,14 @@ const TOOL_HINT: Record<string, string[]> = {
   fix: ['Click a point or curve to fix it (or release it).'],
 };
 type ExtKind = 'extrude' | 'revolve' | 'sweep' | 'loft';
-type ModTool = 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'mirror' | 'rpattern' | 'cpattern';
-const BODY_TOOLS: ModTool[] = ['mirror', 'rpattern', 'cpattern'];
+type ModTool = 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'mirror' | 'rpattern' | 'cpattern' | 'combine';
+const BODY_TOOLS: ModTool[] = ['mirror', 'rpattern', 'cpattern', 'combine']; // pick whole bodies
+const FACE_TOOLS: ModTool[] = ['presspull', 'shell', 'offsetface', 'draft']; // pick faces
+const VALUE_LABEL: Record<ModTool, string> = { fillet: 'Radius', chamfer: 'Distance', presspull: 'Distance', shell: 'Thickness', offsetface: 'Distance', draft: 'Angle', mirror: '', rpattern: '', cpattern: '', combine: '' };
 const AXIS_VEC: Record<string, [number, number, number]> = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
 /** Mirror, Rectangular Pattern and Circular Pattern work on whole bodies; their settings live here. */
-type BodyForm = { plane: 'XY' | 'XZ' | 'YZ'; combine: boolean; dir1: string; count1: string; spacing1: string; dir2: string; count2: string; spacing2: string; axis: string; count: string; angle: string };
-const BODY_FORM: BodyForm = { plane: 'YZ', combine: false, dir1: 'X', count1: '3', spacing1: '20', dir2: 'none', count2: '2', spacing2: '20', axis: 'Z', count: '4', angle: '360' };
+type BodyForm = { plane: 'XY' | 'XZ' | 'YZ'; combine: boolean; dir1: string; count1: string; spacing1: string; dir2: string; count2: string; spacing2: string; axis: string; count: string; angle: string; neutral: 'XY' | 'XZ' | 'YZ' | 'bottom' | 'top'; target: string; keep: boolean; cop: 'join' | 'cut' | 'intersect' };
+const BODY_FORM: BodyForm = { plane: 'YZ', combine: false, dir1: 'X', count1: '3', spacing1: '20', dir2: 'none', count2: '2', spacing2: '20', axis: 'Z', count: '4', angle: '360', neutral: 'bottom', target: '', keep: false, cop: 'join' };
 type ExtrudeForm = { distance: string; direction: 'one' | 'rev' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect'; axis: string; angle: string; path: string };
 /** The engine names the operation `new_body` in a feature's definition and `new` in the command. */
 const opFromDef = (o?: string): ExtrudeForm['operation'] => (o === 'join' || o === 'cut' || o === 'intersect' ? o : 'new');
@@ -75,14 +86,19 @@ const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 
 export /** The rows of the Mirror and Pattern dialogs. */
-function BodyFields({ tool, bf, setBf, bodies, onEnter }: { tool: ModTool; bf: BodyForm; setBf: (f: BodyForm) => void; bodies: string[]; onEnter(): void }) {
+function BodyFields({ tool, bf, setBf, bodies, allBodies, target, onEnter }: { tool: ModTool; bf: BodyForm; setBf: (f: BodyForm) => void; bodies: string[]; allBodies: string[]; target: string; onEnter(): void }) {
   const text = (label: string, key: keyof BodyForm) => (
     <label className="drow"><span>{label}</span><input aria-label={label} type="text" value={bf[key] as string} onChange={(e) => setBf({ ...bf, [key]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') onEnter(); }} /></label>);
   const pick = (label: string, key: keyof BodyForm, opts: [string, string][]) => (
     <label className="drow"><span>{label}</span><select aria-label={label} value={bf[key] as string} onChange={(e) => setBf({ ...bf, [key]: e.target.value })}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>);
   const dirs: [string, string][] = [['X', 'X'], ['Y', 'Y'], ['Z', 'Z']];
   return <>
-    <div className="drow"><span>Bodies</span><b data-testid="edge-count">{bodies.length ? bodies.join(', ') : 'Select a body'}</b></div>
+    {tool === 'combine' && pick('Target', 'target', allBodies.map((n) => [n, n] as [string, string]))}
+    <div className="drow"><span>{tool === 'combine' ? 'Tools' : 'Bodies'}</span><b data-testid="edge-count">{(tool === 'combine' ? bodies.filter((n) => n !== target) : bodies).join(', ') || 'Select a body'}</b></div>
+    {tool === 'combine' && <>
+      {pick('Operation', 'cop', [['join', 'Join'], ['cut', 'Cut'], ['intersect', 'Intersect']])}
+      <label className="drow"><span>Keep tools</span><input aria-label="Keep tools" type="checkbox" checked={bf.keep} onChange={(e) => setBf({ ...bf, keep: e.target.checked })} /></label>
+      <div className="dnote">Join merges the tool bodies into the target, Cut removes them from it, Intersect keeps only where they overlap. Keep tools leaves the tool bodies in place afterwards.</div></>}
     {tool === 'mirror' && <>
       {pick('Plane', 'plane', [['YZ', 'YZ (left / right)'], ['XZ', 'XZ (front / back)'], ['XY', 'XY (top / bottom)']])}
       <label className="drow"><span>Join</span><input aria-label="Join with original" type="checkbox" checked={bf.combine} onChange={(e) => setBf({ ...bf, combine: e.target.checked })} /></label>
@@ -289,11 +305,16 @@ export function App() {
     try { const s = await api.batch([step]); preview.current = true; return s; }
     catch (e) { const s = await api.state(); setError((e as Error).message); return s; }
   }), [run]);
+  const combineTarget = modBase?.bodies.some((b) => b.name === bf.target) ? bf.target : modBase?.bodies[0]?.name ?? '';
   const modifyStep = (): { command: string; params: Record<string, unknown> } | null => {
     const v = modValue.trim();
     if (BODY_TOOLS.includes(modTool)) {
-      if (!bodiesSel.length) return null;
+      if (!bodiesSel.length && modTool !== 'combine') return null;
       const num = (s: string) => (s.trim() !== '' && Number.isFinite(Number(s)) ? Number(s) : null);
+      if (modTool === 'combine') {
+        const tools = bodiesSel.filter((n) => n !== combineTarget);
+        return tools.length ? { command: 'solid.combine', params: { target: combineTarget, tools, operation: bf.cop, keep_tools: bf.keep } } : null;
+      }
       if (modTool === 'mirror') return { command: 'solid.mirror', params: { bodies: bodiesSel, plane: bf.plane, combine: bf.combine } };
       if (modTool === 'cpattern') {
         const n = num(bf.count), an = num(bf.angle);
@@ -312,6 +333,20 @@ export function App() {
     }
     const n = Number(v), size: number | string = Number.isFinite(n) ? n : v;
     const pts = facesSel.map((f) => f.point.map((x) => +x.toFixed(3)));
+    if (modTool === 'offsetface') {
+      if (!pts.length || !v || size === 0) return null;
+      return { command: 'solid.offset_face', params: { faces: pts, distance: size } }; // positive moves the faces outward
+    }
+    if (modTool === 'draft') {
+      const an = Number(v); if (!pts.length || !v || !Number.isFinite(an) || an === 0 || Math.abs(an) >= 89) return null;
+      const b = modBase?.bodies.find((q) => q.name === facesSel[0]!.body); if (!b) return null;
+      let neutral: unknown = bf.neutral;
+      if (bf.neutral === 'bottom' || bf.neutral === 'top') { // the lowest or highest level of the body, as a plane across Z
+        let lo = Infinity, hi = -Infinity; for (let i = 2; i < b.positions.length; i += 3) { lo = Math.min(lo, b.positions[i]!); hi = Math.max(hi, b.positions[i]!); }
+        neutral = { origin: [0, 0, +(bf.neutral === 'bottom' ? lo : hi).toFixed(4)], normal: [0, 0, 1] };
+      }
+      return { command: 'solid.draft', params: { faces: pts, angle: an, neutral } };
+    }
     if (modTool === 'presspull') {
       if (!pts.length || !v || size === 0) return null;
       return { command: 'solid.press_pull', params: { face: pts[0], distance: size } }; // positive adds material, negative cuts
@@ -370,17 +405,16 @@ export function App() {
   };
 
   // ---- Fillet and Chamfer: pick edges, set a size, live preview (the same mechanism as the extrude dialog)
-  const edgeSets = useMemo(() => (mode === 'modify' && modTool !== 'presspull' && modTool !== 'shell' && !BODY_TOOLS.includes(modTool) && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
+  const edgeSets = useMemo(() => (mode === 'modify' && !FACE_TOOLS.includes(modTool) && !BODY_TOOLS.includes(modTool) && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
   const startModify = async (t: ModTool) => {
-    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(BODY_TOOLS.includes(t) && modBase?.bodies.length === 1 ? [modBase.bodies[0]!.name] : []); } return; }
+    if (mode === 'modify') { if (t !== modTool) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(initialBodies(t, modBase?.bodies.map((b) => b.name) ?? [], undefined)); } return; }
     if (mode === 'extrude') await cancelExtrude();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
     if (!s) return;
     if (!s.bodies.length) { setError('Make a body first (sketch and extrude), then change it.'); return; }
-    const start = t === 'presspull' || t === 'shell' ? sel : null;
-    const only = s.bodies.length === 1 ? s.bodies[0]!.name : sel?.body; // with one body (or a face already selected) the body is already chosen
-    setBodiesSel(BODY_TOOLS.includes(t) && only ? [only] : []); // a face that is already selected is the one to push or pull
+    const start = FACE_TOOLS.includes(t) ? sel : null; // a face that is already selected is the one to work on
+    setBodiesSel(initialBodies(t, s.bodies.map((b) => b.name), sel?.body)); // a face that is already selected is the one to push or pull
     chooseTool(null); setSel(null); setEdgesSel([]); setFacesSel(start ? [start] : []); setModTool(t); setModBase(s); setModValue(MOD_DEFAULT[t]); setMode('modify'); setError('');
   };
   const edgePicked = (ref: EdgeRef | null) => {
@@ -404,7 +438,7 @@ export function App() {
   const cancelModify = async () => { closeModify(); await applyPreview(null); };
   const okModify = async () => {
     clearTimeout(previewTimer.current);
-    const step = modifyStep(); if (!step) { setError(BODY_TOOLS.includes(modTool) ? (bodiesSel.length ? 'Check the numbers: counts are whole numbers of 2 or more, spacing is not zero, the two directions differ' : 'Click the body to copy') : modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : modTool === 'shell' ? 'Select the face(s) to open and enter a wall thickness' : 'Select at least one edge and enter a size'); return; }
+    const step = modifyStep(); if (!step) { setError(modTool === 'combine' ? 'Click at least one other body to combine with the target' : BODY_TOOLS.includes(modTool) ? (bodiesSel.length ? 'Check the numbers: counts are whole numbers of 2 or more, spacing is not zero, the two directions differ' : 'Click the body to copy') : modTool === 'offsetface' ? 'Select the face(s) to move and enter a distance (not zero)' : modTool === 'draft' ? 'Select the wall face(s) and enter an angle (not zero, under 89)' : modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : modTool === 'shell' ? 'Select the face(s) to open and enter a wall thickness' : 'Select at least one edge and enter a size'); return; }
     await applyPreview(step);
     if (!preview.current) return; // the engine refused (for example a radius too big): the reason is shown and the dialog stays open
     preview.current = false; closeModify();
@@ -457,19 +491,20 @@ export function App() {
       await saveTo(target, target ? stripExt(target.name) : name);
     } catch (e) { setError((e as Error).message); }
   };
-  const doExport = async (format: string, sketch?: string) => {
+  const doExport = async (format: string, sketch?: string, faceOf?: FacePick) => {
     try {
       const base = snap.doc.name, ext = format === 'stla' ? 'stl' : format;
-      const suggested = sketch ? `${base} ${sketch}.${ext}` : `${base}.${ext}`;
+      const suggested = faceOf ? `${base} face.${ext}` : sketch ? `${base} ${sketch}.${ext}` : `${base}.${ext}`;
       const target = canPick() ? await pickSaveHandle(suggested, [typeForExt(ext)]) : null;
       if (canPick() && !target) return;
-      const { data, filename } = await api.exportAs(format, sketch);
+      const { data, filename } = faceOf ? await api.exportFaceDxf({ body: faceOf.body, index: faceOf.face, point: faceOf.point }) : await api.exportAs(format, sketch);
       const blob = new Blob([data], { type: 'application/octet-stream' });
       if (target) { await writeHandle(target, blob); setNotice(`Exported ${target.name}`); } else { download(blob, filename); setNotice(`Exported ${filename} (see your Downloads folder)`); }
     } catch (e) { setError((e as Error).message); }
   };
   const fileItems = (): MenuItem[] => {
     const none = snap.bodies.length === 0;
+    const flatSel = !!snap.bodies.find((b) => b.name === sel?.body)?.faces.find((f) => f.index === sel?.face)?.planeNormal;
     return [
       { label: 'New', onClick: doNew },
       { label: 'Open…   Ctrl+O', onClick: doOpen },
@@ -480,6 +515,8 @@ export function App() {
       { label: 'STL (.stl)', disabled: none, onClick: () => void doExport('stl') },
       { label: '3MF (.3mf)', disabled: none, onClick: () => void doExport('3mf') },
       { label: 'OBJ (.obj)', disabled: none, onClick: () => void doExport('obj') },
+      { label: 'Export a face as DXF', heading: true, onClick: () => {} },
+      sel && flatSel ? { label: `Selected face (${sel.body})`, onClick: () => void doExport('dxf', undefined, sel) } : { label: 'Select a flat face first', disabled: true, onClick: () => {} },
       { label: 'Export a sketch as DXF', heading: true, onClick: () => {} },
       ...(snap.sketches.length ? snap.sketches.map((k) => ({ label: k.name, onClick: () => void doExport('dxf', k.name) })) : [{ label: 'No sketches yet', disabled: true, onClick: () => {} }]),
     ];
@@ -619,7 +656,7 @@ export function App() {
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
       </header>
 
-      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} extKind={mode === 'extrude' ? extKind : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onShell={() => void startModify('shell')} onMirror={() => void startModify('mirror')} onRPattern={() => void startModify('rpattern')} onCPattern={() => void startModify('cpattern')} onCreateSketch={createSketch} onExtrude={() => void startExtrude('extrude')} onRevolve={() => void startExtrude('revolve')} onSweep={() => void startExtrude('sweep')} onLoft={() => void startExtrude('loft')} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
+      <Ribbon mode={mode} tool={tool} canHole={!!sel && mode === 'model'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} extKind={mode === 'extrude' ? extKind : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onShell={() => void startModify('shell')} onOffsetFace={() => void startModify('offsetface')} onDraft={() => void startModify('draft')} onCombine={() => void startModify('combine')} onMirror={() => void startModify('mirror')} onRPattern={() => void startModify('rpattern')} onCPattern={() => void startModify('cpattern')} onCreateSketch={createSketch} onExtrude={() => void startExtrude('extrude')} onRevolve={() => void startExtrude('revolve')} onSweep={() => void startExtrude('sweep')} onLoft={() => void startExtrude('loft')} onHole={drillHole} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
       <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
         onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
@@ -628,7 +665,7 @@ export function App() {
       <div className="stage">
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
-          selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (modTool === 'presspull' || modTool === 'shell' || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
+          selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
           edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
@@ -680,13 +717,14 @@ export function App() {
         {mode === 'modify' && (
           <div className="dialog" data-testid="modify-dialog">
             <div className="dhead">{MOD_TITLE[modTool]}</div>
-            {BODY_TOOLS.includes(modTool) ? <BodyFields tool={modTool} bf={bf} setBf={setBf} bodies={bodiesSel} onEnter={() => void okModify()} /> : <>
-            {modTool === 'presspull' || modTool === 'shell'
-              ? <div className="drow"><span>{modTool === 'shell' ? 'Faces' : 'Face'}</span><b data-testid="edge-count">{facesSel.length ? `${facesSel.length} selected` : modTool === 'shell' ? 'Select faces' : 'Select a face'}</b></div>
+            {BODY_TOOLS.includes(modTool) ? <BodyFields tool={modTool} bf={bf} setBf={setBf} bodies={bodiesSel} allBodies={modBase?.bodies.map((b) => b.name) ?? []} target={combineTarget} onEnter={() => void okModify()} /> : <>
+            {FACE_TOOLS.includes(modTool)
+              ? <div className="drow"><span>{modTool === 'presspull' ? 'Face' : 'Faces'}</span><b data-testid="edge-count">{facesSel.length ? `${facesSel.length} selected` : modTool === 'presspull' ? 'Select a face' : 'Select faces'}</b></div>
               : <div className="drow"><span>Edges</span><b data-testid="edge-count">{edgesSel.length ? `${edgesSel.length} selected` : 'Select edges'}</b></div>}
-            <label className="drow"><span>{modTool === 'fillet' ? 'Radius' : modTool === 'shell' ? 'Thickness' : 'Distance'}</span>
-              <input aria-label={modTool === 'fillet' ? 'Radius' : modTool === 'shell' ? 'Thickness' : 'Distance'} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>
-            <div className="dnote">{modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div></>}
+            {modTool === 'draft' && <label className="drow"><span>Neutral</span><select aria-label="Neutral plane" value={bf.neutral} onChange={(e) => setBf({ ...bf, neutral: e.target.value as BodyForm['neutral'] })}><option value="bottom">Bottom of the body</option><option value="top">Top of the body</option><option value="XY">XY plane (z = 0)</option><option value="XZ">XZ plane (y = 0)</option><option value="YZ">YZ plane (x = 0)</option></select></label>}
+            <label className="drow"><span>{VALUE_LABEL[modTool]}</span>
+              <input aria-label={VALUE_LABEL[modTool]} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>
+            <div className="dnote">{modTool === 'draft' ? 'Tilts the picked walls by the angle about the neutral plane, which keeps its size. A positive angle narrows the part away from the neutral plane (a mould that pulls up from it); a negative one widens it.' : modTool === 'offsetface' ? 'Moves the picked flat faces along their normals: a positive distance grows the body, a negative one shrinks it.' : modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div></>}
             <div className="dbtns"><button onClick={() => void cancelModify()}>Cancel</button><button className="primary" data-testid="modify-ok" onClick={() => void okModify()}>OK</button></div>
           </div>
         )}

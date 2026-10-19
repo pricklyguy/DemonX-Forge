@@ -43,4 +43,19 @@ describe.skipIf(!existsSync(bin))('mirror, patterns, sweep, loft (real engine)',
     expect(await boxes()).toEqual(['-10,-10,0,10,10,30']);
     await expect(e.run([{ command: 'solid.loft', params: { sections: [{ sketch: 'P', profiles: [0] }], operation: 'new' } }])).rejects.toThrow();
   });
+
+  it('moves and drafts faces and combines bodies', async () => {
+    await e.newDesign();
+    const levelX = async (z: number) => { const q = (await e.snapshot()).bodies[0]!.positions; let m = -1e9; for (let i = 0; i < q.length; i += 3) if (Math.abs(q[i + 2]! - z) < 0.01) m = Math.max(m, q[i]!); return Math.round(m * 100) / 100; };
+    await e.run([{ command: 'solid.box', params: { length: 40, width: 30, height: 10, corner: [0, 0, 0] } }]);
+    await e.run([{ command: 'solid.offset_face', params: { faces: [[40, 15, 5]], distance: 5 } }]);
+    expect(await boxes()).toEqual(['0,0,0,45,30,10']); await e.undo();
+    await e.run([{ command: 'solid.draft', params: { faces: [[40, 15, 5]], angle: 5, neutral: { origin: [0, 0, 0], normal: [0, 0, 1] } } }]);
+    expect(await levelX(0)).toBe(40); expect(await levelX(10)).toBe(39.13); await e.undo();
+    await e.run([{ command: 'solid.box', params: { length: 20, width: 20, height: 20, corner: [30, 5, 0], operation: 'new' } }]);
+    await e.run([{ command: 'solid.combine', params: { target: 'Body1', tools: ['Body2'], operation: 'join' } }]);
+    expect(await boxes()).toEqual(['0,0,0,50,30,20']); await e.undo();
+    await e.run([{ command: 'solid.combine', params: { target: 'Body1', tools: ['Body2'], operation: 'intersect' } }]);
+    expect(await boxes()).toEqual(['30,5,0,40,25,10']);
+  });
 });

@@ -1,4 +1,4 @@
-import type { Snapshot } from '../../server/src/engine/Engine';
+import type { Snapshot, Vec3 } from '../../server/src/engine/Engine';
 
 export type { Doc, Snapshot, Body, Face, Parameter, TimelineItem, Sketch, SketchCurve, SketchPoint, SketchDimension, Profile, Vec2, Vec3 } from '../../server/src/engine/Engine';
 
@@ -32,6 +32,8 @@ export const api = {
   /** The design as .forge bytes, called `name` from now on. */
   save: (name: string) => fileCall('save', { name }),
   exportAs: (format: string, sketch?: string) => fileCall('export', { format, ...(sketch ? { sketch } : {}) }),
+  /** A flat face's outline as DXF (the design is not changed). */
+  exportFaceDxf: (face: { body: string; index: number; point: Vec3 }) => fileCall('export', { format: 'dxf', face }),
   open: async (data: ArrayBuffer, name: string): Promise<Snapshot> => {
     const r = await fetch(`/api/open?name=${encodeURIComponent(name)}`, { method: 'POST', body: data });
     const j = await r.json().catch(() => ({ error: `The server answered ${r.status}` }));
