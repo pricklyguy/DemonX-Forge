@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.jpg" alt="DemonX-Forge — Modeling Software | Prickly Guy Creations" width="100%">
+  <img src="assets/DemonX_Branding.png" alt="DemonX-Forge — Modeling Software | Prickly Guy Creations" width="100%">
 </p>
 # DemonX Forge
 
