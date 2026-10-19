@@ -43,6 +43,8 @@ interface Props {
   edgeHighlight: EdgeRef[];
   /** While true (Press Pull), a click in modify mode picks a face instead of an edge. */
   pickFaces?: boolean;
+  /** An arrow that can be dragged to set a distance (Press Pull and Extrude): it starts at `origin`, points along `dir` and ends `value` away. */
+  handle?: { origin: Vec3; dir: Vec3; value: number; onChange(v: number): void } | null;
   onEdgePick(ref: EdgeRef | null, additive: boolean): void;
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
@@ -62,7 +64,7 @@ const planeOf = (s: Sketch): Plane => s.plane;
 export function Viewport(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const P = useRef(props); P.current = props;
-  const S = useRef<null | { rebuild(what: 'bodies' | 'sketches' | 'planes' | 'preview' | 'camera' | 'edges'): void }>(null);
+  const S = useRef<null | { rebuild(what: 'bodies' | 'sketches' | 'planes' | 'preview' | 'camera' | 'edges' | 'handle'): void }>(null);
 
   useEffect(() => {
     const el = host.current!;
@@ -72,8 +74,8 @@ export function Viewport(props: Props) {
     const cam = new THREE.PerspectiveCamera(40, 1, 0.5, 50000); cam.up.set(0, 0, 1); cam.position.set(150, -220, 130);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.1));
     const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(200, -300, 400); scene.add(sun);
-    const gBodies = new THREE.Group(), gSketch = new THREE.Group(), gPlanes = new THREE.Group(), gGrid = new THREE.Group(), gPreview = new THREE.Group(), gEdges = new THREE.Group();
-    scene.add(gBodies, gSketch, gPlanes, gGrid, gPreview, gEdges);
+    const gBodies = new THREE.Group(), gSketch = new THREE.Group(), gPlanes = new THREE.Group(), gGrid = new THREE.Group(), gPreview = new THREE.Group(), gEdges = new THREE.Group(), gHandle = new THREE.Group();
+    scene.add(gBodies, gSketch, gPlanes, gGrid, gPreview, gEdges, gHandle);
     const lineMats = new Set<LineMaterial>();
     // dimension values drawn as small labels over the sketch (plain HTML, moved to follow the camera every frame)
     const labelLayer = document.createElement('div'); labelLayer.className = 'dimlayer'; el.appendChild(labelLayer);
@@ -242,6 +244,43 @@ export function Viewport(props: Props) {
       for (const r of p.edgeHighlight) { const g = find(r); if (g) gEdges.add(thick(g.segments, css('--accent'), 4.5)); }
       if (hoverEdge && p.mode === 'modify') { const g = find(hoverEdge); if (g) gEdges.add(thick(g.segments, css('--amber'), 3.5)); }
     };
+    // ---- the drag arrow of Press Pull and Extrude: a line from the face to the distance, with a cone at the tip
+    const handleGeometry = () => {
+      const h = P.current.handle; if (!h) return null;
+      const o = new THREE.Vector3(...h.origin), d = new THREE.Vector3(...h.dir).normalize(), tip = o.clone().addScaledVector(d, h.value);
+      return { o, d, tip };
+    };
+    const rebuildHandle = () => {
+      clear(gHandle);
+      const g = handleGeometry(); if (!g) return;
+      const k = wpp() * 11; // the cone is about 11 px across
+      gHandle.add(thick([g.o.x, g.o.y, g.o.z, g.tip.x, g.tip.y, g.tip.z], css('--accent'), 3));
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(k, k * 2.4, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(css('--accent')), depthTest: false }));
+      cone.position.copy(g.tip).addScaledVector(g.d, Math.sign(P.current.handle!.value || 1) * k * 1.2);
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), g.d.clone().multiplyScalar(Math.sign(P.current.handle!.value || 1)));
+      cone.renderOrder = 10; gHandle.add(cone);
+    };
+    const toPx = (v: THREE.Vector3) => { const q = v.clone().project(cam), r = dom.getBoundingClientRect(); return new THREE.Vector2(((q.x + 1) / 2) * r.width, ((1 - q.y) / 2) * r.height); };
+    let drag: { m0: THREE.Vector2; v0: number; u: THREE.Vector2; pxPerMm: number } | null = null;
+    /** Whether a pointer press at (mx, my) grabs the arrow (near its tip or its shaft), and the drag it starts. */
+    const grabHandle = (e: PointerEvent) => {
+      const g = handleGeometry(), h = P.current.handle; if (!g || !h) return false;
+      const r = dom.getBoundingClientRect(), m = new THREE.Vector2(e.clientX - r.left, e.clientY - r.top);
+      const a = toPx(g.o), t = toPx(g.tip), ab = t.clone().sub(a), len2 = ab.lengthSq();
+      const s = len2 > 1 ? Math.max(0, Math.min(1, m.clone().sub(a).dot(ab) / len2)) : 0;
+      const nearest = a.clone().addScaledVector(ab, s);
+      if (m.distanceTo(nearest) > 12 && m.distanceTo(t) > 18) return false;
+      const unit = toPx(g.o.clone().addScaledVector(g.d, 10)).sub(a); // 10 mm along the arrow, in pixels
+      if (unit.length() < 3) return false; // looking straight down the arrow: it cannot be dragged
+      drag = { m0: m, v0: h.value, u: unit.clone().normalize(), pxPerMm: unit.length() / 10 };
+      return true;
+    };
+    const dragHandle = (e: PointerEvent) => {
+      if (!drag || !P.current.handle) return;
+      const r = dom.getBoundingClientRect(), m = new THREE.Vector2(e.clientX - r.left, e.clientY - r.top);
+      const raw = drag.v0 + m.sub(drag.m0).dot(drag.u) / drag.pxPerMm, step = e.shiftKey ? 0.1 : 0.5;
+      P.current.handle.onChange(Math.round(raw / step) * step);
+    };
     /** How far from the camera the edge a-b is where the pick ray passes it (the closest point of the segment to the ray; a screen-space fraction would be wrong under perspective). */
     const depthAlong = (a: THREE.Vector3, b: THREE.Vector3) => {
       const o = ray.ray.origin, d = ray.ray.direction, u = b.clone().sub(a), w0 = a.clone().sub(o);
@@ -326,8 +365,13 @@ export function Viewport(props: Props) {
     };
 
     let down: [number, number] | null = null;
-    dom.addEventListener('pointerdown', (e) => { if (e.button === 0) down = [e.clientX, e.clientY]; });
+    dom.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      if (grabHandle(e)) { down = null; dom.setPointerCapture(e.pointerId); dom.style.cursor = 'grabbing'; return; }
+      down = [e.clientX, e.clientY];
+    });
     dom.addEventListener('pointermove', (e) => {
+      if (drag) { dragHandle(e); return; }
       const p = P.current;
       if (p.mode === 'sketch') {
         const draw = isDraw(p.tool);
@@ -345,6 +389,7 @@ export function Viewport(props: Props) {
     });
     dom.addEventListener('pointerleave', () => { cursor = null; P.current.onCursor(null); if (P.current.mode === 'sketch') rebuildPreview(); });
     dom.addEventListener('pointerup', (e) => {
+      if (drag) { drag = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
       if (e.button !== 0 || !down) return;
       const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4; down = null;
       if (moved) return;
@@ -385,6 +430,7 @@ export function Viewport(props: Props) {
         if (what === 'sketches') rebuildSketches();
         if (what === 'planes') rebuildPlanes();
         if (what === 'preview') rebuildPreview();
+        if (what === 'handle') rebuildHandle();
         if (what === 'edges') { if (P.current.mode !== 'modify') hoverEdge = null; rebuildEdges(); }
         if (what === 'camera') {
           const p = P.current;
@@ -405,6 +451,8 @@ export function Viewport(props: Props) {
       project: (w: number[]) => { const v = new THREE.Vector3(w[0], w[1], w[2]).project(cam); const r = dom.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; },
       sketchToScreen: (q: Vec2) => { const s = P.current.activeSketch; if (!s) return null; const w = toWorld(planeOf(s), q); return (window as any).__forge.project(w); },
       pointerSnap: () => cursor,
+      /** test hook: where the drag arrow's tip is on screen, and its value */
+      handleTip: () => { const g = handleGeometry(); return g ? { at: (window as any).__forge.project([g.tip.x, g.tip.y, g.tip.z]), value: P.current.handle!.value } : null; },
       // test hook: what the edge picker finds at the screen position of a world point
       edgeAt: (w: number[]) => { const [x, y] = (window as any).__forge.project(w); const sets = P.current.edgeSets; return { sets: sets.length, edges: sets.reduce((n, t) => n + t.edges.length, 0), pick: pickEdge({ clientX: x, clientY: y }), mode: P.current.mode }; },
     };
@@ -419,6 +467,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
+  useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.theme]);
   useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);
 
   return <div className="viewport" ref={host} data-testid="viewport" />;

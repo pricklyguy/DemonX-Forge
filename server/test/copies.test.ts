@@ -94,4 +94,24 @@ describe.skipIf(!existsSync(bin))('mirror, patterns, sweep, loft (real engine)',
     await e.undo();
     await expect(e.run([{ command: 'solid.rib', params: { sketch: 'R', curves: ['l1'], thickness: 3 } }])).rejects.toThrow(/depth/);
   });
+
+  it('scales, winds a coil, runs a pipe along a path and embosses a circle', async () => {
+    await e.newDesign();
+    await e.run([{ command: 'solid.box', params: { length: 40, width: 30, height: 10, corner: [0, 0, 0] } }]);
+    await e.run([{ command: 'solid.scale', params: { bodies: ['Body1'], factor: 2, origin: [20, 15, 5] } }]);
+    expect(await boxes()).toEqual(['-20,-15,-5,60,45,15']); await e.undo();
+    await e.run([{ command: 'solid.scale', params: { bodies: ['Body1'], factors: [1, 2, 3] } }]);
+    expect(await boxes()).toEqual(['0,0,0,40,60,30']); await e.undo();
+    await e.run([{ command: 'solid.coil', params: { diameter: 20, turns: 4, height: 30, section_size: 3, operation: 'new' } }]);
+    const coil = (await e.snapshot()).bodies.find((b) => b.name !== 'Body1')!;
+    const zs = coil.positions.filter((_, i) => i % 3 === 2); expect(Math.max(...zs) - Math.min(...zs)).toBeCloseTo(33, 1); // 30 tall plus the 3 mm wire
+    await e.undo();
+    await e.run([{ command: 'sketch.create', params: { plane: 'XZ', name: 'P' } }, { command: 'sketch.line', params: { points: [[0, 0], [0, -40]] } }, { command: 'sketch.finish' }]);
+    await e.run([{ command: 'solid.pipe', params: { path_sketch: 'P', path: ['l1'], diameter: 10, wall: 1, operation: 'new' } }]);
+    expect(await boxes()).toContain('-5,-5,0,5,5,40'); await e.undo();
+    const top = (await e.snapshot()).bodies[0]!.faces.find((f) => (f.planeNormal?.[2] ?? 0) > 0.9)!;
+    await e.run([{ command: 'sketch.create', params: { plane: { face: top.point, body: 'Body1', index: top.index }, name: 'E' } }, { command: 'sketch.circle.center', params: { center: [20, 15], diameter: 10 } }, { command: 'sketch.finish' }]);
+    await e.run([{ command: 'solid.emboss', params: { sketch: 'E', depth: 2, mode: 'emboss' } }]);
+    expect((await boxes())[0]).toBe('0,0,0,40,30,12'); await e.undo();
+  }, 60_000);
 });

@@ -12,15 +12,19 @@ interface Props {
   onSweep(): void;
   onLoft(): void;
   /** The Extrude-dialog tool that is open, if any. */
-  extKind: 'extrude' | 'revolve' | 'sweep' | 'loft' | 'rib' | null;
+  extKind: 'extrude' | 'revolve' | 'sweep' | 'loft' | 'rib' | 'pipe' | 'emboss' | null;
   onHole(): void;
   onThread(): void;
   onMove(): void;
   onSplit(): void;
   onRib(): void;
+  onPipe(): void;
+  onEmboss(): void;
+  onCoil(): void;
+  onScale(): void;
   canModify: boolean;
   /** The Modify tool whose dialog is open, if any. */
-  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'hole' | 'thread' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | 'move' | 'split' | null;
+  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'hole' | 'thread' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | 'move' | 'split' | 'scale' | 'coil' | null;
   onFillet(): void;
   onChamfer(): void;
   onPressPull(): void;
@@ -65,6 +69,9 @@ export function Ribbon(p: Props) {
             <Btn id="btn-sweep" icon={<Icon.sweep />} label="Sweep" pressed={p.extKind === 'sweep'} onClick={p.onSweep} />
             <Btn id="btn-loft" icon={<Icon.loft />} label="Loft" pressed={p.extKind === 'loft'} onClick={p.onLoft} />
             <Btn id="btn-rib" icon={<Icon.rib />} label="Rib" pressed={p.extKind === 'rib'} disabled={!p.canModify} onClick={p.onRib} />
+            <Btn id="btn-pipe" icon={<Icon.pipe />} label="Pipe" pressed={p.extKind === 'pipe'} onClick={p.onPipe} />
+            <Btn id="btn-coil" icon={<Icon.coil />} label="Coil" pressed={p.modTool === 'coil'} onClick={p.onCoil} />
+            <Btn id="btn-emboss" icon={<Icon.emboss />} label="Emboss" pressed={p.extKind === 'emboss'} onClick={p.onEmboss} />
             <Btn id="btn-mirror" icon={<Icon.mirror />} label="Mirror" pressed={p.modTool === 'mirror'} disabled={!p.canModify} onClick={p.onMirror} />
             <Btn id="btn-rpattern" icon={<Icon.rpattern />} label="Rect. Pattern" pressed={p.modTool === 'rpattern'} disabled={!p.canModify} onClick={p.onRPattern} />
             <Btn id="btn-cpattern" icon={<Icon.cpattern />} label="Circ. Pattern" pressed={p.modTool === 'cpattern'} disabled={!p.canModify} onClick={p.onCPattern} />
@@ -82,6 +89,7 @@ export function Ribbon(p: Props) {
             <Btn id="btn-combine" icon={<Icon.bCombine />} label="Combine" pressed={p.modTool === 'combine'} disabled={!p.canModify} onClick={p.onCombine} />
             <Btn id="btn-move" icon={<Icon.bMove />} label="Move / Copy" pressed={p.modTool === 'move'} disabled={!p.canModify} onClick={p.onMove} />
             <Btn id="btn-split" icon={<Icon.bSplit />} label="Split Body" pressed={p.modTool === 'split'} disabled={!p.canModify} onClick={p.onSplit} />
+            <Btn id="btn-scale" icon={<Icon.bScale />} label="Scale" pressed={p.modTool === 'scale'} disabled={!p.canModify} onClick={p.onScale} />
             <Btn id="btn-thread" icon={<Icon.bThread />} label="Thread" pressed={p.modTool === 'thread'} disabled={!p.canModify} onClick={p.onThread} />
           </Group>
         ) : (
