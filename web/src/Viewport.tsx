@@ -54,6 +54,10 @@ interface Props {
   onSketchClick(pt: Vec2, tol: number, additive: boolean): void;
   /** The pointer was pressed at `a`, dragged and released at `b` with a drawing tool and nothing placed yet: the same as clicking a then b. */
   onSketchDrag(a: Vec2, b: Vec2): void;
+  /** Show the sizes of the sketch's curves (driving dimensions, and measured sizes where there is none) as labels you can double-click to change. */
+  showDims?: boolean;
+  /** A dimension label was double-clicked and a new value typed into it. */
+  onDimEdit?(curveId: string, text: string): void;
   /** With no tool, pressing on a point or curve and dragging moves it ('move' for each step, 'end' on release). */
   onEntityDrag?(phase: 'start' | 'move' | 'end', ent: Picked, from: Vec2, to: Vec2): void;
   /** Sketches whose closed shapes can be clicked in the model view (the ones no feature has used yet). */
@@ -175,12 +179,46 @@ export function Viewport(props: Props) {
       for (const s of p.sketches) {
         if (p.hiddenSketches.has(s.id) || !s.visible) continue;
         const plane = planeOf(s), isActive = s.active;
-        for (const d of s.dimensions) {
-          const c = s.curves.find((x) => x.id === d.curve); if (!c) continue;
-          const at: Vec2 = c.start && c.end ? [(c.start[0] + c.end[0]) / 2, (c.start[1] + c.end[1]) / 2] : c.center ? [c.center[0] + (c.radius ?? 0), c.center[1]] : [0, 0];
-          const lab = document.createElement('div'); lab.className = 'dimlabel'; lab.dataset.testid = 'dimlabel';
-          lab.textContent = `${d.kind === 'diameter' ? 'Ø' : d.kind === 'radius' ? 'R' : ''}${Math.round(d.value * 1000) / 1000}`;
-          labelLayer.appendChild(lab); labels.push({ el: lab, w: v3(toWorld(plane, at)) });
+        if (p.showDims !== false) { // the sizes on the sketch: a driving dimension where there is one, otherwise the measured size (double-click either to change it)
+          const n2 = (x: number) => String(Math.round(x * 1000) / 1000);
+          const label = (curveId: string, at: Vec2, text: string, driving: boolean) => {
+            const lab = document.createElement('div'); lab.className = `dimlabel dimedit${driving ? '' : ' measured'}`; lab.dataset.testid = driving ? 'dimlabel' : 'measured'; lab.dataset.curve = curveId; lab.textContent = text; lab.title = 'Double-click to change';
+            lab.addEventListener('dblclick', (ev) => {
+              ev.stopPropagation(); if (lab.querySelector('input')) return;
+              const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'dimedit-input'; inp.setAttribute('aria-label', 'Dimension value'); inp.value = text.replace(/^[ØR]/, '');
+              lab.textContent = ''; lab.appendChild(inp); inp.focus(); inp.select();
+              let done = false;
+              const finish = (commit: boolean) => { if (done) return; done = true; const val = inp.value.trim(); if (commit && val && val !== text.replace(/^[ØR]/, '')) P.current.onDimEdit?.(curveId, val); lab.textContent = text; };
+              inp.addEventListener('keydown', (k) => { if (k.key === 'Enter') { k.preventDefault(); finish(true); } else if (k.key === 'Escape') { k.stopPropagation(); finish(false); } k.stopPropagation(); });
+              inp.addEventListener('blur', () => finish(false));
+            });
+            lab.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+            labelLayer.appendChild(lab); labels.push({ el: lab, w: v3(toWorld(plane, at)) });
+          };
+          const has = new Set<string>();
+          for (const d of s.dimensions) {
+            const c = s.curves.find((x) => x.id === d.curve); if (!c) continue;
+            const at: Vec2 = c.start && c.end ? [(c.start[0] + c.end[0]) / 2, (c.start[1] + c.end[1]) / 2] : c.center ? [c.center[0] + (c.radius ?? 0), c.center[1]] : [0, 0];
+            label(c.id, at, `${d.kind === 'diameter' ? 'Ø' : d.kind === 'radius' ? 'R' : ''}${n2(d.value)}`, true); has.add(c.id);
+          }
+          if (isActive) { // measured sizes for the curves that have no dimension; parallel lines of the same length share one label (a rectangle shows two)
+            const mid: Vec2 = (() => { const xs = s.curves.flatMap((c) => c.start && c.end ? [c.start[0], c.end[0]] : c.center ? [c.center[0]] : []), ys = s.curves.flatMap((c) => c.start && c.end ? [c.start[1], c.end[1]] : c.center ? [c.center[1]] : []); return xs.length ? [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2] : [0, 0]; })();
+            const seen: { len: number; ang: number }[] = [];
+            for (const c of s.curves) {
+              if (c.construction || has.has(c.id)) continue;
+              if (c.type === 'line' && c.start && c.end) {
+                const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], len = Math.hypot(dx, dy); if (len < 1e-6) continue;
+                const ang = ((Math.atan2(dy, dx) % Math.PI) + Math.PI) % Math.PI;
+                if (seen.some((q) => Math.abs(q.len - len) < 1e-6 && Math.min(Math.abs(q.ang - ang), Math.PI - Math.abs(q.ang - ang)) < 1e-6)) continue;
+                seen.push({ len, ang });
+                const m: Vec2 = [(c.start[0] + c.end[0]) / 2, (c.start[1] + c.end[1]) / 2];
+                let nx = -dy / len, ny = dx / len; if ((m[0] - mid[0]) * nx + (m[1] - mid[1]) * ny < 0) { nx = -nx; ny = -ny; } // the label stands outside the shape
+                const off = wpp() * 16;
+                label(c.id, [m[0] + nx * off, m[1] + ny * off], n2(len), false);
+              } else if (c.type === 'circle' && c.center && c.radius !== undefined) { const d = (c.radius + wpp() * 20) * Math.SQRT1_2; label(c.id, [c.center[0] + d, c.center[1] + d], `Ø${n2(2 * c.radius)}`, false); } // up and to the right of the circle, not over it or its rim
+              else if (c.type === 'arc' && c.center && c.radius !== undefined) { const d = (c.radius + wpp() * 20) * Math.SQRT1_2; label(c.id, [c.center[0] + d, c.center[1] + d], `R${n2(c.radius)}`, false); }
+            }
+          }
         }
         const open: number[] = [], solid: number[] = [], construction: number[] = [];
         for (const c of s.curves) (c.construction ? construction : isActive && c.fullyConstrained ? solid : open).push(...curveSegments(c, plane));
@@ -576,7 +614,7 @@ export function Viewport(props: Props) {
 
   const p = props;
   useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.selectedBodies, p.showEdges, p.theme]);
-  useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.tool, p.showProfiles, p.selectedProfiles, p.theme]);
+  useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.tool, p.showProfiles, p.selectedProfiles, p.theme, p.showDims]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);

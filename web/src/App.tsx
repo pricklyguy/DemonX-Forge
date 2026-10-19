@@ -228,6 +228,7 @@ export function App() {
   const [hiddenSketches, setHiddenSketches] = useState<Set<number>>(new Set());
   const [showOrigin, setShowOrigin] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [showDims, setShowDims] = useState(true); // the sizes shown on a sketch (Sketch Palette > Dimensions)
   const [showEdges, setShowEdges] = useState(true);
   const [showProfiles, setShowProfiles] = useState(true);
   const [snapOn, setSnapOn] = useState(true);
@@ -376,6 +377,14 @@ export function App() {
         if (!step) setError('That curve cannot be dimensioned yet'); else send([step]);
       },
     });
+  };
+  /** A size label on the sketch was double-clicked and a value typed: change the driving dimension, or make one from the measured size. */
+  const dimEdited = (curveId: string, text: string) => {
+    const c = activeSketch?.curves.find((x) => x.id === curveId); if (!c) return;
+    const existing = activeSketch?.dimensions.find((d) => d.curve === c.id);
+    if (existing) { void run(() => api.param(existing.param, text.trim())); return; }
+    const step = dimensionFor(c, text);
+    if (!step) setError('That curve cannot be dimensioned yet'); else send([step]);
   };
   const deleteSelected = () => { if (selected.length) { const ids = selected; setSelected([]); send([{ command: 'sketch.delete', params: { entities: ids } }]); } };
   const toggleConstruction = () => { if (selected.length) send([{ command: 'sketch.construction', params: { curves: selected } }]); };
@@ -1006,7 +1015,7 @@ export function App() {
 
       <div className="stage">
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
-          hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
+          hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showDims={showDims} onDimEdit={dimEdited} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
           handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onEntityDrag={entityDrag} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
@@ -1024,6 +1033,7 @@ export function App() {
         {mode === 'sketch' && (
           <div className="palette" data-testid="palette">
             <div className="phead">SKETCH PALETTE</div>
+            <label><span>Dimensions</span><input type="checkbox" aria-label="Dimensions" checked={showDims} onChange={(e) => setShowDims(e.target.checked)} /></label>
             <label><span>Sketch Grid</span><input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} /></label>
             <label><span>Snap</span><input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /></label>
             <label><span>Profile</span><input type="checkbox" checked={showProfiles} onChange={(e) => setShowProfiles(e.target.checked)} /></label>

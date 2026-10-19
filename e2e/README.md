@@ -22,6 +22,7 @@ Each script says in its header how to run it. They need the real engine, a built
 | `drag.mjs` | The drag arrow in Press Pull (up, down, past the face, typing, Esc) and in Extrude (the distance and the solid follow) (needs a fresh server) |
 | `drawing.mjs` | The size boxes on a shape being drawn (typing, Backspace, Tab, Enter, circle), press-drag-release drawing, clicking a finished sketch's shape then E, a rectangle crossing a circle (hover, pick the overlap, extrude it alone), the right-click menu and the shortcuts list (needs a fresh server) |
 | `select.mjs` | Open sketch: shapes light up and select (replace, Shift adds), dragging a circle's centre and one Ctrl+Z, E with three shapes, Extrude starts at 0 with a live number on the arrow, typing in it, Enter, and M for Move (needs a fresh server) |
+| `dimensions.mjs` | The sizes on an open sketch (measured and driving), the Dimensions check box, double-click to change a size in place, Esc, Ctrl+Z (needs a fresh server) |
 | `files.mjs` | New, Open, Save (write back to the same file, fallback when writing back is refused), Save As, the unsaved marker and the close-tab warning, Export STEP / STL / 3MF / OBJ / DXF, a refused bad file, a file saved mid-sketch, and the whole thing again without the native file windows (downloads and a file chooser) |
 | `sketch.mjs` | Create Sketch on a plane and on a face, rectangle / circle / typed circle, Sketch Dimension, E for extrude with live preview, Cancel, OK, Cut direction, undo and redo, the browser tree |
 

@@ -82,7 +82,7 @@ s = await state(); sk = s.sketches[0];
 check(sk.dimensions.length === 1 && sk.dimensions[0].value === 50, 'dimension recorded', JSON.stringify(sk.dimensions));
 check(Math.abs(Math.max(...sk.curves.filter((c) => c.type === 'line').map((c) => c.end[0])) - 50) < 1e-6, 'the rectangle stretched to 50 wide');
 check(sk.dof < dof0, 'degrees of freedom went down', `${dof0} -> ${sk.dof}`);
-check((await p.locator('.dimlabel').first().innerText()) === '50', 'the dimension shows as a label (50)');
+check((await p.locator('[data-testid=dimlabel]').first().innerText()) === '50', 'the dimension shows as a label (50)');
 // clicking the same line again edits the dimension (a second one would over-constrain)
 await click([30, 0]);
 await p.getByTestId('value-entry').waitFor();

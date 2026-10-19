@@ -98,3 +98,7 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .keycols h4 { margin: 10px 0 4px; font-size: 11px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
 .keyrow { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; font-size: 12.5px; }
 .keyrow kbd { flex: none; min-width: 7.5em; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 12px; color: var(--text); }
+
+.dimlabel.dimedit { pointer-events: auto; cursor: text; }
+.dimlabel.measured { border-style: dashed; color: var(--muted); transform: translate(-50%, -50%); } /* centred on its anchor, which stands off the curve, so it never sits on the line it measures */
+.dimlabel .dimedit-input { width: 6ch; font: inherit; font-size: 11px; background: var(--panel); color: var(--text); border: 0; outline: none; padding: 0; text-align: center; }
