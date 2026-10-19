@@ -4,7 +4,7 @@ import { buildEdgeGeometry } from '../../server/src/engine/meshEdges';
 import { api, type Snapshot, type SketchCurve, type TimelineItem, type Vec2, type Vec3 } from './api';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Browser } from './Browser';
-import { canPick, download, extOf, FORGE_TYPE, pickOpenFile, pickSaveHandle, stripExt, typeForExt, writeHandle, type Handle } from './files';
+import { canPick, download, extOf, FORGE_TYPE, MODEL_TYPE, pickOpenFile, pickSaveHandle, stripExt, typeForExt, writeHandle, type Handle } from './files';
 import { Icon } from './icons';
 import { Ribbon } from './Ribbon';
 import { Timeline } from './Timeline';
@@ -154,6 +154,7 @@ export function App() {
   const [bf, setBf] = useState<BodyForm>(BODY_FORM);
   const [hf, setHf] = useState<HoleForm>(HOLE_FORM);
   const [tf, setTf] = useState<ThreadForm>({ designation: '', length: '', modeled: false });
+  const [valueEdit, setValueEdit] = useState<{ name: string; key: string } | null>(null); // Fillet, Chamfer, Shell, Offset Face, Draft: only the number of an existing step is edited
   const [holeEdit, setHoleEdit] = useState<string | null>(null); // the name of the Hole feature being edited
   const [modBase, setModBase] = useState<Snapshot | null>(null); // the model when Fillet or Chamfer was opened: edges are picked on this, not on the preview
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
@@ -377,6 +378,10 @@ export function App() {
       return { command: 'solid.pattern.rectangular', params };
     }
     const n = Number(v), size: number | string = Number.isFinite(n) ? n : v;
+    if (valueEdit) { // an existing step: its number only (the edges or faces it was made on stay)
+      if (!v || (modTool === 'draft' ? !(Math.abs(size as number) < 89) || size === 0 : typeof size === 'number' && !(size > 0))) return null;
+      return { command: 'timeline.edit', params: { feature: valueEdit.name, set: { [valueEdit.key]: modTool === 'draft' && typeof size === 'number' ? `${size} deg` : String(size) } } };
+    }
     const pts = facesSel.map((f) => f.point.map((x) => +x.toFixed(3)));
     if (modTool === 'hole') {
       if (!v || (typeof size === 'number' && !(size > 0))) return null;
@@ -471,7 +476,7 @@ export function App() {
   // ---- Fillet and Chamfer: pick edges, set a size, live preview (the same mechanism as the extrude dialog)
   const edgeSets = useMemo(() => (mode === 'modify' && !FACE_TOOLS.includes(modTool) && !BODY_TOOLS.includes(modTool) && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
   const startModify = async (t: ModTool) => {
-    if (mode === 'modify') { if (t !== modTool && !holeEdit) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(initialBodies(t, modBase?.bodies.map((b) => b.name) ?? [], undefined)); } return; }
+    if (mode === 'modify') { if (t !== modTool && !holeEdit && !valueEdit) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(initialBodies(t, modBase?.bodies.map((b) => b.name) ?? [], undefined)); } return; }
     if (mode === 'extrude') await cancelExtrude();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
@@ -490,7 +495,7 @@ export function App() {
   };
   const facePicked = (f: FacePick | null) => {
     if (!f) return;
-    if (holeEdit) return; // an existing hole keeps its face; only its numbers change
+    if (holeEdit || valueEdit) return; // an existing step keeps its faces and edges; only its numbers change
     if (BODY_TOOLS.includes(modTool)) { // a click on a body picks the whole body; the preview's copies are not pickable
       if (!modBase?.bodies.some((b) => b.name === f.body)) return;
       if (modTool === 'split') { setBodiesSel([f.body]); return; }
@@ -502,11 +507,11 @@ export function App() {
     if (ONE_FACE.includes(modTool)) { setFacesSel([f]); setError(''); return; }
     setFacesSel((cur) => (cur.some((c) => c.body === f.body && c.face === f.face) ? cur.filter((c) => !(c.body === f.body && c.face === f.face)) : [...cur.filter((c) => c.body === f.body), f])); // Shell: one body at a time
   };
-  const closeModify = () => { setHoleEdit(null); setBodiesSel([]); setEdgesSel([]); setFacesSel([]); setModBase(null); setMode('model'); setError(''); };
+  const closeModify = () => { setValueEdit(null); setHoleEdit(null); setBodiesSel([]); setEdgesSel([]); setFacesSel([]); setModBase(null); setMode('model'); setError(''); };
   const cancelModify = async () => { closeModify(); await applyPreview(null); };
   const okModify = async () => {
     clearTimeout(previewTimer.current);
-    if (holeEdit && !preview.current && stepKey === baseKey.current) { closeModify(); return; } // nothing was changed
+    if ((holeEdit || valueEdit) && !preview.current && stepKey === baseKey.current) { closeModify(); return; } // nothing was changed
     const step = modifyStep(); if (!step) { setError(modTool === 'hole' ? 'Click a face, then check the position and enter a diameter (and a depth, or leave it empty to go right through)' : modTool === 'thread' ? 'Click the round wall of a hole or boss' : modTool === 'move' ? 'Type a move or a turn (not both zero)' : modTool === 'split' ? 'Click a body and type where to cut it' : modTool === 'combine' ? 'Click at least one other body to combine with the target' : BODY_TOOLS.includes(modTool) ? (bodiesSel.length ? 'Check the numbers: counts are whole numbers of 2 or more, spacing is not zero, the two directions differ' : 'Click the body to copy') : modTool === 'offsetface' ? 'Select the face(s) to move and enter a distance (not zero)' : modTool === 'draft' ? 'Select the wall face(s) and enter an angle (not zero, under 89)' : modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : modTool === 'shell' ? 'Select the face(s) to open and enter a wall thickness' : 'Select at least one edge and enter a size'); return; }
     await applyPreview(step);
     if (!preview.current) return; // the engine refused (for example a radius too big): the reason is shown and the dialog stays open
@@ -535,6 +540,35 @@ export function App() {
       if (s) { fileHandle.current = picked.handle; resetAfterLoad(); setNotice(`Opened ${picked.file.name}`); }
     } catch (e) { setError((e as Error).message); }
   })(); });
+  /** File > Import: a STEP or IGES file becomes a new component in the design (it does not replace it). */
+  const doImport = () => { void (async () => {
+    try {
+      await noPreviewPending();
+      if (activeSketch) { const k = await finishSketch(); if (!k) return; }
+      const picked = await pickOpenFile([MODEL_TYPE]);
+      if (!picked) return;
+      const ext = extOf(picked.file.name);
+      if (!['step', 'stp', 'iges', 'igs'].includes(ext)) { setError('Choose a STEP (.step, .stp) or IGES (.iges, .igs) file'); return; }
+      const data = await picked.file.arrayBuffer();
+      const s = await run(() => api.importModel(data, stripExt(picked.file.name), ext));
+      if (s) { setNotice(`Imported ${picked.file.name}`); setTimeout(() => viewApi.current?.setView('home'), 80); }
+    } catch (e) { setError((e as Error).message); }
+  })(); };
+  const [section, setSection] = useState<{ plane: 'XY' | 'XZ' | 'YZ'; offset: string; body: string } | null>(null);
+  const doSectionExport = async () => {
+    if (!section) return;
+    const off = Number(section.offset);
+    if (section.offset.trim() === '' || !Number.isFinite(off)) { setError('Enter where to cut as a number (millimetres)'); return; }
+    try {
+      const suggested = `${snap.doc.name} section.dxf`;
+      const target = canPick() ? await pickSaveHandle(suggested, [typeForExt('dxf')]) : null;
+      if (canPick() && !target) return;
+      const { data, filename } = await api.exportSection({ plane: section.plane, offset: off, body: section.body });
+      const blob = new Blob([data], { type: 'application/octet-stream' });
+      if (target) { await writeHandle(target, blob); setNotice(`Exported ${target.name}`); } else { download(blob, filename); setNotice(`Exported ${filename} (see your Downloads folder)`); }
+      setSection(null);
+    } catch (e) { setError((e as Error).message); }
+  };
   const saveTo = async (target: Handle | null, name: string) => {
     const { data, filename } = await api.save(name);
     const blob = new Blob([data], { type: 'application/octet-stream' });
@@ -579,6 +613,7 @@ export function App() {
       { label: 'Open…   Ctrl+O', onClick: doOpen },
       { label: 'Save   Ctrl+S', onClick: () => void doSave(false) },
       { label: 'Save As…   Ctrl+Shift+S', onClick: () => void doSave(true) },
+      { label: 'Import STEP / IGES…', onClick: doImport },
       { label: 'Export bodies', heading: true, onClick: () => {} },
       { label: 'STEP (.step)', disabled: none, onClick: () => void doExport('step') },
       { label: 'STL (.stl)', disabled: none, onClick: () => void doExport('stl') },
@@ -586,6 +621,7 @@ export function App() {
       { label: 'OBJ (.obj)', disabled: none, onClick: () => void doExport('obj') },
       { label: 'Export a face as DXF', heading: true, onClick: () => {} },
       sel && flatSel ? { label: `Selected face (${sel.body})`, onClick: () => void doExport('dxf', undefined, sel) } : { label: 'Select a flat face first', disabled: true, onClick: () => {} },
+      { label: 'Section through a body…', disabled: none, onClick: () => setSection({ plane: 'XZ', offset: '0', body: snap.bodies[0]?.name ?? '' }) },
       { label: 'Export a sketch as DXF', heading: true, onClick: () => {} },
       ...(snap.sketches.length ? snap.sketches.map((k) => ({ label: k.name, onClick: () => void doExport('dxf', k.name) })) : [{ label: 'No sketches yet', disabled: true, onClick: () => {} }]),
     ];
@@ -607,6 +643,22 @@ export function App() {
     const steps = activeSketch ? [{ command: 'sketch.finish', params: {} }, { command: 'sketch.edit', params: { sketch: name } }] : [{ command: 'sketch.edit', params: { sketch: name } }];
     if (activeSketch?.name === name) return;
     send(steps);
+  };
+  /** Double-click a Fillet, Chamfer, Shell, Offset Face or Draft in the timeline: change its number in place. */
+  const VALUE_FEATURES: [RegExp, ModTool, string][] = [[/^fillet/i, 'fillet', 'radius'], [/^chamfer/i, 'chamfer', 'distance'], [/^shell/i, 'shell', 'thickness'], [/^offsetface/i, 'offsetface', 'distance'], [/^draft/i, 'draft', 'angle']];
+  const valueKind = (type: string) => VALUE_FEATURES.find(([re]) => re.test(type));
+  const editValue = async (item: TimelineItem) => {
+    const hit = valueKind(item.type); if (!hit) return;
+    await noPreviewPending();
+    if (activeSketch) { const k = await finishSketch(); if (!k) return; }
+    try {
+      const f = await api.inspectFeature(item.name);
+      const raw = String((f.definition as Record<string, unknown>)[hit[2]] ?? '');
+      skipFirst.current = true;
+      setValueEdit({ name: item.name, key: hit[2] }); setModValue(raw.replace(/\s*deg$/, ''));
+      setFacesSel([]); setEdgesSel([]); setBodiesSel([]); setHoleEdit(null);
+      setModTool(hit[1]); setModBase(snap); chooseTool(null); setSel(null); setMode('modify'); setError('');
+    } catch (e) { setError((e as Error).message); }
   };
   const editHole = async (item: TimelineItem) => {
     await noPreviewPending();
@@ -642,6 +694,7 @@ export function App() {
     if (/sketch/i.test(item.type)) void editSketch(item.name);
     else if (/extrude/i.test(item.type)) void editExtrude(item);
     else if (/hole/i.test(item.type)) void editHole(item);
+    else if (valueKind(item.type)) void editValue(item);
     else setError(`Editing a ${item.type.replace(/Feature$/, '').toLowerCase()} is not available yet: delete it and make it again, or use Undo.`);
   };
   const requestDelete = async (item: TimelineItem) => {
@@ -652,7 +705,7 @@ export function App() {
     } catch (e) { setError((e as Error).message); }
   };
   const menuItems = (item: TimelineItem): MenuItem[] => [
-    { label: 'Edit', onClick: () => editItem(item), disabled: !/sketch|extrude|hole/i.test(item.type) },
+    { label: 'Edit', onClick: () => editItem(item), disabled: !(/sketch|extrude|hole/i.test(item.type) || valueKind(item.type)) },
     { label: 'Rename…', onClick: () => setEdit({ title: `Rename ${item.name}`, value: item.name, submit: (v) => { if (v.trim() && v.trim() !== item.name) send([{ command: 'timeline.rename', params: { feature: item.name, name: v.trim() } }]); } }) },
     { label: item.suppressed ? 'Unsuppress' : 'Suppress', onClick: () => send([{ command: 'timeline.suppress', params: { feature: item.name } }]) },
     { label: 'Roll history to here', onClick: () => send([{ command: 'timeline.roll_to', params: { feature: item.name } }]) },
@@ -803,10 +856,10 @@ export function App() {
 
         {mode === 'modify' && (
           <div className="dialog" data-testid="modify-dialog">
-            <div className="dhead">{MOD_TITLE[modTool]}</div>
-            {BODY_TOOLS.includes(modTool) ? <BodyFields tool={modTool} bf={bf} setBf={setBf} bodies={bodiesSel} allBodies={modBase?.bodies.map((b) => b.name) ?? []} target={combineTarget} onEnter={() => void okModify()} /> : <>
+            <div className="dhead">{valueEdit ? `EDIT ${valueEdit.name.toUpperCase()}` : MOD_TITLE[modTool]}</div>
+            {BODY_TOOLS.includes(modTool) && !valueEdit ? <BodyFields tool={modTool} bf={bf} setBf={setBf} bodies={bodiesSel} allBodies={modBase?.bodies.map((b) => b.name) ?? []} target={combineTarget} onEnter={() => void okModify()} /> : <>
             {modTool === 'hole' && holeEdit && <div className="drow"><span>Editing</span><b data-testid="edge-count">{holeEdit}</b></div>}
-            {FACE_TOOLS.includes(modTool) && modTool === 'hole' && holeEdit ? null : FACE_TOOLS.includes(modTool)
+            {valueEdit || (FACE_TOOLS.includes(modTool) && modTool === 'hole' && holeEdit) ? null : FACE_TOOLS.includes(modTool)
               ? <div className="drow"><span>{ONE_FACE.includes(modTool) ? 'Face' : 'Faces'}</span><b data-testid="edge-count">{facesSel.length ? `${facesSel.length} selected` : ONE_FACE.includes(modTool) ? 'Select a face' : 'Select faces'}</b></div>
               : <div className="drow"><span>Edges</span><b data-testid="edge-count">{edgesSel.length ? `${edgesSel.length} selected` : 'Select edges'}</b></div>}
             {modTool === 'hole' && <>
@@ -819,10 +872,10 @@ export function App() {
               <label className="drow"><span>Size</span><input aria-label="Thread size" type="text" placeholder="e.g. M8 (empty: the size that fits)" value={tf.designation} onChange={(e) => setTf({ ...tf, designation: e.target.value })} /></label>
               <label className="drow"><span>Length</span><input aria-label="Thread length" type="text" placeholder="the whole face" value={tf.length} onChange={(e) => setTf({ ...tf, length: e.target.value })} /></label>
               <label className="drow"><span>Modeled</span><input aria-label="Modeled thread" type="checkbox" checked={tf.modeled} onChange={(e) => setTf({ ...tf, modeled: e.target.checked })} /></label></>}
-            {modTool === 'draft' && <label className="drow"><span>Neutral</span><select aria-label="Neutral plane" value={bf.neutral} onChange={(e) => setBf({ ...bf, neutral: e.target.value as BodyForm['neutral'] })}><option value="bottom">Bottom of the body</option><option value="top">Top of the body</option><option value="XY">XY plane (z = 0)</option><option value="XZ">XZ plane (y = 0)</option><option value="YZ">YZ plane (x = 0)</option></select></label>}
+            {modTool === 'draft' && !valueEdit && <label className="drow"><span>Neutral</span><select aria-label="Neutral plane" value={bf.neutral} onChange={(e) => setBf({ ...bf, neutral: e.target.value as BodyForm['neutral'] })}><option value="bottom">Bottom of the body</option><option value="top">Top of the body</option><option value="XY">XY plane (z = 0)</option><option value="XZ">XZ plane (y = 0)</option><option value="YZ">YZ plane (x = 0)</option></select></label>}
             {modTool !== 'thread' && <label className="drow"><span>{VALUE_LABEL[modTool]}</span>
               <input aria-label={VALUE_LABEL[modTool]} type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>}
-            <div className="dnote">{modTool === 'hole' ? (holeEdit ? 'Change the numbers; the hole follows. Leave Depth empty to go right through.' : 'The hole is drilled into the body at the position, straight in from the face. Leave Depth empty to go right through.') : modTool === 'thread' ? 'A cosmetic thread marks the size on the hole without changing the shape (it shows in the timeline). Tick Modeled to cut the real thread profile (slower).' : modTool === 'draft' ? 'Tilts the picked walls by the angle about the neutral plane, which keeps its size. A positive angle narrows the part away from the neutral plane (a mould that pulls up from it); a negative one widens it.' : modTool === 'offsetface' ? 'Moves the picked flat faces along their normals: a positive distance grows the body, a negative one shrinks it.' : modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div></>}
+            <div className="dnote">{valueEdit ? 'Only the number can be changed here; the step keeps the edges or faces it was made on. To change those, delete the step and make it again.' : modTool === 'hole' ? (holeEdit ? 'Change the numbers; the hole follows. Leave Depth empty to go right through.' : 'The hole is drilled into the body at the position, straight in from the face. Leave Depth empty to go right through.') : modTool === 'thread' ? 'A cosmetic thread marks the size on the hole without changing the shape (it shows in the timeline). Tick Modeled to cut the real thread profile (slower).' : modTool === 'draft' ? 'Tilts the picked walls by the angle about the neutral plane, which keeps its size. A positive angle narrows the part away from the neutral plane (a mould that pulls up from it); a negative one widens it.' : modTool === 'offsetface' ? 'Moves the picked flat faces along their normals: a positive distance grows the body, a negative one shrinks it.' : modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div></>}
             <div className="dbtns"><button onClick={() => void cancelModify()}>Cancel</button><button className="primary" data-testid="modify-ok" onClick={() => void okModify()}>OK</button></div>
           </div>
         )}
@@ -830,6 +883,16 @@ export function App() {
         {mode === 'sketch' && typable && (
           <div className="entry" data-testid="entry">
             <input ref={entryRef} aria-label="Typed size" type="text" value={typed} placeholder={placeholder} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} />
+          </div>
+        )}
+        {section && (
+          <div className="dialog" data-testid="section-dialog">
+            <div className="dhead">SECTION AS DXF</div>
+            <label className="drow"><span>Body</span><select aria-label="Section body" value={section.body} onChange={(e) => setSection({ ...section, body: e.target.value })}>{snap.bodies.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}</select></label>
+            <label className="drow"><span>Plane</span><select aria-label="Section plane" value={section.plane} onChange={(e) => setSection({ ...section, plane: e.target.value as 'XY' | 'XZ' | 'YZ' })}><option value="XY">XY (cut across Z, a plan view)</option><option value="XZ">XZ (cut across Y, a front view)</option><option value="YZ">YZ (cut across X, a side view)</option></select></label>
+            <label className="drow"><span>Position</span><input aria-label="Section position" type="text" value={section.offset} onChange={(e) => setSection({ ...section, offset: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void doSectionExport(); }} /></label>
+            <div className="dnote">Cuts the body along the plane at that position (millimetres) and saves the outline of the cut as DXF lines and arcs, with Z up for the front and side views. Nothing is added to your design.</div>
+            <div className="dbtns"><button onClick={() => setSection(null)}>Cancel</button><button className="primary" data-testid="section-ok" onClick={() => void doSectionExport()}>Export DXF</button></div>
           </div>
         )}
         {edit && (

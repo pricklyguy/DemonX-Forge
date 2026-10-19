@@ -26,6 +26,7 @@ async function startEngine() {
 const MAX_BODY = 1_000_000;
 const MAX_STEPS = 200;
 const MAX_FILE = 512 * 1024 * 1024; // an uploaded .forge file
+const MAX_IMPORT = 256 * 1024 * 1024; // an imported STEP or IGES file
 const appVersion = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version as string; } catch { return 'dev'; } })();
 const EXPORTS: Record<string, { format: ExportFormat; ext: string }> = { step: { format: 'step', ext: 'step' }, stl: { format: 'stl', ext: 'stl' }, stla: { format: 'stla', ext: 'stl' }, '3mf': { format: '3mf', ext: '3mf' }, obj: { format: 'obj', ext: 'obj' } };
 const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.woff2': 'font/woff2' };
@@ -62,10 +63,29 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
     await e.load(new Uint8Array(await readBytes(req, MAX_FILE)), name);
     return send(res, 200, await e.snapshot());
   }
+  if (path === '/api/import') { // the body is the bytes of a STEP or IGES file; ?name= is the file's name (the new component is named after it)
+    if (req.method !== 'POST') throw new BadRequest('POST the file');
+    const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const ext = (q.get('ext') ?? '').toLowerCase();
+    if (ext !== 'step' && ext !== 'stp' && ext !== 'iges' && ext !== 'igs') throw new BadRequest('Only STEP (.step, .stp) and IGES (.iges, .igs) files can be imported');
+    if ((await e.snapshot()).sketches.some((k) => k.active)) throw new BadRequest('Finish the sketch first');
+    const bytes = new Uint8Array(await readBytes(req, MAX_IMPORT));
+    if (!bytes.length) throw new BadRequest('The file is empty');
+    await e.importModel(bytes, ext, safeName(q.get('name'), 'Imported'));
+    return send(res, 200, await e.snapshot());
+  }
   const a = req.method === 'POST' ? await readBody(req) : {};
   if (path === '/api/save') { const name = safeName(a.name, (await e.snapshot()).doc.name); return sendFile(res, await e.save(name), `${name}.forge`); }
   if (path === '/api/export') {
     const snap = await e.snapshot(); const name = safeName(a.name, snap.doc.name);
+    if (a.format === 'dxf' && a.section) { // a cut through a body for DemonX Design (the sketch made to do it is not kept)
+      const s = a.section as { plane?: unknown; offset?: unknown; body?: unknown };
+      if (s.plane !== 'XY' && s.plane !== 'XZ' && s.plane !== 'YZ') throw new BadRequest('Choose the plane to cut along: XY, XZ or YZ');
+      if (typeof s.offset !== 'number' || !Number.isFinite(s.offset)) throw new BadRequest('Enter where to cut, as a number');
+      if (typeof s.body !== 'string' || !snap.bodies.some((b) => b.name === s.body)) throw new BadRequest('Choose a body to cut');
+      if (snap.sketches.some((k) => k.active)) throw new BadRequest('Finish the sketch first');
+      return sendFile(res, await e.exportSectionDxf({ plane: s.plane, offset: s.offset, body: s.body }), `${name} section.dxf`);
+    }
     if (a.format === 'dxf' && a.face) { // a flat face of a body: its outline for DemonX Design (the sketch made to do it is not kept)
       const f = a.face as { body?: unknown; index?: unknown; point?: unknown };
       const pt = Array.isArray(f.point) && f.point.length === 3 && f.point.every((v) => typeof v === 'number' && Number.isFinite(v)) ? (f.point as [number, number, number]) : null;

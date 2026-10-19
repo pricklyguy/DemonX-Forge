@@ -107,6 +107,10 @@ export interface Engine {
   /** Run steps in order; if one fails the design is left as it was (rolled back) and EngineError says why. */
   run(steps: CommandStep[]): Promise<string[]>;
   setParameter(name: string, value: string | number): Promise<void>;
+  /** A cut through a body as DXF. The design is not changed. */
+  exportSectionDxf(sec: { plane: 'XY' | 'XZ' | 'YZ'; offset: number; body: string }): Promise<Uint8Array>;
+  /** Insert a STEP or IGES file as a new component. */
+  importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs', name: string): Promise<string[]>;
   undo(): Promise<void>;
   redo(): Promise<void>;
   /** The design as the bytes of a .forge file; the design is then called `name` and counts as saved. */

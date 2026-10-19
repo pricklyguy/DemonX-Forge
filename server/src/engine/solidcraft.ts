@@ -172,6 +172,43 @@ export class SolidCraftEngine implements Engine {
     });
   }
 
+  /** A cut through a body as DXF (lines and arcs in millimetres, Z up for the XZ and YZ planes), from a temporary sketch that is taken out of the design again. */
+  exportSectionDxf(sec: { plane: 'XY' | 'XZ' | 'YZ'; offset: number; body: string }): Promise<Uint8Array> {
+    return this.serial(async () => {
+      const name = '__section_dxf', o = sec.offset;
+      const frame = sec.plane === 'XY' ? { origin: [0, 0, o], x_dir: [1, 0, 0], y_dir: [0, 1, 0] } : sec.plane === 'XZ' ? { origin: [0, o, 0], x_dir: [1, 0, 0], y_dir: [0, 0, 1] } : { origin: [o, 0, 0], x_dir: [0, 1, 0], y_dir: [0, 0, 1] };
+      const path = this.tmp('dxf');
+      await this.tool('batch', { commands: [
+        { command: 'sketch.create', params: { plane: frame, name } },
+        { command: 'sketch.fit_curves_to_section', params: { body: sec.body } },
+        { command: 'sketch.finish', params: {} },
+      ], rollback: true, verbose: false });
+      try {
+        await this.tool('execute', { command: 'sketch.export_dxf', params: { sketch: name, path } });
+        return new Uint8Array(readFileSync(path));
+      } finally {
+        rmSync(path, { force: true });
+        for (let i = 0; i < 4; i++) { // the section may be more than one history step: undo until the temporary sketch is gone
+          await this.tool('undo');
+          const info = await this.tool('inspect_design');
+          if (!(info?.sketches ?? []).some((k: any) => k.name === name)) break;
+        }
+      }
+    });
+  }
+
+  /** Bring a STEP or IGES file into the design as a new component. */
+  importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs', name: string): Promise<string[]> {
+    return this.serial(async () => {
+      const path = this.tmp(ext);
+      writeFileSync(path, bytes);
+      try {
+        await this.tool('batch', { commands: [{ command: 'file.insert_step', params: { path, name } }], rollback: true, verbose: false });
+        return [];
+      } finally { rmSync(path, { force: true }); }
+    });
+  }
+
   undo(): Promise<void> { return this.serial(async () => { await this.tool('undo'); }); }
   redo(): Promise<void> { return this.serial(async () => { await this.tool('redo'); }); }
 

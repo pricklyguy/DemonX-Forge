@@ -6,6 +6,7 @@ type Pickers = { showSaveFilePicker?: (o: unknown) => Promise<Handle>; showOpenF
 const w = () => globalThis as unknown as Pickers; // looked up when used, so the helpers also load without a browser
 export const canPick = () => typeof w().showSaveFilePicker === 'function' && typeof w().showOpenFilePicker === 'function';
 
+export const MODEL_TYPE: FileType = { description: 'STEP or IGES model', accept: { 'model/step': ['.step', '.stp'], 'model/iges': ['.iges', '.igs'] } };
 export const FORGE_TYPE: FileType = { description: 'DemonX Forge design', accept: { 'application/zip': ['.forge'] } };
 const TYPES: Record<string, FileType> = {
   step: { description: 'STEP model', accept: { 'model/step': ['.step', '.stp'] } },

@@ -40,6 +40,15 @@ export const api = {
     if (!r.ok) throw new Error(j.error ?? `The server answered ${r.status}`);
     return j as Snapshot;
   },
+  /** Insert a STEP or IGES file into the design as a new component. */
+  importModel: async (data: ArrayBuffer, name: string, ext: string): Promise<Snapshot> => {
+    const r = await fetch(`/api/import?name=${encodeURIComponent(name)}&ext=${encodeURIComponent(ext)}`, { method: 'POST', body: data });
+    const j = await r.json().catch(() => ({ error: `The server answered ${r.status}` }));
+    if (!r.ok) throw new Error(j.error ?? `The server answered ${r.status}`);
+    return j as Snapshot;
+  },
+  /** A cut through a body as DXF (the design is not changed). */
+  exportSection: (section: { plane: 'XY' | 'XZ' | 'YZ'; offset: number; body: string }) => fileCall('export', { format: 'dxf', section }),
   newDesign: () => call('new', {}),
   inspectFeature: (feature: string | number) => ask<FeatureDefinition>('timeline.inspect', { feature }),
   dependents: (feature: string | number) => ask<Dependents>('timeline.dependents', { feature }),
