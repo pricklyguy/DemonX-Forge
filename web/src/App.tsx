@@ -166,6 +166,8 @@ export function App() {
   const [pending, setPending] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [typed, setTyped] = useState('');
+  const [typed2, setTyped2] = useState(''); // the second box (height, angle) of the typed sizes
+  const clearTyped = () => { setTyped(''); setTyped2(''); };
   const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string): void } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [selTl, setSelTl] = useState<number | null>(null);
@@ -231,17 +233,17 @@ export function App() {
   // the engine is the truth about whether a sketch is open (undo and redo can open and close one)
   useEffect(() => {
     if (activeSketch && mode !== 'sketch') { setMode('sketch'); setTool(null); setPending([]); }
-    else if (!activeSketch && mode === 'sketch') { setMode('model'); setTool(null); setPending([]); setEdit(null); setTyped(''); setSelected([]); setPicks([]); }
+    else if (!activeSketch && mode === 'sketch') { setMode('model'); setTool(null); setPending([]); setEdit(null); clearTyped(); setSelected([]); setPicks([]); }
   }, [activeSketch, mode]);
   useEffect(() => { setSelTl((id) => (id !== null && snap.timeline.some((t) => t.id === id) ? id : null)); }, [snap]);
   useEffect(() => { setSel((p) => (p && snap.bodies.find((b) => b.name === p.body)?.faces.some((f) => f.index === p.face) ? p : null)); }, [snap]);
 
   // ---- sketching
-  const chooseTool = (t: Tool | null) => { setTool(t); setPending([]); setTyped(''); setEdit(null); setPicks([]); if (t) setSelected([]); setError(''); };
+  const chooseTool = (t: Tool | null) => { setTool(t); setPending([]); clearTyped(); setEdit(null); setPicks([]); if (t) setSelected([]); setError(''); };
   const applyResult = (r: ReturnType<typeof onClick>) => {
     setError(r.message ?? '');
     setPending(r.pending);
-    setTyped('');
+    clearTyped();
     if (r.steps.length) { void run(() => api.batch(r.steps)).then((s) => { if (!s) setPending([]); }); if (r.pending.length === 0) setTool(null); }
   };
   const numOrExpr = (v: string): number | string => { const n = Number(v); return v.trim() !== '' && Number.isFinite(n) ? n : v.trim(); };
@@ -271,8 +273,38 @@ export function App() {
       }
     }
   };
-  const submitTyped = () => { if (isDraw(tool) && pending.length) applyResult(onTyped(tool, pending, cursor ?? pending[pending.length - 1]!, typed)); };
-  const endChain = () => { setPending([]); setTyped(''); setTool((t) => (t === 'line' ? null : t)); };
+  /** The sizes the shape has right now, from the pointer: what the boxes show until a value is typed into them. */
+  const liveSizes = (): number[] => {
+    const a = pending[0], c = cursor; if (!a || !c || !isDraw(tool)) return [];
+    const dx = c[0] - a[0], dy = c[1] - a[1];
+    if (tool === 'rect') return [Math.abs(dx), Math.abs(dy)];
+    if (tool === 'rectCenter') return [2 * Math.abs(dx), 2 * Math.abs(dy)];
+    if (tool === 'circle') return [2 * Math.hypot(dx, dy)];
+    if (tool === 'circle2') return [Math.hypot(dx, dy)];
+    if (tool === 'line') { const f = pending[pending.length - 1]!; return [Math.hypot(c[0] - f[0], c[1] - f[1]), (Math.atan2(c[1] - f[1], c[0] - f[0]) * 180) / Math.PI]; }
+    return [];
+  };
+  const showSize = (x: number | undefined) => (x === undefined ? '' : String(Math.round(x * 100) / 100));
+  /** Press, drag, release with a drawing tool: the same as clicking the two corners. */
+  const sketchDrag = (a: Vec2, b: Vec2) => {
+    if (!isDraw(tool) || pending.length) return;
+    const first = onClick(tool, [], a);
+    applyResult(onClick(tool, first.pending, b));
+  };
+  /** Sketches no feature has used yet: their closed shapes show in the model view and can be clicked, then E extrudes them. */
+  const fillSketches = useMemo(() => {
+    const ids = new Set<number>(); const items = snap.timeline;
+    items.forEach((t, i) => { if (!/^sketch$/i.test(t.type)) return; const k = snap.sketches.find((q) => q.name === t.name); if (k && !k.active && !items.slice(i + 1).some((u) => !/^sketch$/i.test(u.type))) ids.add(k.id); });
+    return ids;
+  }, [snap.timeline, snap.sketches]);
+  const submitTyped = () => {
+    if (!isDraw(tool) || !pending.length) return;
+    const live = liveSizes(), cur = cursor ?? pending[pending.length - 1]!;
+    // a box left alone keeps the value the pointer gives it; a typed one is fixed. "40,30" in the first box still works as before
+    const text = /[\s,;x×]/i.test(typed.trim()) ? typed : [typed.trim() || showSize(live[0]), ...(tool === 'rect' || tool === 'rectCenter' || tool === 'line' ? [typed2.trim() || showSize(live[1])] : [])].join(',');
+    applyResult(onTyped(tool, pending, cur, text));
+  };
+  const endChain = () => { setPending([]); clearTyped(); setTool((t) => (t === 'line' ? null : t)); };
   const curvePick = (c: SketchCurve) => {
     const existing = activeSketch?.dimensions.find((d) => d.curve === c.id); // already dimensioned: edit that value instead of adding a second one
     const what = c.type === 'line' ? 'Length' : c.type === 'circle' ? 'Diameter' : 'Radius';
@@ -535,15 +567,16 @@ export function App() {
     const done = s.sketches.filter((k) => !k.active && k.profiles.length);
     if (!done.length) { setError('Create a sketch with a closed shape first (Create Sketch)'); return; }
     const last = done[done.length - 1]!;
-    setProfiles(kind === 'loft' ? [] : last.profiles.length === 1 ? [{ sketch: last.id, index: last.profiles[0]!.index, at: last.profiles[0]!.centroid }] : []);
+    const chosen = mode === 'model' ? profiles.filter((r) => s!.sketches.some((k) => k.id === r.sketch && !k.active && k.profiles.some((q) => q.index === r.index))) : []; // shapes clicked in the view before pressing E
+    setProfiles(chosen.length ? chosen : kind === 'loft' ? [] : last.profiles.length === 1 ? [{ sketch: last.id, index: last.profiles[0]!.index, at: last.profiles[0]!.centroid }] : []);
     setExt((x) => ({ ...x, operation: s!.bodies.length ? 'join' : 'new', ...(kind === 'emboss' && extKind !== 'emboss' ? { distance: '2' } : kind !== 'emboss' && extKind === 'emboss' ? { distance: '10' } : {}) })); // emboss starts at a shallow 2 mm; the others go back to 10
     chooseTool(null); setMode('extrude'); setError('');
   };
-  const profilePicked = (sketch: number, index: number, at: Vec2) => setProfiles((cur) => {
+  const profilePicked = (sketch: number, index: number, at: Vec2) => { if (mode === 'model') setSel(null); setProfiles((cur) => {
     if (cur.some((r) => r.sketch === sketch && r.index === index)) return cur.filter((r) => !(r.sketch === sketch && r.index === index));
-    if (extKind === 'loft') return [...cur.filter((r) => r.sketch !== sketch), { sketch, index, at }]; // one profile per sketch, in the order clicked
+    if (extKind === 'loft' && mode === 'extrude') return [...cur.filter((r) => r.sketch !== sketch), { sketch, index, at }]; // one profile per sketch, in the order clicked
     return [...cur.filter((r) => r.sketch === sketch), { sketch, index, at }]; // one sketch at a time
-  });
+  }); };
   // leave the mode first: that cancels a debounced preview that has not fired yet, so it cannot re-apply after the undo
   const cancelExtrude = async () => { setProfiles([]); setEditing(null); setMode('model'); setError(''); await applyPreview(null); };
   const okExtrude = async () => {
@@ -829,6 +862,7 @@ export function App() {
       }
       if (inField) return;
       if (L.mode === 'sketch') {
+        if (L.pending.length && k === 'tab' && L.tool !== 'arc3') { e.preventDefault(); entryRef.current?.focus(); entryRef.current?.select(); return; } // Tab goes to the size boxes, then between them
         if (L.pending.length && /^[0-9.\-]$/.test(e.key)) { setTyped(e.key); setTimeout(() => entryRef.current?.focus(), 0); e.preventDefault(); return; }
         const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', a: 'arc3', d: 'dimension', t: 'trim', o: 'offset' };
         if (map[k]) { A.chooseTool(map[k]!); return; }
@@ -859,6 +893,7 @@ export function App() {
     : HINT[mode === 'modify' && modTool !== 'fillet' && modTool !== 'chamfer' ? modTool : mode] ?? '';
   const triangles = snap.bodies.reduce((n, b) => n + b.faceIds.length, 0);
   const placeholder = tool === 'rect' || tool === 'rectCenter' ? 'width, height' : tool === 'circle' || tool === 'circle2' ? 'diameter' : tool === 'slot' ? 'width' : 'length [, angle]';
+  const fieldNames = tool === 'rect' || tool === 'rectCenter' ? ['Width', 'Height'] : tool === 'circle' || tool === 'circle2' ? ['Diameter'] : tool === 'slot' ? ['Width'] : ['Length', 'Angle'];
   const typable = isDraw(tool) && pending.length > 0 && tool !== 'arc3' && !(tool === 'slot' && pending.length < 2);
 
   return (
@@ -883,7 +918,7 @@ export function App() {
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
-          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : setSel} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onSketchDrag={sketchDrag} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
@@ -972,7 +1007,9 @@ export function App() {
 
         {mode === 'sketch' && typable && (
           <div className="entry" data-testid="entry">
-            <input ref={entryRef} aria-label="Typed size" type="text" value={typed} placeholder={placeholder} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} />
+            <label>{fieldNames[0]}<input ref={entryRef} aria-label="Typed size" type="text" value={typed !== '' ? typed : showSize(liveSizes()[0])} placeholder={placeholder} onFocus={(e) => e.target.select()} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} /></label>
+            {fieldNames[1] && <label>{fieldNames[1]}<input aria-label="Second typed size" type="text" value={typed2 !== '' ? typed2 : showSize(liveSizes()[1])} onFocus={(e) => e.target.select()} onChange={(e) => setTyped2(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} /></label>}
+            <span className="hint">Tab for the next box, Enter to place</span>
           </div>
         )}
         {section && (

@@ -65,7 +65,7 @@ await p.screenshot({ path: `${shots}/s3-sketch.png` });
 await p.keyboard.press('c');
 await click([35, 8]);
 await p.keyboard.type('6');
-await p.getByLabel('Typed size').press('Enter');
+await p.getByLabel('Typed size', { exact: true }).press('Enter');
 await settle();
 s = await state(); sk = s.sketches[0];
 check(sk.curves.filter((c) => c.type === 'circle').length === 2 && near(sk.curves.at(-1).radius, 3, 1e-6), 'typing 6 after the centre makes a diameter-6 circle');

@@ -59,7 +59,9 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .drow { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; } .dnote { font-size: 11px; color: var(--muted); }
 .dbtns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
 .entry { position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--amber); border-radius: 6px; padding: 5px 8px; display: flex; gap: 8px; align-items: center; }
-.entry input { width: 160px; }
+.entry input { width: 110px; }
+.entry label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.entry .hint { font-size: 11px; color: var(--muted); }
 .seltip { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; color: var(--muted); }
 
 .timeline { grid-column: 1 / 3; background: var(--panel); border-top: 1px solid var(--line); display: flex; gap: 4px; align-items: center; padding: 0 12px; overflow-x: auto; }
@@ -68,6 +70,7 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .status .err { color: var(--danger); overflow: hidden; text-overflow: ellipsis; } .status .warn { color: var(--amber); } .status .coords { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text); }
 
 .dimlayer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.dimlabel.live { border-color: var(--amber); }
 .dimlabel { position: absolute; transform: translate(-50%, -135%); background: var(--panel); border: 1px solid var(--cyan); border-radius: 3px; padding: 0 5px; font-size: 11px; color: var(--text); white-space: nowrap; }
 
 .cgrid { display: grid; grid-template-columns: repeat(3, 34px); gap: 2px; align-content: center; margin-right: 4px; }
