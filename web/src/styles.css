@@ -57,7 +57,7 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .palette, .dialog { position: absolute; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 210px; }
 .palette { top: 130px; right: 16px; display: flex; flex-direction: column; gap: 6px; } .palette label { display: flex; justify-content: space-between; align-items: center; }
 .phead, .dhead { font-size: 10px; letter-spacing: .08em; color: var(--muted); } .pstat { font-size: 11px; color: var(--muted); }
-.dialog { top: 14px; left: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 250px; }
+.dialog { top: 14px; left: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 250px; width: 290px; max-width: 90vw; }
 .drow { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; } .dnote { font-size: 11px; color: var(--muted); }
 .dbtns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
 .entry { position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--amber); border-radius: 6px; padding: 5px 8px; display: flex; gap: 8px; align-items: center; }
