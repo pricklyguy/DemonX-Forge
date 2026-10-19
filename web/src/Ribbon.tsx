@@ -9,16 +9,21 @@ interface Props {
   onCreateSketch(): void;
   onExtrude(): void;
   onRevolve(): void;
+  onSweep(): void;
+  onLoft(): void;
   /** The Extrude-dialog tool that is open, if any. */
-  extKind: 'extrude' | 'revolve' | null;
+  extKind: 'extrude' | 'revolve' | 'sweep' | 'loft' | null;
   onHole(): void;
   canModify: boolean;
   /** The Modify tool whose dialog is open, if any. */
-  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | null;
+  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'mirror' | 'rpattern' | 'cpattern' | null;
   onFillet(): void;
   onChamfer(): void;
   onPressPull(): void;
   onShell(): void;
+  onMirror(): void;
+  onRPattern(): void;
+  onCPattern(): void;
   onTool(t: Tool): void;
   onFinish(): void;
 }
@@ -50,6 +55,11 @@ export function Ribbon(p: Props) {
             <Btn id="btn-sketch" icon={<Icon.sketch />} label="Create Sketch" pressed={p.mode === 'pickPlane'} onClick={p.onCreateSketch} />
             <Btn id="btn-extrude" icon={<Icon.extrude />} label="Extrude" keyHint="E" pressed={p.extKind === 'extrude'} onClick={p.onExtrude} />
             <Btn id="btn-revolve" icon={<Icon.revolve />} label="Revolve" pressed={p.extKind === 'revolve'} onClick={p.onRevolve} />
+            <Btn id="btn-sweep" icon={<Icon.sweep />} label="Sweep" pressed={p.extKind === 'sweep'} onClick={p.onSweep} />
+            <Btn id="btn-loft" icon={<Icon.loft />} label="Loft" pressed={p.extKind === 'loft'} onClick={p.onLoft} />
+            <Btn id="btn-mirror" icon={<Icon.mirror />} label="Mirror" pressed={p.modTool === 'mirror'} disabled={!p.canModify} onClick={p.onMirror} />
+            <Btn id="btn-rpattern" icon={<Icon.rpattern />} label="Rect. Pattern" pressed={p.modTool === 'rpattern'} disabled={!p.canModify} onClick={p.onRPattern} />
+            <Btn id="btn-cpattern" icon={<Icon.cpattern />} label="Circ. Pattern" pressed={p.modTool === 'cpattern'} disabled={!p.canModify} onClick={p.onCPattern} />
             <Btn id="btn-hole" icon={<Icon.hole />} label="Hole" keyHint="H" disabled={!p.canHole} onClick={p.onHole} />
           </Group>
         ) : null}

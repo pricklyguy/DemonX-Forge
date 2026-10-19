@@ -11,6 +11,8 @@ Each script says in its header how to run it. They need the real engine, a built
 | `presspull.mjs` | Press Pull (Q): pull a face out, push it in, change the distance, Esc, OK, undo/redo, a face selected beforehand, zero refused (needs a fresh server) |
 | `shell.mjs` | Shell: pick a face, preview, deselect, a too-thick wall refused, OK, undo/redo (needs a fresh server) |
 | `revolve.mjs` | Revolve: full turn, half turn, angle over 360 refused, a world axis, Esc, OK, undo/redo, editing refused plainly (needs a fresh server) |
+| `patterns.mjs` | Mirror (three planes, deselect, Esc, OK, undo), Rectangular Pattern (one and two directions, zero and negative spacing), Circular Pattern (counts, angle, refused count) (needs a fresh server) |
+| `sweeploft.mjs` | Sweep (path choice, preview, Esc, OK, undo/redo) and Loft (profiles from two sketches, deselect, OK, undo); the sketches are made through the API (needs a fresh server) |
 | `files.mjs` | New, Open, Save (write back to the same file, fallback when writing back is refused), Save As, the unsaved marker and the close-tab warning, Export STEP / STL / 3MF / OBJ / DXF, a refused bad file, a file saved mid-sketch, and the whole thing again without the native file windows (downloads and a file chooser) |
 | `sketch.mjs` | Create Sketch on a plane and on a face, rectangle / circle / typed circle, Sketch Dimension, E for extrude with live preview, Cancel, OK, Cut direction, undo and redo, the browser tree |
 
