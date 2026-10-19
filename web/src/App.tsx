@@ -11,12 +11,13 @@ import { Timeline } from './Timeline';
 import { ViewCube } from './ViewCube';
 import { Viewport, type FacePick } from './Viewport';
 import { normalOf, toWorld } from './sketch/plane';
+import { findRegions, pointInPolygon } from './sketch/regions';
 import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
 import { pickEntity, type Picked } from './sketch/pick';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
 const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
-const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '5', shell: '2', offsetface: '2', draft: '5', hole: '5', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '' };
+const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '0', shell: '2', offsetface: '0', draft: '5', hole: '5', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '' };
 /** The dialog's axis choice as the engine's `axis` parameter: a sketch axis (x, y), a sketch line's id, or a world axis (X, Y, Z). */
 const axisParam = (v: string) => v.slice(v.indexOf(':') + 1);
 const EXT_TITLE: Record<ExtKind, string> = { extrude: 'EXTRUDE', revolve: 'REVOLVE', sweep: 'SWEEP', loft: 'LOFT', rib: 'RIB', pipe: 'PIPE', emboss: 'EMBOSS' };
@@ -100,9 +101,10 @@ const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 
-export const SHORTCUTS: [string, [string, string][]][] = [
+export const polyArea = (p: Vec2[]) => p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]!; return s + a[0] * b[1] - b[0] * a[1]; }, 0) / 2;
+const SHORTCUTS: [string, [string, string][]][] = [
   ['Anywhere', [['Ctrl+Z', 'Undo'], ['Ctrl+Y  or  Ctrl+Shift+Z', 'Redo'], ['Ctrl+S', 'Save'], ['Ctrl+Shift+S', 'Save As'], ['Ctrl+O', 'Open'], ['Esc', 'Cancel the dialog, tool or selection'], ['Enter', 'OK in a dialog'], ['?', 'This list']]],
-  ['Solid', [['E', 'Extrude (click a shape first, or pick it in the dialog)'], ['F', 'Fillet'], ['Q', 'Press Pull'], ['H', 'Hole'], ['Delete', 'Delete the selected timeline step']]],
+  ['Solid', [['E', 'Extrude (click a shape first, or pick it in the dialog)'], ['F', 'Fillet'], ['Q', 'Press Pull'], ['H', 'Hole'], ['M', 'Move / Copy'], ['Delete', 'Delete the selected timeline step']]],
   ['Sketch', [['L', 'Line'], ['R', 'Rectangle'], ['C', 'Circle'], ['A', 'Arc'], ['T', 'Trim'], ['O', 'Offset'], ['D', 'Sketch Dimension'], ['X', 'Toggle construction line'], ['Delete', 'Delete the selected curves'], ['Type a number', 'Set the size of the shape being drawn'], ['Tab', 'Next size box'], ['Enter', 'Place the shape']]],
   ['Mouse', [['Wheel', 'Zoom toward the pointer'], ['Middle drag', 'Pan'], ['Shift + middle drag', 'Orbit'], ['Right click', 'Actions menu for what is under the pointer'], ['Drag (drawing tool)', 'Draw corner to corner'], ['Double-click a timeline step', 'Edit it'], ['Drag the arrow', 'Set the distance (Press Pull, Extrude)']]],
 ];
@@ -220,7 +222,7 @@ export function App() {
   const [picks, setPicks] = useState<Picked[]>([]);
   const [sel, setSel] = useState<FacePick | null>(null);
   const [profiles, setProfiles] = useState<ProfileRef[]>([]);
-  const [ext, setExt] = useState<ExtrudeForm>({ distance: '10', direction: 'one', operation: 'new', axis: 'axis:y', angle: '360', path: '', thickness: '3', depth: '8', flip: false, ribSketch: '', pipeSketch: '', pipeDia: '6', pipeWall: '', embossMode: 'emboss' });
+  const [ext, setExt] = useState<ExtrudeForm>({ distance: '0', direction: 'one', operation: 'new', axis: 'axis:y', angle: '360', path: '', thickness: '3', depth: '8', flip: false, ribSketch: '', pipeSketch: '', pipeDia: '6', pipeWall: '', embossMode: 'emboss' });
   const [extKind, setExtKind] = useState<ExtKind>('extrude'); // Revolve, Sweep and Loft share the Extrude dialog: profiles first, then what each needs
   const [hiddenBodies, setHiddenBodies] = useState<Set<string>>(new Set());
   const [hiddenSketches, setHiddenSketches] = useState<Set<number>>(new Set());
@@ -280,7 +282,14 @@ export function App() {
     if (isDraw(tool)) { applyResult(onClick(tool, pending, pending.length ? applyTyped(tool, pending, pt, sizes) : pt)); return; } // typed sizes hold when the shape is placed by a click
     if (tool === 'offset' && offsetPick) { commitOffset(); return; }
     const hit = pickEntity(sk, pt, tol, tool ? PICK_MODE[tool] : 'curve');
+    if (!tool && !hit) { // not on a curve: a closed shape under the pointer is selected instead (Shift adds), then E extrudes it
+      const rg = findRegions(sk.curves, sk.profiles).filter((r) => pointInPolygon(pt, r.outer) && !r.holes.some((h) => pointInPolygon(pt, h))).sort((x, y) => Math.abs(polyArea(x.outer)) - Math.abs(polyArea(y.outer)))[0];
+      if (rg) { const pr = sk.profiles.find((q) => q.index === rg.index); if (pr) { profilePicked(sk.id, pr.index, pr.centroid, additive); return; } }
+      if (!additive) { setSelected([]); setProfiles([]); }
+      return;
+    }
     if (!tool) { // no tool: select curves (Shift adds), then Delete removes them or X makes them construction lines
+      setProfiles([]);
       setSelected((cur) => (!hit ? (additive ? cur : []) : additive ? (cur.includes(hit.id) ? cur.filter((i) => i !== hit.id) : [...cur, hit.id]) : [hit.id]));
       return;
     }
@@ -302,6 +311,20 @@ export function App() {
     }
   };
   const showSize = (x: number | undefined) => (x === undefined ? '' : String(Math.round(x * 100) / 100));
+  /** Dragging a point or curve in an open sketch (no tool): each step is sent to the engine as a live move, and the release closes the drag. Dragging a circle's edge changes its size; drag its centre to move it. */
+  const dragRef = useRef<{ ent: Picked; start: Vec2; pending: Vec2 | null; running: boolean; applied: boolean } | null>(null);
+  const pumpDrag = () => {
+    const d = dragRef.current; if (!d || d.running || !d.pending) return;
+    const to = d.pending; d.pending = null; d.running = true;
+    // one history step at all times: the previous frame is taken back and the move is made again from where the drag began, so one Ctrl+Z undoes the whole drag
+    void run(async () => { if (d.applied) { await api.undo(); d.applied = false; } const sn = await api.command('sketch.drag', { entity: d.ent.id, from: d.start, to }); d.applied = true; return sn; }).then(() => { d.running = false; pumpDrag(); });
+  };
+  const entityDrag = (phase: 'start' | 'move' | 'end', ent: Picked, from: Vec2, to: Vec2) => {
+    if (phase === 'start') { dragRef.current = { ent, start: from, pending: null, running: false, applied: false }; setSelected([ent.id]); setProfiles([]); return; }
+    const d = dragRef.current; if (!d) return;
+    if (phase === 'move') { d.pending = to; pumpDrag(); return; }
+    void (async () => { for (let i = 0; i < 200 && (d.running || d.pending); i++) await new Promise((r) => setTimeout(r, 25)); dragRef.current = null; })();
+  };
   /** Press, drag, release with a drawing tool: the same as clicking the two corners. */
   /** Offset: the signed distance the pointer sets from the picked curve. Positive is to the left of a line's direction and inside a circle or arc, as the engine does it. */
   const offsetCurve = activeSketch?.curves.find((c) => c.id === offsetPick);
@@ -395,7 +418,7 @@ export function App() {
     if (mode === 'modify' && (modTool === 'presspull' || modTool === 'offsetface') && facesSel[0] && !valueEdit) {
       const f = modBase?.bodies.find((b) => b.name === facesSel[0]!.body)?.faces.find((q) => q.index === facesSel[0]!.face);
       const n = Number(modValue); if (!f?.planeNormal || !Number.isFinite(n)) return null;
-      return { origin: facesSel[0]!.point as Vec3, dir: f.planeNormal as Vec3, value: n, onChange: (x: number) => setModValue(String(+x.toFixed(2))) };
+      return { origin: facesSel[0]!.point as Vec3, dir: f.planeNormal as Vec3, value: n, onChange: (x: number) => setModValue(String(+x.toFixed(2))), onSubmit: () => void okModify() };
     }
     if (mode === 'extrude' && extKind === 'extrude' && profiles[0]) {
       const sk = snap.sketches.find((q) => q.id === profiles[0]!.sketch); const n = Number(ext.distance);
@@ -403,7 +426,7 @@ export function App() {
       const nrm = normalOf(sk.plane);
       let sgn = ext.direction === 'rev' ? -1 : 1;
       if (!editing && ext.operation === 'cut' && sgn === 1 && bodyCenter && dot3(sub3(bodyCenter, sk.plane.origin), nrm) < 0) sgn = -1; // a new cut goes into the body, as the step does
-      return { origin: toWorld(sk.plane, profiles[0]!.at), dir: [nrm[0] * sgn, nrm[1] * sgn, nrm[2] * sgn] as Vec3, value: n, onChange: (x: number) => setExt((cur) => ({ ...cur, distance: String(+x.toFixed(2)) })) };
+      return { origin: toWorld(sk.plane, profiles[0]!.at), dir: [nrm[0] * sgn, nrm[1] * sgn, nrm[2] * sgn] as Vec3, value: n, onChange: (x: number) => setExt((cur) => ({ ...cur, distance: String(+x.toFixed(2)) })), onSubmit: () => void okExtrude() };
     }
     return null;
   }, [mode, modTool, facesSel, valueEdit, modBase, modValue, extKind, profiles, snap.sketches, ext.distance, ext.direction, ext.operation, editing, bodyCenter]);
@@ -604,16 +627,24 @@ export function App() {
     const done = s.sketches.filter((k) => !k.active && k.profiles.length);
     if (!done.length) { setError('Create a sketch with a closed shape first (Create Sketch)'); return; }
     const last = done[done.length - 1]!;
-    const chosen = mode === 'model' ? profiles.filter((r) => s!.sketches.some((k) => k.id === r.sketch && !k.active && k.profiles.some((q) => q.index === r.index))) : []; // shapes clicked in the view before pressing E
+    const chosen = mode === 'model' || mode === 'sketch' ? profiles.filter((r) => s!.sketches.some((k) => k.id === r.sketch && !k.active && k.profiles.some((q) => q.index === r.index))) : []; // shapes clicked in the view before pressing E
     setProfiles(chosen.length ? chosen : kind === 'loft' ? [] : last.profiles.length === 1 ? [{ sketch: last.id, index: last.profiles[0]!.index, at: last.profiles[0]!.centroid }] : []);
-    setExt((x) => ({ ...x, operation: s!.bodies.length ? 'join' : 'new', ...(kind === 'emboss' && extKind !== 'emboss' ? { distance: '2' } : kind !== 'emboss' && extKind === 'emboss' ? { distance: '10' } : {}) })); // emboss starts at a shallow 2 mm; the others go back to 10
+    setExt((x) => ({ ...x, operation: s!.bodies.length ? 'join' : 'new', ...(kind === 'emboss' && extKind !== 'emboss' ? { distance: '2' } : kind !== 'emboss' && extKind === 'emboss' ? { distance: '0' } : kind !== 'emboss' && extKind !== 'emboss' && kind === 'extrude' ? { distance: '0' } : {}) })); // every distance starts at 0 (drag the arrow or type it); emboss at a shallow 2 mm
     chooseTool(null); setMode('extrude'); setError('');
   };
-  const profilePicked = (sketch: number, index: number, at: Vec2) => { if (mode === 'model') setSel(null); setProfiles((cur) => {
-    if (cur.some((r) => r.sketch === sketch && r.index === index)) return cur.filter((r) => !(r.sketch === sketch && r.index === index));
-    if (extKind === 'loft' && mode === 'extrude') return [...cur.filter((r) => r.sketch !== sketch), { sketch, index, at }]; // one profile per sketch, in the order clicked
-    return [...cur.filter((r) => r.sketch === sketch), { sketch, index, at }]; // one sketch at a time
-  }); };
+  /** A closed shape was clicked. In the Extrude family of dialogs each click adds or removes one; elsewhere (the model view, an open sketch) a click selects just that shape and Shift or Ctrl adds. */
+  const profilePicked = (sketch: number, index: number, at: Vec2, additive = true) => {
+    if (mode !== 'extrude') { setSel(null); setSelected([]); }
+    setProfiles((cur) => {
+      const same = cur.some((r) => r.sketch === sketch && r.index === index);
+      if (mode === 'extrude' || additive) {
+        if (same) return cur.filter((r) => !(r.sketch === sketch && r.index === index));
+        if (extKind === 'loft' && mode === 'extrude') return [...cur.filter((r) => r.sketch !== sketch), { sketch, index, at }]; // one profile per sketch, in the order clicked
+        return [...cur.filter((r) => r.sketch === sketch), { sketch, index, at }]; // one sketch at a time
+      }
+      return [{ sketch, index, at }]; // a plain click selects just this shape
+    });
+  };
   // leave the mode first: that cancels a debounced preview that has not fired yet, so it cannot re-apply after the undo
   const cancelExtrude = async () => { setProfiles([]); setEditing(null); setMode('model'); setError(''); await applyPreview(null); };
   const okExtrude = async () => {
@@ -766,7 +797,7 @@ export function App() {
       for (const [label, t] of [['Line   L', 'line'], ['2-Point Rectangle   R', 'rect'], ['Center Rectangle', 'rectCenter'], ['Center Circle   C', 'circle'], ['2-Point Circle', 'circle2'], ['3-Point Arc   A', 'arc3'], ['Slot', 'slot'], ['Trim   T', 'trim'], ['Offset   O', 'offset'], ['Fillet', 'fillet'], ['Sketch Dimension   D', 'dimension']] as [string, Tool][]) items.push({ label, onClick: () => chooseTool(t) });
     } else if (mode === 'model') {
       if (profiles.length) items.push({ label: 'Selected shape', heading: true, onClick: () => {} }, { label: 'Extrude   E', onClick: () => void startExtrude('extrude') }, { label: 'Revolve', onClick: () => void startExtrude('revolve') }, { label: 'Sweep', onClick: () => void startExtrude('sweep') }, { label: 'Loft', onClick: () => void startExtrude('loft') }, { label: 'Emboss', onClick: () => void startExtrude('emboss') });
-      if (sel) items.push({ label: 'Selected face', heading: true, onClick: () => {} }, { label: 'Press Pull   Q', onClick: () => void startModify('presspull') }, { label: 'Hole   H', onClick: () => void startModify('hole') }, { label: 'Offset Face', onClick: () => void startModify('offsetface') }, { label: 'Draft', onClick: () => void startModify('draft') }, { label: 'Shell', onClick: () => void startModify('shell') }, { label: 'Thread', disabled: !face?.cylinder, onClick: () => void startModify('thread') }, { label: 'Create Sketch on this face', disabled: !face?.planeNormal, onClick: () => planePicked({ face: sel.point, body: sel.body, index: sel.face }) }, { label: 'Export this face as DXF', disabled: !face?.planeNormal, onClick: () => void doExport('dxf', undefined, sel) });
+      if (sel) items.push({ label: 'Selected face', heading: true, onClick: () => {} }, { label: 'Press Pull   Q', onClick: () => void startModify('presspull') }, { label: 'Hole   H', onClick: () => void startModify('hole') }, { label: 'Move / Copy   M', onClick: () => void startModify('move') }, { label: 'Offset Face', onClick: () => void startModify('offsetface') }, { label: 'Draft', onClick: () => void startModify('draft') }, { label: 'Shell', onClick: () => void startModify('shell') }, { label: 'Thread', disabled: !face?.cylinder, onClick: () => void startModify('thread') }, { label: 'Create Sketch on this face', disabled: !face?.planeNormal, onClick: () => planePicked({ face: sel.point, body: sel.body, index: sel.face }) }, { label: 'Export this face as DXF', disabled: !face?.planeNormal, onClick: () => void doExport('dxf', undefined, sel) });
       items.push({ label: 'Create', heading: true, onClick: () => {} }, { label: 'Create Sketch', onClick: () => void createSketch() }, { label: 'Extrude   E', onClick: () => void startExtrude('extrude') }, { label: 'Fillet   F', disabled: none, onClick: () => void startModify('fillet') }, { label: 'Chamfer', disabled: none, onClick: () => void startModify('chamfer') });
     }
     items.push({ label: 'General', heading: true, onClick: () => {} }, { label: 'Undo   Ctrl+Z', onClick: undo }, { label: 'Redo   Ctrl+Y', onClick: redo }, { label: 'Keyboard shortcuts   ?', onClick: () => setShowKeys(true) });
@@ -933,6 +964,7 @@ export function App() {
         else if (k === 'h') void A.startModify('hole');
         else if (k === 'f') void A.startModify('fillet');
         else if (k === 'q') void A.startModify('presspull');
+        else if (k === 'm') void A.startModify('move');
         else if ((k === 'delete' || k === 'backspace') && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) void A.requestDelete(it); }
         else if (k === 'enter' && L.selTl !== null) { const it = L.items.find((t) => t.id === L.selTl); if (it) A.editItem(it); }
       }
@@ -976,7 +1008,7 @@ export function App() {
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
-          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onEntityDrag={entityDrag} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 

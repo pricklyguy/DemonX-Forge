@@ -46,7 +46,7 @@ interface Props {
   /** While true (Press Pull), a click in modify mode picks a face instead of an edge. */
   pickFaces?: boolean;
   /** An arrow that can be dragged to set a distance (Press Pull and Extrude): it starts at `origin`, points along `dir` and ends `value` away. */
-  handle?: { origin: Vec3; dir: Vec3; value: number; onChange(v: number): void } | null;
+  handle?: { origin: Vec3; dir: Vec3; value: number; onChange(v: number): void; onSubmit?(): void } | null;
   onEdgePick(ref: EdgeRef | null, additive: boolean): void;
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
@@ -54,6 +54,8 @@ interface Props {
   onSketchClick(pt: Vec2, tol: number, additive: boolean): void;
   /** The pointer was pressed at `a`, dragged and released at `b` with a drawing tool and nothing placed yet: the same as clicking a then b. */
   onSketchDrag(a: Vec2, b: Vec2): void;
+  /** With no tool, pressing on a point or curve and dragging moves it ('move' for each step, 'end' on release). */
+  onEntityDrag?(phase: 'start' | 'move' | 'end', ent: Picked, from: Vec2, to: Vec2): void;
   /** Sketches whose closed shapes can be clicked in the model view (the ones no feature has used yet). */
   fillSketches?: Set<number>;
   /** Extra outline drawn in the sketch while a tool shows what it would do (the Offset preview), as polylines in sketch coordinates. */
@@ -65,7 +67,7 @@ interface Props {
   onSketchRightClick(): void;
   /** A right click in the view (not while a shape is half drawn): open the actions menu at the pointer. */
   onContextAt?(x: number, y: number): void;
-  onProfilePick(sketch: number, index: number, at: Vec2): void;
+  onProfilePick(sketch: number, index: number, at: Vec2, additive: boolean): void;
   onCursor(pt: Vec2 | null): void;
   apiRef: MutableRefObject<ViewApi | null>;
 }
@@ -197,7 +199,7 @@ export function Viewport(props: Props) {
             const picked = p.selectedProfiles.some((r) => r.sketch === s.id && r.index === pr.index);
             const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: picked ? accent : cyan, transparent: true, opacity: picked ? 0.55 : 0.22, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
             mesh.matrixAutoUpdate = false; mesh.matrix.copy(planeMatrix(plane));
-            mesh.userData = { sketch: s.id, index: pr.index, extrude: p.mode === 'extrude' || p.mode === 'model' };
+            mesh.userData = { sketch: s.id, index: pr.index, extrude: p.mode === 'extrude' || p.mode === 'model' || (p.mode === 'sketch' && !p.tool) };
             gSketch.add(mesh);
           }
         }
@@ -298,6 +300,23 @@ export function Viewport(props: Props) {
       cone.position.copy(g.tip).addScaledVector(g.d, Math.sign(P.current.handle!.value || 1) * k * 1.2);
       cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), g.d.clone().multiplyScalar(Math.sign(P.current.handle!.value || 1)));
       cone.renderOrder = 10; gHandle.add(cone);
+    };
+    // the distance box beside the arrow's tip: shows the value while dragging, and typing a number into it moves the arrow
+    let handleInput: HTMLInputElement | null = null;
+    const syncHandleInput = () => {
+      const g = handleGeometry(), h = P.current.handle;
+      if (!g || !h) { if (handleInput) { handleInput.remove(); handleInput = null; } return; }
+      if (!handleInput) {
+        const el3 = document.createElement('input'); el3.type = 'text'; el3.className = 'dimlabel live dimin handle-input'; el3.setAttribute('aria-label', 'Drag arrow value'); el3.autocomplete = 'off'; el3.spellcheck = false;
+        el3.addEventListener('focus', () => el3.select());
+        el3.addEventListener('input', () => { const n = Number(el3.value.replace(',', '.')); if (el3.value.trim() !== '' && Number.isFinite(n)) P.current.handle?.onChange(n); });
+        el3.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); P.current.handle?.onSubmit?.(); } });
+        liveLayer.appendChild(el3); handleInput = el3;
+      }
+      const q = g.tip.clone().project(cam);
+      handleInput.style.left = `${((q.x + 1) / 2) * size.x + 54}px`; handleInput.style.top = `${((1 - q.y) / 2) * size.y - 16}px`;
+      if (document.activeElement !== handleInput) handleInput.value = `${Math.round(h.value * 100) / 100}`;
+      handleInput.style.width = `${Math.max(5, handleInput.value.length + 3)}ch`;
     };
     const toPx = (v: THREE.Vector3) => { const q = v.clone().project(cam), r = dom.getBoundingClientRect(); return new THREE.Vector2(((q.x + 1) / 2) * r.width, ((1 - q.y) / 2) * r.height); };
     let drag: { m0: THREE.Vector2; v0: number; u: THREE.Vector2; pxPerMm: number } | null = null;
@@ -405,17 +424,21 @@ export function Viewport(props: Props) {
 
     let down: [number, number] | null = null;
     let drawFrom: Vec2 | null = null; // where a drag with a drawing tool began
+    let entDrag: { ent: Picked; from: Vec2; at: [number, number]; started: boolean; last: Vec2 } | null = null; // a point or curve being dragged in a sketch
     dom.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       if (grabHandle(e)) { down = null; dom.setPointerCapture(e.pointerId); dom.style.cursor = 'grabbing'; return; }
       down = [e.clientX, e.clientY];
-      const q = P.current; drawFrom = q.mode === 'sketch' && isDraw(q.tool) && q.pending.length === 0 ? sketchPoint(e) : null;
+      const q = P.current;
+      entDrag = null;
+      if (q.mode === 'sketch' && !q.tool && q.activeSketch && q.onEntityDrag) { const raw = rawPoint(e); const ent = raw ? pickEntity(q.activeSketch, raw, wpp() * 9, 'any') : null; if (ent && raw) entDrag = { ent, from: raw, at: [e.clientX, e.clientY], started: false, last: raw }; }
+      drawFrom = q.mode === 'sketch' && isDraw(q.tool) && q.pending.length === 0 ? sketchPoint(e) : null;
     });
     // the shape under the pointer lights up (model view and Extrude), so it is clear what can be clicked
     let hoverFill: THREE.Object3D | null = null;
-    const hoverProfile = (e: PointerEvent) => {
+    const hoverProfile = (e: PointerEvent, suppress = false) => {
       const p = P.current; let hit: THREE.Object3D | null = null;
-      if (p.mode === 'model' || p.mode === 'extrude') {
+      if (!suppress && (p.mode === 'model' || p.mode === 'extrude' || (p.mode === 'sketch' && !p.tool))) {
         setRay(e);
         const ph = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0], bh = ray.intersectObjects(gBodies.children, false)[0];
         if (ph && (!bh || ph.distance < bh.distance + 1e-3)) hit = ph.object;
@@ -430,12 +453,18 @@ export function Viewport(props: Props) {
     };
     dom.addEventListener('pointermove', (e) => {
       if (drag) { dragHandle(e); return; }
-      hoverProfile(e);
+      if (entDrag && (entDrag.started || Math.hypot(e.clientX - entDrag.at[0], e.clientY - entDrag.at[1]) > 4)) {
+        const to = sketchPoint(e) ?? rawPoint(e); if (!to) return;
+        if (!entDrag.started) { entDrag.started = true; dom.setPointerCapture(e.pointerId); dom.style.cursor = 'grabbing'; P.current.onEntityDrag!('start', entDrag.ent, entDrag.from, entDrag.from); }
+        P.current.onEntityDrag!('move', entDrag.ent, entDrag.last, to); entDrag.last = to; return;
+      }
+      if (P.current.mode !== 'sketch') hoverProfile(e);
       const p = P.current;
       if (p.mode === 'sketch') {
         const draw = isDraw(p.tool);
         const pt = draw ? sketchPoint(e) : rawPoint(e); cursor = pt; p.onCursor(pt);
         hover = pt && p.activeSketch && p.pickMode ? pickEntity(p.activeSketch, pt, wpp() * 9, p.pickMode) : null;
+        hoverProfile(e, !!hover || !!p.tool); // a shape lights up when no curve is under the pointer
         rebuildPreview();
       } else if (p.mode === 'pickPlane') {
         setRay(e);
@@ -449,6 +478,8 @@ export function Viewport(props: Props) {
     dom.addEventListener('pointerleave', () => { cursor = null; P.current.onCursor(null); if (P.current.mode === 'sketch') rebuildPreview(); });
     dom.addEventListener('pointerup', (e) => {
       if (drag) { drag = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
+      if (entDrag?.started) { P.current.onEntityDrag!('end', entDrag.ent, entDrag.last, entDrag.last); entDrag = null; down = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
+      entDrag = null;
       if (e.button !== 0 || !down) return;
       const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4; down = null;
       if (moved) { // press, drag and release draws a shape in one go (the same as two clicks)
@@ -473,14 +504,14 @@ export function Viewport(props: Props) {
       } else if (p.mode === 'extrude') {
         setRay(e);
         const hit = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0];
-        if (hit) { const s = p.sketches.find((x) => x.id === hit.object.userData.sketch); if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) p.onProfilePick(s.id, hit.object.userData.index, pt); } }
+        if (hit) { const s = p.sketches.find((x) => x.id === hit.object.userData.sketch); if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) p.onProfilePick(s.id, hit.object.userData.index, pt, e.shiftKey || e.ctrlKey || e.metaKey); } }
       } else {
         setRay(e);
         const hit = ray.intersectObjects(gBodies.children, false)[0];
         const ph = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0];
         if (ph && (!hit || ph.distance < hit.distance + 1e-3)) { // a closed shape of a finished sketch: select it, then E extrudes it
           const s = p.sketches.find((x) => x.id === ph.object.userData.sketch);
-          if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) { p.onProfilePick(s.id, ph.object.userData.index, pt); return; } }
+          if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) { p.onProfilePick(s.id, ph.object.userData.index, pt, e.shiftKey || e.ctrlKey || e.metaKey); return; } }
         }
         const b = hit && (hit.object.userData.body as Body | undefined);
         if (hit && b && hit.faceIndex != null) p.onFacePick({ body: b.name, face: b.faceIds[hit.faceIndex] ?? 0, point: hit.point.toArray() as Vec3 });
@@ -517,6 +548,7 @@ export function Viewport(props: Props) {
     let raf = 0, firstFit = false;
     const loop = () => {
       raf = requestAnimationFrame(loop); ctl.update(); updateGrid(); renderer.render(scene, cam);
+      syncHandleInput();
       liveInputs.forEach((inp, i) => {
         const an = liveAnchors[i]; if (!an) return;
         const q = an.w.clone().project(cam); inp.style.left = `${((q.x + 1) / 2) * size.x}px`; inp.style.top = `${((1 - q.y) / 2) * size.y}px`;
@@ -530,6 +562,8 @@ export function Viewport(props: Props) {
       project: (w: number[]) => { const v = new THREE.Vector3(w[0], w[1], w[2]).project(cam); const r = dom.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; },
       sketchToScreen: (q: Vec2) => { const s = P.current.activeSketch; if (!s) return null; const w = toWorld(planeOf(s), q); return (window as any).__forge.project(w); },
       pointerSnap: () => cursor,
+      /** test hook: the pickable shapes of the sketches and whether each is lit (hovered or selected) */
+      fills: () => gSketch.children.filter((o) => o.userData.extrude).map((o) => ({ sketch: o.userData.sketch, index: o.userData.index, opacity: Math.round(((o as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity * 100) / 100 })),
       /** test hook: where the drag arrow's tip is on screen, and its value */
       handleTip: () => { const g = handleGeometry(); return g ? { at: (window as any).__forge.project([g.tip.x, g.tip.y, g.tip.z]), value: P.current.handle!.value } : null; },
       // test hook: what the edge picker finds at the screen position of a world point
@@ -537,12 +571,12 @@ export function Viewport(props: Props) {
     };
     const fitOnce = () => { if (!firstFit && gBodies.children.length) { firstFit = true; fit(); } };
     (S.current as any).fitOnce = fitOnce;
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; labelLayer.remove(); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; labelLayer.remove(); handleInput?.remove(); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
   }, []);
 
   const p = props;
   useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.selectedBodies, p.showEdges, p.theme]);
-  useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.showProfiles, p.selectedProfiles, p.theme]);
+  useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.tool, p.showProfiles, p.selectedProfiles, p.theme]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
