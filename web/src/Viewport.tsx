@@ -6,11 +6,13 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { Body, Sketch, SketchCurve, Vec2, Vec3 } from './api';
 import { loopPolygon, curvePoints } from './sketch/loops';
+import { findRegions } from './sketch/regions';
 import { ORIGIN_PLANES, normalOf, rayToSketch, toWorld, type Plane } from './sketch/plane';
 import { niceStep, round3, snapGrid, snapPoints } from './sketch/snap';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
 import { isDraw, preview as previewOf } from './sketch/tools';
 import type { EdgeGeometry } from '../../server/src/engine/meshEdges';
+import { applyTyped, sizeFields } from './sketch/tools';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
 
 export interface FacePick { body: string; face: number; point: Vec3 }
@@ -56,7 +58,13 @@ interface Props {
   fillSketches?: Set<number>;
   /** Extra outline drawn in the sketch while a tool shows what it would do (the Offset preview), as polylines in sketch coordinates. */
   extraPreview?: Vec2[][];
+  /** The sizes typed into the boxes on the shape being drawn ('' = left to the pointer), and what to do when they change or Enter is pressed in one. */
+  sizes?: string[];
+  onSizeTyped?(i: number, text: string): void;
+  onSizeSubmit?(): void;
   onSketchRightClick(): void;
+  /** A right click in the view (not while a shape is half drawn): open the actions menu at the pointer. */
+  onContextAt?(x: number, y: number): void;
   onProfilePick(sketch: number, index: number, at: Vec2): void;
   onCursor(pt: Vec2 | null): void;
   apiRef: MutableRefObject<ViewApi | null>;
@@ -87,7 +95,21 @@ export function Viewport(props: Props) {
     const labelLayer = document.createElement('div'); labelLayer.className = 'dimlayer'; el.appendChild(labelLayer);
     const liveLayer = document.createElement('div'); liveLayer.className = 'dimlayer'; el.appendChild(liveLayer); // the sizes shown while a shape is being drawn
     let labels: { el: HTMLElement; w: THREE.Vector3 }[] = [];
-    let liveLabels: { el: HTMLElement; w: THREE.Vector3 }[] = [];
+    // the size boxes on the shape being drawn: real inputs (typing replaces the pointer's value), kept between rebuilds so focus survives
+    let liveAnchors: { w: THREE.Vector3; text: string }[] = [];
+    const liveInputs: HTMLInputElement[] = [];
+    const ensureInputs = (n: number) => {
+      while (liveInputs.length > n) { const x = liveInputs.pop()!; x.remove(); }
+      while (liveInputs.length < n) {
+        const i = liveInputs.length, el2 = document.createElement('input');
+        el2.type = 'text'; el2.className = 'dimlabel live dimin'; el2.setAttribute('aria-label', i === 0 ? 'Typed size' : 'Second typed size'); el2.autocomplete = 'off'; el2.spellcheck = false;
+        el2.addEventListener('focus', () => el2.select());
+        el2.addEventListener('input', () => P.current.onSizeTyped?.(i, el2.value));
+        el2.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); P.current.onSizeSubmit?.(); } });
+        el2.addEventListener('blur', () => { if (el2.value.trim() === '') P.current.onSizeTyped?.(i, ''); });
+        liveLayer.appendChild(el2); liveInputs.push(el2);
+      }
+    };
     const size = new THREE.Vector2(1, 1);
 
     // ---- controls: the middle button pans, Shift + middle orbits, the wheel zooms toward the cursor (as in Fusion)
@@ -165,10 +187,13 @@ export function Viewport(props: Props) {
         if (construction.length) gSketch.add(dashed(construction, css('--muted'), 1.5));
         const wantFill = p.showProfiles && ((p.mode === 'sketch' && isActive) || (p.mode === 'extrude' && !isActive) || (p.mode === 'model' && !isActive && !!p.fillSketches?.has(s.id)));
         if (wantFill) {
+          const regions = findRegions(s.curves, s.profiles); // the real outline of each region, also when it is only part of a circle
           for (const pr of s.profiles) {
-            const outer = loopPolygon(s.curves, pr.curves); if (outer.length < 3) continue;
+            const rg = regions.find((r) => r.index === pr.index);
+            const outer = rg ? rg.outer : loopPolygon(s.curves, pr.curves); if (outer.length < 3) continue;
             const shape = new THREE.Shape(outer.map((q) => new THREE.Vector2(q[0], q[1])));
-            for (const h of pr.holes) { const hp = loopPolygon(s.curves, h); if (hp.length >= 3) shape.holes.push(new THREE.Path(hp.map((q) => new THREE.Vector2(q[0], q[1])))); }
+            const holePolys = rg ? rg.holes : pr.holes.map((h) => loopPolygon(s.curves, h));
+            for (const hp of holePolys) if (hp.length >= 3) shape.holes.push(new THREE.Path(hp.map((q) => new THREE.Vector2(q[0], q[1]))));
             const picked = p.selectedProfiles.some((r) => r.sketch === s.id && r.index === pr.index);
             const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: picked ? accent : cyan, transparent: true, opacity: picked ? 0.55 : 0.22, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
             mesh.matrixAutoUpdate = false; mesh.matrix.copy(planeMatrix(plane));
@@ -226,22 +251,24 @@ export function Viewport(props: Props) {
     let cursor: Vec2 | null = null;
     let hover: Picked | null = null;
     const rebuildPreview = () => {
-      clear(gPreview); liveLayer.replaceChildren(); liveLabels = [];
+      clear(gPreview);
       const p = P.current, s = p.activeSketch;
       if (!(p.mode === 'sketch' && s)) return;
       const plane = planeOf(s), amber = css('--amber');
       const flat = (poly: Vec2[]) => { const o: number[] = []; for (let i = 0; i < poly.length - 1; i++) o.push(...toWorld(plane, poly[i]!), ...toWorld(plane, poly[i + 1]!)); return o; };
-      if (isDraw(p.tool) && cursor && p.pending.length) { const seg = previewOf(p.tool, p.pending, cursor).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
-      if (isDraw(p.tool) && cursor && p.pending.length) { // the size being drawn, on the shape (the boxes below the view take typed values)
-        const a = p.pending[0]!, tag = (at: Vec2, txt: string) => { const d = document.createElement('div'); d.className = 'dimlabel live'; d.textContent = txt; liveLayer.appendChild(d); liveLabels.push({ el: d, w: new THREE.Vector3(...toWorld(plane, at)) }); };
-        const n = (x: number) => String(Math.round(x * 100) / 100), dx = cursor[0] - a[0], dy = cursor[1] - a[1];
-        if (p.tool === 'rect') { tag([(a[0] + cursor[0]) / 2, a[1]], n(Math.abs(dx))); tag([cursor[0], (a[1] + cursor[1]) / 2], n(Math.abs(dy))); }
-        else if (p.tool === 'rectCenter') { tag([a[0], a[1] - Math.abs(dy)], n(2 * Math.abs(dx))); tag([a[0] + Math.abs(dx), a[1]], n(2 * Math.abs(dy))); }
-        else if (p.tool === 'circle') tag([(a[0] + cursor[0]) / 2, (a[1] + cursor[1]) / 2], `Ø${n(2 * Math.hypot(dx, dy))}`);
-        else if (p.tool === 'circle2') tag([(a[0] + cursor[0]) / 2, (a[1] + cursor[1]) / 2], `Ø${n(Math.hypot(dx, dy))}`);
-        else if (p.tool === 'line') { const f = p.pending[p.pending.length - 1]!; tag([(f[0] + cursor[0]) / 2, (f[1] + cursor[1]) / 2], `${n(Math.hypot(cursor[0] - f[0], cursor[1] - f[1]))}`); }
+      if (isDraw(p.tool) && cursor && p.pending.length) { const seg = previewOf(p.tool, p.pending, applyTyped(p.tool, p.pending, cursor, p.sizes ?? [])).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
+      liveAnchors = [];
+      if (isDraw(p.tool) && cursor && p.pending.length && sizeFields(p.tool).length) { // the boxes on the shape being drawn
+        const a = p.pending[0]!, c = applyTyped(p.tool, p.pending, cursor, p.sizes ?? []);
+        const n = (x: number) => String(Math.round(x * 100) / 100), dx = c[0] - a[0], dy = c[1] - a[1];
+        const at = (q: Vec2, text: string) => liveAnchors.push({ w: new THREE.Vector3(...toWorld(plane, q)), text });
+        if (p.tool === 'rect') { at([(a[0] + c[0]) / 2, a[1]], n(Math.abs(dx))); at([c[0], (a[1] + c[1]) / 2], n(Math.abs(dy))); }
+        else if (p.tool === 'rectCenter') { at([a[0], a[1] - Math.abs(dy)], n(2 * Math.abs(dx))); at([a[0] + Math.abs(dx), a[1]], n(2 * Math.abs(dy))); }
+        else if (p.tool === 'circle') at([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], n(2 * Math.hypot(dx, dy)));
+        else if (p.tool === 'circle2') at([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], n(Math.hypot(dx, dy)));
+        else if (p.tool === 'line') { const f = p.pending[p.pending.length - 1]!; at([(f[0] + c[0]) / 2, (f[1] + c[1]) / 2], n(Math.hypot(c[0] - f[0], c[1] - f[1]))); at([f[0], f[1]], n((Math.atan2(c[1] - f[1], c[0] - f[0]) * 180) / Math.PI)); }
       }
-      if (p.extraPreview?.length) { const seg = p.extraPreview.flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
+      ensureInputs(liveAnchors.length);
       const mark = (at: Vec2, k: number, w: number) => { const [x, y] = at, sq: Vec2[] = [[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k], [x - k, y - k]]; return thick(flat(sq), amber, w); };
       if (p.showPoints) for (const q of s.points) gPreview.add(mark(q.at, wpp() * 3, 1.25));
       const showEntity = (e: Picked, w: number) => {
@@ -351,7 +378,7 @@ export function Viewport(props: Props) {
       const dist = Math.max(cam.position.distanceTo(ctl.target), 60);
       ctl.target.copy(v3(pl.origin)); cam.position.copy(v3(pl.origin)).add(n.multiplyScalar(dist)); ctl.update();
     };
-    P.current.apiRef.current = { fit, setView: (n) => setView(n), rotation: () => { const m = cam.matrixWorldInverse.elements; return [m[0]!, m[4]!, m[8]!, m[1]!, m[5]!, m[9]!, m[2]!, m[6]!, m[10]!]; } };
+    P.current.apiRef.current = { focusSize: (i: number, first?: string) => { const x = liveInputs[i]; if (!x) return false; x.focus(); if (first !== undefined) { x.value = first; P.current.onSizeTyped?.(i, first); } else x.select(); return true; }, fit, setView: (n) => setView(n), rotation: () => { const m = cam.matrixWorldInverse.elements; return [m[0]!, m[4]!, m[8]!, m[1]!, m[5]!, m[9]!, m[2]!, m[6]!, m[10]!]; } };
 
     // ---- picking and pointer handling
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
@@ -390,8 +417,26 @@ export function Viewport(props: Props) {
       down = [e.clientX, e.clientY];
       const q = P.current; drawFrom = q.mode === 'sketch' && isDraw(q.tool) && q.pending.length === 0 ? sketchPoint(e) : null;
     });
+    // the shape under the pointer lights up (model view and Extrude), so it is clear what can be clicked
+    let hoverFill: THREE.Object3D | null = null;
+    const hoverProfile = (e: PointerEvent) => {
+      const p = P.current; let hit: THREE.Object3D | null = null;
+      if (p.mode === 'model' || p.mode === 'extrude') {
+        setRay(e);
+        const ph = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0], bh = ray.intersectObjects(gBodies.children, false)[0];
+        if (ph && (!bh || ph.distance < bh.distance + 1e-3)) hit = ph.object;
+      }
+      if (hit === hoverFill) return;
+      hoverFill = hit;
+      for (const o of gSketch.children) if (o.userData.extrude) {
+        const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial, picked = p.selectedProfiles.some((r) => r.sketch === o.userData.sketch && r.index === o.userData.index);
+        m.color.set(picked || o === hit ? css('--accent') : css('--cyan')); m.opacity = picked ? 0.55 : o === hit ? 0.42 : 0.22;
+      }
+      dom.style.cursor = hit ? 'pointer' : '';
+    };
     dom.addEventListener('pointermove', (e) => {
       if (drag) { dragHandle(e); return; }
+      hoverProfile(e);
       const p = P.current;
       if (p.mode === 'sketch') {
         const draw = isDraw(p.tool);
@@ -448,7 +493,11 @@ export function Viewport(props: Props) {
         else p.onFacePick(null);
       }
     });
-    dom.addEventListener('contextmenu', (e) => { e.preventDefault(); if (P.current.mode === 'sketch') P.current.onSketchRightClick(); });
+    dom.addEventListener('contextmenu', (e) => {
+      e.preventDefault(); const q = P.current;
+      if (q.mode === 'sketch' && q.pending.length) q.onSketchRightClick(); // a shape or chain is under way: right click ends it, as before
+      else q.onContextAt?.(e.clientX, e.clientY);
+    });
 
     const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); size.set(w, h); lineMats.forEach((m) => m.resolution.set(w, h)); cam.aspect = w / Math.max(h, 1); cam.updateProjectionMatrix(); };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();
@@ -474,7 +523,13 @@ export function Viewport(props: Props) {
     let raf = 0, firstFit = false;
     const loop = () => {
       raf = requestAnimationFrame(loop); ctl.update(); updateGrid(); renderer.render(scene, cam);
-      for (const l of [...labels, ...liveLabels]) { const q = l.w.clone().project(cam); l.el.style.display = q.z > 1 ? 'none' : ''; l.el.style.left = `${((q.x + 1) / 2) * size.x}px`; l.el.style.top = `${((1 - q.y) / 2) * size.y}px`; }
+      liveInputs.forEach((inp, i) => {
+        const an = liveAnchors[i]; if (!an) return;
+        const q = an.w.clone().project(cam); inp.style.left = `${((q.x + 1) / 2) * size.x}px`; inp.style.top = `${((1 - q.y) / 2) * size.y}px`;
+        if (document.activeElement !== inp) inp.value = (P.current.sizes?.[i] ?? '') !== '' ? P.current.sizes![i]! : an.text; // not being edited: the typed value, or what the pointer gives
+        inp.style.width = `${Math.max(4, inp.value.length + 1)}ch`;
+      });
+      for (const l of labels) { const q = l.w.clone().project(cam); l.el.style.display = q.z > 1 ? 'none' : ''; l.el.style.left = `${((q.x + 1) / 2) * size.x}px`; l.el.style.top = `${((1 - q.y) / 2) * size.y}px`; }
     };
     loop();
     (window as any).__forge = {
@@ -488,14 +543,14 @@ export function Viewport(props: Props) {
     };
     const fitOnce = () => { if (!firstFit && gBodies.children.length) { firstFit = true; fit(); } };
     (S.current as any).fitOnce = fitOnce;
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; labelLayer.remove(); liveLayer.remove(); delete (window as any).__forge; };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; labelLayer.remove(); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
   }, []);
 
   const p = props;
   useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.selectedBodies, p.showEdges, p.theme]);
   useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.showProfiles, p.selectedProfiles, p.theme]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
-  useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview]);
+  useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
   useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.theme]);
   useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);

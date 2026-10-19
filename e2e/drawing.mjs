@@ -22,7 +22,7 @@ const click = async (q) => { const [x, y] = await at(q); await p.mouse.move(x, y
 const moveTo = async (q) => { const [x, y] = await at(q); await p.mouse.move(x, y); await settle(300); };
 const waitTrue = async (f, n = 60) => { for (let i = 0; i < n; i++) { if (await f()) return true; await settle(250); } return false; };
 const near = (a, c) => Math.abs(a - c) < 0.01;
-const bbox = (c) => c; 
+
 
 await p.goto(URL);
 await p.getByTestId('demo').waitFor({ timeout: 30000 });
@@ -36,14 +36,24 @@ await settle(800);
 await p.keyboard.press('r');
 await click([0, 0]);
 await moveTo([40, 30]);
-check((await p.locator('.dimlabel.live').count()) === 2, 'two size labels sit on the rectangle while it is drawn', `${await p.locator('.dimlabel.live').count()}`);
-const labels = await p.locator('.dimlabel.live').allInnerTexts();
+check((await p.locator('input.dimin').count()) === 2, 'two size boxes sit on the rectangle while it is drawn', `${await p.locator('.dimlabel.live').count()}`);
+const labels = await p.locator('input.dimin').evaluateAll((els) => els.map((e) => e.value));
 check(labels.includes('40') && labels.includes('30'), 'they read the width and the height (40 and 30)', JSON.stringify(labels));
 check((await p.getByLabel('Typed size', { exact: true }).inputValue()) === '40' && (await p.getByLabel('Second typed size').inputValue()) === '30', 'and the Width and Height boxes show them without any clicking', `${await p.getByLabel('Typed size', { exact: true }).inputValue()} x ${await p.getByLabel('Second typed size').inputValue()}`);
 await p.screenshot({ path: `${shots}/dr1-live.png` });
 await p.keyboard.press('Tab');
 check(await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Typed size'), 'Tab goes into the first box');
-await p.keyboard.type('30');
+await p.keyboard.type('55');
+const widthBox = await p.locator('input.dimin').first().boundingBox();
+await settle(300);
+const wide = await p.evaluate(() => { const ins = [...document.querySelectorAll('input.dimin')]; return ins.map((e) => e.value); });
+check(wide[0] === '55', 'typing replaces the number in the box on the shape', JSON.stringify(wide));
+await p.keyboard.press('Backspace'); await p.keyboard.press('Backspace');
+check((await p.getByLabel('Typed size', { exact: true }).inputValue()) === '', 'and Backspace can clear it completely', await p.getByLabel('Typed size', { exact: true }).inputValue());
+await p.keyboard.type('44');
+await settle(400);
+await p.screenshot({ path: `${shots}/dr3-typed.png` });
+await p.keyboard.press('Control+a'); await p.keyboard.type('30');
 await p.keyboard.press('Tab');
 check(await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Second typed size'), 'Tab again goes to the second box');
 await p.keyboard.type('20');
@@ -70,7 +80,7 @@ check(l2.length === 4 && near(Math.max(...x2) - Math.min(...x2), 25) && near(Mat
 await p.keyboard.press('c');
 await click([-30, 20]);
 await moveTo([-20, 20]);
-check((await p.getByLabel('Typed size', { exact: true }).inputValue()) === '20' && (await p.locator('.dimlabel.live').first().innerText()) === 'Ø20', 'a circle shows its diameter (20) on the shape and in the box');
+check((await p.getByLabel('Typed size', { exact: true }).inputValue()) === '20' && (await p.locator('input.dimin').count()) === 1, 'a circle shows its diameter (20) in a box on the shape');
 await p.keyboard.press('Tab'); await p.keyboard.type('12'); await p.keyboard.press('Enter'); await settle(800);
 s = await state(); sk = s.sketches[0];
 const circ = sk.curves.find((c) => c.type === 'circle');
@@ -105,6 +115,37 @@ await p.getByTestId('extrude-ok').click(); await p.getByTestId('extrude-dialog')
 const body = (await state()).bodies[0];
 const lo = [1e9, 1e9], hi = [-1e9, -1e9]; for (let i = 0; i < body.positions.length; i += 3) for (const k of [0, 1]) { lo[k] = Math.min(lo[k], body.positions[i + k]); hi[k] = Math.max(hi[k], body.positions[i + k]); }
 check(near(hi[0] - lo[0], 30) && near(hi[1] - lo[1], 20), 'and only that 30 x 20 shape became the block', `${hi[0] - lo[0]} x ${hi[1] - lo[1]}`);
+// ---- two shapes that cross: each piece is its own shape, lit as the mouse passes, and can be extruded alone
+await p.evaluate(() => fetch('/api/new', { method: 'POST', body: '{}' }));
+await p.evaluate(async () => { await fetch('/api/batch', { method: 'POST', body: JSON.stringify({ steps: [{ command: 'sketch.create', params: { plane: 'XY', name: 'Cross' } }, { command: 'sketch.rectangle.two_point', params: { p0: [0, 0], p1: [40, 30] } }, { command: 'sketch.circle.center', params: { center: [40, 15], diameter: 30 } }, { command: 'sketch.finish' }] }) }); });
+await p.reload(); await p.getByTestId('timeline').waitFor({ timeout: 30000 }); await settle(1200);
+const lens = await proj([33, 15, 0]);
+await p.mouse.move(lens[0] - 30, lens[1]); await settle(200);
+await p.mouse.move(lens[0], lens[1]); await settle(300);
+check(await p.evaluate(() => document.querySelector('canvas').style.cursor === 'pointer'), 'moving over a shape lights it and shows a pointer');
+await p.screenshot({ path: `${shots}/dr4-hover.png` });
+await p.mouse.click(lens[0], lens[1]); await settle(400);
+await p.keyboard.press('e'); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
+check(/1 selected/.test(await text('profile-count')), 'clicking the overlap piece selects just that piece', await text('profile-count'));
+await p.getByLabel('Distance').fill('5');
+await waitTrue(async () => (await state()).bodies.length === 1);
+await p.getByTestId('extrude-ok').click(); await p.getByTestId('extrude-dialog').waitFor({ state: 'detached' }); await settle(800);
+const lb = (await state()).bodies[0]; const lx = [1e9, -1e9]; for (let i = 0; i < lb.positions.length; i += 3) { lx[0] = Math.min(lx[0], lb.positions[i]); lx[1] = Math.max(lx[1], lb.positions[i]); }
+check(near(lx[0], 25) && near(lx[1], 40), 'the block is only the piece inside the rectangle and the circle: x from 25 to 40', `${lx[0]}..${lx[1]}`);
+
+// ---- the right-click menu and the shortcut list
+await p.mouse.click(300, 300, { button: 'right' }); await p.getByTestId('context-menu').waitFor();
+const items = await p.getByTestId('context-menu').locator('button').allInnerTexts();
+check(items.some((t) => /Create Sketch/.test(t)) && items.some((t) => /Undo/.test(t)) && items.some((t) => /Keyboard shortcuts/.test(t)), 'right click opens an actions menu', JSON.stringify(items.slice(0, 6)));
+await p.getByTestId('context-menu').getByRole('button', { name: /Keyboard shortcuts/ }).click();
+await p.getByTestId('shortcuts-dialog').waitFor();
+check(/Extrude/.test(await text('shortcuts-dialog')) && /Press Pull/.test(await text('shortcuts-dialog')) && /Tab/.test(await text('shortcuts-dialog')), 'the shortcuts list opens from the menu');
+await p.keyboard.press('Escape'); await p.getByTestId('shortcuts-dialog').waitFor({ state: 'detached' });
+await p.keyboard.press('?'); await p.getByTestId('shortcuts-dialog').waitFor();
+check(true, 'and with the ? key');
+await p.keyboard.press('Escape'); await p.getByTestId('shortcuts-dialog').waitFor({ state: 'detached' });
+await p.getByTestId('help-btn').click(); await p.getByTestId('shortcuts-dialog').waitFor();
+check(true, 'and from the ? button in the header');
 await b.close();
 console.log(failed ? `${failed} FAILED` : 'all passed');
 process.exit(failed ? 1 : 0);

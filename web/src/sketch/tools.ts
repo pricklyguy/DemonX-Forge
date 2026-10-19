@@ -184,3 +184,48 @@ export function dimensionFor(curve: { id: string; type: string }, value: string)
   const n = Number(value);
   return { command: 'sketch.dimension', params: { entities: [curve.id], type, value: value.trim() !== '' && Number.isFinite(n) ? n : value.trim() } };
 }
+
+/** The boxes on a shape being drawn: what each is called, for a tool. Empty for tools that are placed by clicking only. */
+export function sizeFields(tool: Tool | null): string[] {
+  switch (tool) {
+    case 'rect': case 'rectCenter': return ['Width', 'Height'];
+    case 'circle': case 'circle2': return ['Diameter'];
+    case 'line': return ['Length', 'Angle'];
+    default: return [];
+  }
+}
+
+/** The sizes the shape has at `cursor`, in the order of sizeFields (angle in degrees). */
+export function liveSizes(tool: DrawTool, pending: Vec2[], cursor: Vec2): number[] {
+  const a = pending[0]; if (!a) return [];
+  const dx = cursor[0] - a[0], dy = cursor[1] - a[1];
+  switch (tool) {
+    case 'rect': return [Math.abs(dx), Math.abs(dy)];
+    case 'rectCenter': return [2 * Math.abs(dx), 2 * Math.abs(dy)];
+    case 'circle': return [2 * Math.hypot(dx, dy)];
+    case 'circle2': return [Math.hypot(dx, dy)];
+    case 'line': { const f = pending[pending.length - 1]!; return [Math.hypot(cursor[0] - f[0], cursor[1] - f[1]), (Math.atan2(cursor[1] - f[1], cursor[0] - f[0]) * 180) / Math.PI]; }
+    default: return [];
+  }
+}
+
+/** The point the pointer would have to be at to give the typed sizes ('' keeps what the pointer gives). Which way the shape goes still follows the pointer. */
+export function applyTyped(tool: DrawTool, pending: Vec2[], cursor: Vec2, typed: string[]): Vec2 {
+  const a = pending[0]; if (!a) return cursor;
+  const num = (i: number): number | null => { const s = (typed[i] ?? '').trim(); const n = Number(s); return s !== '' && Number.isFinite(n) ? n : null; };
+  const live = liveSizes(tool, pending, cursor);
+  const sx = cursor[0] >= a[0] ? 1 : -1, sy = cursor[1] >= a[1] ? 1 : -1;
+  const ang = Math.atan2(cursor[1] - a[1], cursor[0] - a[0]);
+  switch (tool) {
+    case 'rect': { const w = num(0), h = num(1); return [a[0] + sx * (w !== null && w > 0 ? w : live[0]!), a[1] + sy * (h !== null && h > 0 ? h : live[1]!)]; }
+    case 'rectCenter': { const w = num(0), h = num(1); return [a[0] + (sx * (w !== null && w > 0 ? w : live[0]!)) / 2, a[1] + (sy * (h !== null && h > 0 ? h : live[1]!)) / 2]; }
+    case 'circle': { const d = num(0); const r = (d !== null && d > 0 ? d : live[0]!) / 2; return [a[0] + r * Math.cos(ang), a[1] + r * Math.sin(ang)]; }
+    case 'circle2': { const d = num(0); const r = d !== null && d > 0 ? d : live[0]!; return [a[0] + r * Math.cos(ang), a[1] + r * Math.sin(ang)]; }
+    case 'line': {
+      const f = pending[pending.length - 1]!, len = num(0), an = num(1);
+      const L = len !== null && len > 0 ? len : live[0]!, A = an !== null ? (an * Math.PI) / 180 : Math.atan2(cursor[1] - f[1], cursor[0] - f[0]);
+      return [f[0] + L * Math.cos(A), f[1] + L * Math.sin(A)];
+    }
+    default: return cursor;
+  }
+}

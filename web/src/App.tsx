@@ -11,7 +11,7 @@ import { Timeline } from './Timeline';
 import { ViewCube } from './ViewCube';
 import { Viewport, type FacePick } from './Viewport';
 import { normalOf, toWorld } from './sketch/plane';
-import { PICK_MODE, constraintStep, dimensionFor, isDraw, onClick, onTyped, type Tool } from './sketch/tools';
+import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
 import { pickEntity, type Picked } from './sketch/pick';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
@@ -100,7 +100,29 @@ const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 
-export /** The rows of the Coil dialog (no picking: it is made from numbers). */
+export const SHORTCUTS: [string, [string, string][]][] = [
+  ['Anywhere', [['Ctrl+Z', 'Undo'], ['Ctrl+Y  or  Ctrl+Shift+Z', 'Redo'], ['Ctrl+S', 'Save'], ['Ctrl+Shift+S', 'Save As'], ['Ctrl+O', 'Open'], ['Esc', 'Cancel the dialog, tool or selection'], ['Enter', 'OK in a dialog'], ['?', 'This list']]],
+  ['Solid', [['E', 'Extrude (click a shape first, or pick it in the dialog)'], ['F', 'Fillet'], ['Q', 'Press Pull'], ['H', 'Hole'], ['Delete', 'Delete the selected timeline step']]],
+  ['Sketch', [['L', 'Line'], ['R', 'Rectangle'], ['C', 'Circle'], ['A', 'Arc'], ['T', 'Trim'], ['O', 'Offset'], ['D', 'Sketch Dimension'], ['X', 'Toggle construction line'], ['Delete', 'Delete the selected curves'], ['Type a number', 'Set the size of the shape being drawn'], ['Tab', 'Next size box'], ['Enter', 'Place the shape']]],
+  ['Mouse', [['Wheel', 'Zoom toward the pointer'], ['Middle drag', 'Pan'], ['Shift + middle drag', 'Orbit'], ['Right click', 'Actions menu for what is under the pointer'], ['Drag (drawing tool)', 'Draw corner to corner'], ['Double-click a timeline step', 'Edit it'], ['Drag the arrow', 'Set the distance (Press Pull, Extrude)']]],
+];
+function ShortcutsDialog({ onClose }: { onClose(): void }) {
+  return (
+    <div className="modalback" onPointerDown={onClose}>
+      <div className="dialog shortcuts" data-testid="shortcuts-dialog" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="dhead">KEYBOARD SHORTCUTS AND MOUSE</div>
+        <div className="keycols">
+          {SHORTCUTS.map(([title, rows]) => (
+            <div key={title}><h4>{title}</h4>{rows.map(([k, d]) => <div className="keyrow" key={k + d}><kbd>{k}</kbd><span>{d}</span></div>)}</div>
+          ))}
+        </div>
+        <div className="dbtns"><button className="primary" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
+/** The rows of the Coil dialog (no picking: it is made from numbers). */
 function CoilFields({ cf, setCf, hasBodies, onEnter }: { cf: CoilForm; setCf: (f: CoilForm) => void; hasBodies: boolean; onEnter(): void }) {
   const text = (label: string, key: keyof CoilForm, placeholder?: string) => (
     <label className="drow"><span>{label}</span><input aria-label={`Coil ${label.toLowerCase()}`} type="text" placeholder={placeholder} value={cf[key]} onChange={(e) => setCf({ ...cf, [key]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') onEnter(); }} /></label>);
@@ -169,7 +191,8 @@ export function App() {
   const [offsetPick, setOffsetPick] = useState<string | null>(null); // Offset: the curve being offset; the pointer sets the distance until a click
   const offsetRef = useRef<HTMLInputElement>(null);
   const [typed2, setTyped2] = useState(''); // the second box (height, angle) of the typed sizes
-  const clearTyped = () => { setTyped(''); setTyped2(''); };
+  const [sizes, setSizes] = useState<string[]>(['', '']); // what is typed into the boxes on the shape being drawn
+  const clearTyped = () => { setTyped(''); setTyped2(''); setSizes(['', '']); };
   const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string): void } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [selTl, setSelTl] = useState<number | null>(null);
@@ -188,6 +211,8 @@ export function App() {
   const [holeEdit, setHoleEdit] = useState<string | null>(null); // the name of the Hole feature being edited
   const [modBase, setModBase] = useState<Snapshot | null>(null); // the model when Fillet or Chamfer was opened: edges are picked on this, not on the preview
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
+  const [viewMenu, setViewMenu] = useState<{ x: number; y: number } | null>(null); // the right-click actions menu in the view
+  const [showKeys, setShowKeys] = useState(false);
   const [notice, setNotice] = useState('');
   const fileHandle = useRef<Handle | null>(null); // the file Save writes back to (Chrome and Edge)
   /** Set while an existing extrude is open in the dialog: `key` is the profiles it had, to tell whether they changed. */
@@ -252,7 +277,7 @@ export function App() {
   const send = (steps: { command: string; params: Record<string, unknown> }[]) => { void run(() => api.batch(steps)); };
   const sketchClick = (pt: Vec2, tol: number, additive: boolean) => {
     const sk = activeSketch; if (!sk) return;
-    if (isDraw(tool)) { applyResult(onClick(tool, pending, pt)); return; }
+    if (isDraw(tool)) { applyResult(onClick(tool, pending, pending.length ? applyTyped(tool, pending, pt, sizes) : pt)); return; } // typed sizes hold when the shape is placed by a click
     if (tool === 'offset' && offsetPick) { commitOffset(); return; }
     const hit = pickEntity(sk, pt, tol, tool ? PICK_MODE[tool] : 'curve');
     if (!tool) { // no tool: select curves (Shift adds), then Delete removes them or X makes them construction lines
@@ -275,17 +300,6 @@ export function App() {
         if (r.message) setError(r.message); else if (r.step) send([r.step]);
       }
     }
-  };
-  /** The sizes the shape has right now, from the pointer: what the boxes show until a value is typed into them. */
-  const liveSizes = (): number[] => {
-    const a = pending[0], c = cursor; if (!a || !c || !isDraw(tool)) return [];
-    const dx = c[0] - a[0], dy = c[1] - a[1];
-    if (tool === 'rect') return [Math.abs(dx), Math.abs(dy)];
-    if (tool === 'rectCenter') return [2 * Math.abs(dx), 2 * Math.abs(dy)];
-    if (tool === 'circle') return [2 * Math.hypot(dx, dy)];
-    if (tool === 'circle2') return [Math.hypot(dx, dy)];
-    if (tool === 'line') { const f = pending[pending.length - 1]!; return [Math.hypot(c[0] - f[0], c[1] - f[1]), (Math.atan2(c[1] - f[1], c[0] - f[0]) * 180) / Math.PI]; }
-    return [];
   };
   const showSize = (x: number | undefined) => (x === undefined ? '' : String(Math.round(x * 100) / 100));
   /** Press, drag, release with a drawing tool: the same as clicking the two corners. */
@@ -324,10 +338,8 @@ export function App() {
   }, [snap.timeline, snap.sketches]);
   const submitTyped = () => {
     if (!isDraw(tool) || !pending.length) return;
-    const live = liveSizes(), cur = cursor ?? pending[pending.length - 1]!;
-    // a box left alone keeps the value the pointer gives it; a typed one is fixed. "40,30" in the first box still works as before
-    const text = /[\s,;x×]/i.test(typed.trim()) ? typed : [typed.trim() || showSize(live[0]), ...(tool === 'rect' || tool === 'rectCenter' || tool === 'line' ? [typed2.trim() || showSize(live[1])] : [])].join(',');
-    applyResult(onTyped(tool, pending, cur, text));
+    const cur = cursor ?? pending[pending.length - 1]!;
+    applyResult(onClick(tool, pending, applyTyped(tool, pending, cur, sizes)));
   };
   const endChain = () => { setPending([]); clearTyped(); setTool((t) => (t === 'line' ? null : t)); };
   const curvePick = (c: SketchCurve) => {
@@ -745,6 +757,21 @@ export function App() {
       if (target) { await writeHandle(target, blob); setNotice(`Exported ${target.name}`); } else { download(blob, filename); setNotice(`Exported ${filename} (see your Downloads folder)`); }
     } catch (e) { setError((e as Error).message); }
   };
+  /** The right-click menu: what can be done with what is selected, then the general actions. */
+  const viewItems = (): MenuItem[] => {
+    const none = snap.bodies.length === 0, items: MenuItem[] = [];
+    const face = sel ? snap.bodies.find((b) => b.name === sel.body)?.faces.find((f) => f.index === sel.face) : undefined;
+    if (mode === 'sketch') {
+      items.push({ label: 'Sketch', heading: true, onClick: () => {} }, { label: 'Finish Sketch', onClick: () => void finishSketch() });
+      for (const [label, t] of [['Line   L', 'line'], ['2-Point Rectangle   R', 'rect'], ['Center Rectangle', 'rectCenter'], ['Center Circle   C', 'circle'], ['2-Point Circle', 'circle2'], ['3-Point Arc   A', 'arc3'], ['Slot', 'slot'], ['Trim   T', 'trim'], ['Offset   O', 'offset'], ['Fillet', 'fillet'], ['Sketch Dimension   D', 'dimension']] as [string, Tool][]) items.push({ label, onClick: () => chooseTool(t) });
+    } else if (mode === 'model') {
+      if (profiles.length) items.push({ label: 'Selected shape', heading: true, onClick: () => {} }, { label: 'Extrude   E', onClick: () => void startExtrude('extrude') }, { label: 'Revolve', onClick: () => void startExtrude('revolve') }, { label: 'Sweep', onClick: () => void startExtrude('sweep') }, { label: 'Loft', onClick: () => void startExtrude('loft') }, { label: 'Emboss', onClick: () => void startExtrude('emboss') });
+      if (sel) items.push({ label: 'Selected face', heading: true, onClick: () => {} }, { label: 'Press Pull   Q', onClick: () => void startModify('presspull') }, { label: 'Hole   H', onClick: () => void startModify('hole') }, { label: 'Offset Face', onClick: () => void startModify('offsetface') }, { label: 'Draft', onClick: () => void startModify('draft') }, { label: 'Shell', onClick: () => void startModify('shell') }, { label: 'Thread', disabled: !face?.cylinder, onClick: () => void startModify('thread') }, { label: 'Create Sketch on this face', disabled: !face?.planeNormal, onClick: () => planePicked({ face: sel.point, body: sel.body, index: sel.face }) }, { label: 'Export this face as DXF', disabled: !face?.planeNormal, onClick: () => void doExport('dxf', undefined, sel) });
+      items.push({ label: 'Create', heading: true, onClick: () => {} }, { label: 'Create Sketch', onClick: () => void createSketch() }, { label: 'Extrude   E', onClick: () => void startExtrude('extrude') }, { label: 'Fillet   F', disabled: none, onClick: () => void startModify('fillet') }, { label: 'Chamfer', disabled: none, onClick: () => void startModify('chamfer') });
+    }
+    items.push({ label: 'General', heading: true, onClick: () => {} }, { label: 'Undo   Ctrl+Z', onClick: undo }, { label: 'Redo   Ctrl+Y', onClick: redo }, { label: 'Keyboard shortcuts   ?', onClick: () => setShowKeys(true) });
+    return items;
+  };
   const fileItems = (): MenuItem[] => {
     const none = snap.bodies.length === 0;
     const flatSel = !!snap.bodies.find((b) => b.name === sel?.body)?.faces.find((f) => f.index === sel?.face)?.planeNormal;
@@ -856,6 +883,7 @@ export function App() {
   const redo = () => { if (mode === 'extrude' || mode === 'modify') return; void run(api.redo); };
 
   // ---- keyboard (the same letters Fusion users know)
+  const showKeysRef = useRef(false); showKeysRef.current = showKeys;
   const latest = useRef({ offsetPick, mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
   latest.current = { offsetPick, mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
   const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify });
@@ -871,6 +899,8 @@ export function App() {
         return;
       }
       if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (k === '?' && !inField) { e.preventDefault(); setShowKeys((x) => !x); return; }
+      if (k === 'escape' && showKeysRef.current) { setShowKeys(false); return; }
       if (k === 'escape') {
         if (inField) (e.target as HTMLElement).blur();
         if (L.confirm) setConfirm(null);
@@ -889,8 +919,8 @@ export function App() {
       if (inField) return;
       if (L.mode === 'sketch') {
         if (L.tool === 'offset' && L.offsetPick && (k === 'tab' || /^[0-9.\-]$/.test(e.key))) { e.preventDefault(); if (k !== 'tab') setTyped(e.key); setTimeout(() => offsetRef.current?.focus(), 0); return; }
-        if (L.pending.length && k === 'tab' && L.tool !== 'arc3') { e.preventDefault(); entryRef.current?.focus(); entryRef.current?.select(); return; } // Tab goes to the size boxes, then between them
-        if (L.pending.length && /^[0-9.\-]$/.test(e.key)) { setTyped(e.key); setTimeout(() => entryRef.current?.focus(), 0); e.preventDefault(); return; }
+        if (L.pending.length && k === 'tab' && sizeFields(L.tool).length) { e.preventDefault(); viewApi.current?.focusSize(0); return; } // Tab goes to the size boxes on the shape, then between them
+        if (L.pending.length && sizeFields(L.tool).length && /^[0-9.\-]$/.test(e.key)) { if (viewApi.current?.focusSize(0, e.key)) e.preventDefault(); return; }
         const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', a: 'arc3', d: 'dimension', t: 'trim', o: 'offset' };
         if (map[k]) { A.chooseTool(map[k]!); return; }
         if (k === 'delete' || k === 'backspace') { A.deleteSelected(); return; }
@@ -932,6 +962,7 @@ export function App() {
         <span className="spacer" />
         <button className="hbtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy && mode === 'extrude'} onClick={undo}><Icon.undo /></button>
         <button className="hbtn" aria-label="Redo" title="Redo (Ctrl+Y)" onClick={redo}><Icon.redo /></button>
+        <button className="hbtn" data-testid="help-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowKeys(true)}>?</button>
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
       </header>
 
@@ -945,7 +976,7 @@ export function App() {
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
-          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onSketchDrag={sketchDrag} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
+          handle={dragHandle} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
@@ -1038,13 +1069,6 @@ export function App() {
             <span className="hint">Move the mouse to the side you want and click, or type a distance and press Enter</span>
           </div>
         )}
-        {mode === 'sketch' && typable && (
-          <div className="entry" data-testid="entry">
-            <label>{fieldNames[0]}<input ref={entryRef} aria-label="Typed size" type="text" value={typed !== '' ? typed : showSize(liveSizes()[0])} placeholder={placeholder} onFocus={(e) => e.target.select()} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} /></label>
-            {fieldNames[1] && <label>{fieldNames[1]}<input aria-label="Second typed size" type="text" value={typed2 !== '' ? typed2 : showSize(liveSizes()[1])} onFocus={(e) => e.target.select()} onChange={(e) => setTyped2(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitTyped(); }} /></label>}
-            <span className="hint">Tab for the next box, Enter to place</span>
-          </div>
-        )}
         {section && (
           <div className="dialog" data-testid="section-dialog">
             <div className="dhead">SECTION AS DXF</div>
@@ -1077,6 +1101,8 @@ export function App() {
 
       <Timeline items={snap.timeline} marker={snap.marker} selected={selTl} onSelect={setSelTl} onEdit={editItem} onMenu={(item, x, y) => setMenu({ x, y, item })}
         onRollEnd={() => send([{ command: 'timeline.roll_to', params: {} }])} />
+      {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
+      {viewMenu && <ContextMenu x={viewMenu.x} y={viewMenu.y} items={viewItems()} onClose={() => setViewMenu(null)} />}
       {fileMenu && <ContextMenu x={fileMenu.x} y={fileMenu.y} items={fileItems()} onClose={() => setFileMenu(null)} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />}
 
