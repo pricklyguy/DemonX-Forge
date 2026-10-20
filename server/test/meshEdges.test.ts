@@ -13,7 +13,7 @@ const cube = (): Body => {
   QUADS.forEach(([, q], f) => { indices.push(q[0]!, q[1]!, q[2]!, q[0]!, q[2]!, q[3]!); faceIds.push(f, f); });
   const pairs: [string, string, number, number][] = [['bottom', 'front', 0, 1], ['bottom', 'right', 1, 2], ['bottom', 'back', 2, 3], ['bottom', 'left', 3, 0], ['top', 'front', 4, 5], ['top', 'right', 5, 6], ['top', 'back', 6, 7], ['top', 'left', 7, 4], ['front', 'left', 0, 4], ['front', 'right', 1, 5], ['back', 'right', 2, 6], ['back', 'left', 3, 7]];
   return {
-    name: 'Cube', positions: V.flat(), indices, faceIds, faces: QUADS.map(([n], i) => face(i, n)),
+    name: 'Cube', mesh: false, positions: V.flat(), indices, faceIds, faces: QUADS.map(([n], i) => face(i, n)),
     edges: pairs.map(([a, b, i, j], k) => edge(k, `${a}|${b}`, V[i]! as [number, number, number], V[j]! as [number, number, number])),
   };
 };
@@ -42,7 +42,7 @@ describe('buildEdgeGeometry', () => {
     // face 0: triangle (0,1,2) and (4,5,6); face 1: triangles (0,1,8) shares 0-1, and (4,5,10) shares 4-5
     const indices = [0, 1, 2, 4, 5, 6, 0, 1, 8, 4, 5, 10];
     const faceIds = [0, 0, 1, 1];
-    const body: Body = { name: 'B', positions, indices, faceIds, faces: [face(0, 'A'), face(1, 'B')], edges: [edge(0, 'A|B~1', [0, 0, 0], [1, 0, 0]), edge(1, 'A|B~2', [5, 0, 0], [6, 0, 0])] };
+    const body: Body = { name: 'B', mesh: false, positions, indices, faceIds, faces: [face(0, 'A'), face(1, 'B')], edges: [edge(0, 'A|B~1', [0, 0, 0], [1, 0, 0]), edge(1, 'A|B~2', [5, 0, 0], [6, 0, 0])] };
     const geo = buildEdgeGeometry(body);
     expect(geo[0]!.segments.slice(0, 3)).toEqual([0, 0, 0]);
     expect(geo[1]!.segments.slice(0, 3)).toEqual([5, 0, 0]);

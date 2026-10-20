@@ -4,7 +4,7 @@ import type { CommandStep } from './engine/Engine';
 export class BadRequest extends Error {}
 
 /** Commands the browser may send. File and export commands are not here: they need their own checked routes. */
-const ALLOWED = /^(sketch|solid|parameters|timeline|model|edit)\.[a-z0-9_.]+$/;
+const ALLOWED = /^(sketch|solid|mesh|parameters|timeline|model|edit)\.[a-z0-9_.]+$/;
 
 export function checkStep(s: any): CommandStep {
   if (!s || typeof s.command !== 'string' || !ALLOWED.test(s.command)) throw new BadRequest(`Command not allowed: ${String(s?.command).slice(0, 60)}`);

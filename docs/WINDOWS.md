@@ -42,6 +42,11 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
   Downloads folder.)
 - Getting a part out: File, Export: STEP (for other CAD programs), STL or 3MF (for a slicer), OBJ, and "Export a
   sketch as DXF" (the outline of a sketch, in millimetres, for DemonX Design or a laser/CNC program).
+- Bringing a part in: File, "Import STEP / IGES / STL...". STEP and IGES give solid bodies. An STL, OBJ or 3MF file gives a mesh
+  body (a skin of triangles, read in millimetres with Z up). A mesh can be moved (M), scaled and mirrored, and exported again, but
+  it has no real faces or edges. "Mesh to Solid" (on the MODIFY tab) rebuilds a closed mesh of a mechanical part as real faces,
+  so you can fillet, press pull, drill and split it. It works on parts made of flat and round faces with a constant cross-section
+  (plates, brackets, blocks with holes). A sculpted or organic mesh is refused with a reason and nothing is changed.
 - "Load the demo bracket" gives a ready-made part to look at.
 
 

@@ -52,6 +52,8 @@ export const api = {
   },
   /** A cut through a body as DXF (the design is not changed). */
   exportSection: (section: { plane: 'XY' | 'XZ' | 'YZ'; offset: number; body: string }) => fileCall('export', { format: 'dxf', section }),
+  /** Mesh to Solid: rebuild a closed mechanical mesh (an imported STL, OBJ or 3MF) as an editable solid. */
+  meshConvert: (body: string, tolerance: number) => call('mesh-convert', { body, tolerance }),
   newDesign: () => call('new', {}),
   inspectFeature: (feature: string | number) => ask<FeatureDefinition>('timeline.inspect', { feature }),
   dependents: (feature: string | number) => ask<Dependents>('timeline.dependents', { feature }),

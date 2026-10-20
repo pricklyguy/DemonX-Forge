@@ -1,9 +1,9 @@
 // The Engine implementation that drives SolidCraft's headless CLI (`solidcraft-cli mcp`, MIT OR Apache-2.0) over stdio.
 // This is the only file that knows SolidCraft's tool and command names.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { FileError, packForge, unpackForge } from '../forgeFile';
 import { EngineError, type Body, type CommandStep, type ExportFormat, type Engine, type BodyEdge, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
 import { parse3mf } from './mesh3mf';
@@ -108,6 +108,23 @@ export class SolidCraftEngine implements Engine {
     });
   }
 
+  /** Mesh to Solid: the engine converts a mesh body only while its component is the active one, so it is activated for the step and the design goes back to the top level afterwards. */
+  convertMesh(body: string, tolerance: string): Promise<string[]> {
+    return this.serial(async () => {
+      const list = await this.tool('execute', { command: 'component.list', params: { bodies: true } });
+      const owner = (list?.components ?? []).find((c: any) => Array.isArray(c.bodies) && c.bodies.includes(body));
+      if (!owner) throw new EngineError(`There is no body "${body}"`);
+      const warnings = await this.unknownParams({ command: 'mesh.convert', params: { body, tolerance } });
+      await this.tool('execute', { command: 'component.activate', params: { component: owner.id } });
+      try {
+        await this.tool('batch', { commands: [{ command: 'mesh.convert', params: { body, tolerance } }], rollback: true, verbose: false });
+      } finally {
+        await this.tool('execute', { command: 'component.activate', params: { component: 0 } });
+      }
+      return warnings;
+    });
+  }
+
   setParameter(name: string, value: string | number): Promise<void> {
     return this.serial(async () => { await this.tool('set_parameter', { name, value }); });
   }
@@ -198,14 +215,18 @@ export class SolidCraftEngine implements Engine {
   }
 
   /** Bring a STEP or IGES file into the design as a new component. */
-  importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs', name: string): Promise<string[]> {
+  importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs' | 'stl' | 'obj' | '3mf', name: string): Promise<string[]> {
     return this.serial(async () => {
-      const path = this.tmp(ext);
+      let path = this.tmp(ext);
+      if (['stl', 'obj', '3mf'].includes(ext)) { // the engine names a mesh body after its file, so the file carries the design's name
+        const dir = join(this.work, `m${++this.fileNo}`); mkdirSync(dir, { recursive: true });
+        path = join(dir, `${name.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'Mesh'}.${ext}`);
+      }
       writeFileSync(path, bytes);
       try {
-        await this.tool('batch', { commands: [{ command: 'file.insert_step', params: { path, name } }], rollback: true, verbose: false });
+        await this.tool('batch', { commands: [{ command: ['stl', 'obj', '3mf'].includes(ext) ? 'file.insert_mesh' : 'file.insert_step', params: { path, name } }], rollback: true, verbose: false });
         return [];
-      } finally { rmSync(path, { force: true }); }
+      } finally { rmSync(path, { force: true }); if (/[\\/]m\d+[\\/]/.test(path)) rmSync(dirname(path), { recursive: true, force: true }); }
     });
   }
 
@@ -217,6 +238,7 @@ export class SolidCraftEngine implements Engine {
       const t0 = performance.now();
       const info = await this.tool('inspect_design');
       const names: string[] = (info?.bodies ?? []).map((b: any) => String(b.name));
+      const meshNames = new Set<string>((info?.bodies ?? []).filter((b: any) => (b.face_types?.mesh ?? 0) > 0).map((b: any) => String(b.name)));
       const parameters: Parameter[] = (info?.params ?? []).filter((p: any) => !p.model).map((p: any) => ({ name: String(p.name), expression: String(p.expression ?? ''), value: Number(p.value), unit: String(p.unit ?? '') }));
       const timeline: TimelineItem[] = (info?.timeline ?? []).map((t: any) => ({ id: Number(t.id), name: String(t.name), type: String(t.type), suppressed: !!t.suppressed, error: t.error ? String(t.error) : null }));
       const sketches: Sketch[] = (info?.sketches ?? []).map((k: any) => toSketch(k, info?.active_sketch));
@@ -229,7 +251,7 @@ export class SolidCraftEngine implements Engine {
       const bodies: Body[] = [];
       for (const m of meshes) {
         const topo = await this.tool('body_topology', { body: m.name });
-        bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace), edges: (topo?.edges ?? []).map(toEdge) });
+        bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace), edges: (topo?.edges ?? []).map(toEdge), mesh: meshNames.has(m.name) });
       }
       return { doc, bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
     });

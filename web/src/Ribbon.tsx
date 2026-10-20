@@ -17,6 +17,7 @@ interface Props {
   onThread(): void;
   onMove(): void;
   onSplit(): void;
+  onMeshConvert(): void;
   onRib(): void;
   onPipe(): void;
   onEmboss(): void;
@@ -24,7 +25,7 @@ interface Props {
   onScale(): void;
   canModify: boolean;
   /** The Modify tool whose dialog is open, if any. */
-  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'hole' | 'thread' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | 'move' | 'split' | 'scale' | 'coil' | null;
+  modTool: 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'hole' | 'thread' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | 'move' | 'split' | 'scale' | 'coil' | 'meshconv' | null;
   onFillet(): void;
   onChamfer(): void;
   onPressPull(): void;
@@ -88,6 +89,7 @@ export function Ribbon(p: Props) {
             <Btn id="btn-draft" icon={<Icon.bDraft />} label="Draft" pressed={p.modTool === 'draft'} disabled={!p.canModify} onClick={p.onDraft} />
             <Btn id="btn-combine" icon={<Icon.bCombine />} label="Combine" pressed={p.modTool === 'combine'} disabled={!p.canModify} onClick={p.onCombine} />
             <Btn id="btn-move" icon={<Icon.bMove />} label="Move / Copy" pressed={p.modTool === 'move'} disabled={!p.canModify} onClick={p.onMove} />
+            <Btn id="btn-meshconv" icon={<Icon.bMesh />} label="Mesh to Solid" pressed={p.modTool === 'meshconv'} disabled={!p.canModify} onClick={p.onMeshConvert} />
             <Btn id="btn-split" icon={<Icon.bSplit />} label="Split Body" pressed={p.modTool === 'split'} disabled={!p.canModify} onClick={p.onSplit} />
             <Btn id="btn-scale" icon={<Icon.bScale />} label="Scale" pressed={p.modTool === 'scale'} disabled={!p.canModify} onClick={p.onScale} />
             <Btn id="btn-thread" icon={<Icon.bThread />} label="Thread" pressed={p.modTool === 'thread'} disabled={!p.canModify} onClick={p.onThread} />

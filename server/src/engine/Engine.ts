@@ -72,6 +72,8 @@ export interface Body {
   faceIds: number[];
   faces: Face[];
   edges: BodyEdge[];
+  /** True for a triangle mesh (an imported STL, OBJ or 3MF): it has no real faces or edges until Mesh to Solid converts it. */
+  mesh: boolean;
 }
 
 export interface Parameter { name: string; expression: string; value: number; unit: string }
@@ -110,7 +112,10 @@ export interface Engine {
   /** A cut through a body as DXF. The design is not changed. */
   exportSectionDxf(sec: { plane: 'XY' | 'XZ' | 'YZ'; offset: number; body: string }): Promise<Uint8Array>;
   /** Insert a STEP or IGES file as a new component. */
-  importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs', name: string): Promise<string[]>;
+  /** STEP and IGES give solid bodies; STL, OBJ and 3MF give mesh bodies (a triangle mesh, millimetres, Z up) that Mesh to Solid can turn into solids. */
+  /** Reconstruct a closed, constant-section mesh body (planar and cylindrical faces) as an editable solid. */
+  convertMesh(body: string, tolerance: string): Promise<string[]>;
+  importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs' | 'stl' | 'obj' | '3mf', name: string): Promise<string[]>;
   undo(): Promise<void>;
   redo(): Promise<void>;
   /** The design as the bytes of a .forge file; the design is then called `name` and counts as saved. */

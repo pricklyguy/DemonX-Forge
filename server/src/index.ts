@@ -49,7 +49,7 @@ const readBody = (req: IncomingMessage) => new Promise<any>((ok, bad) => {
 });
 
 /** Read-only questions the browser may ask the engine. */
-const QUERY_OK = new Set(['timeline.inspect', 'timeline.dependents']);
+const QUERY_OK = new Set(['timeline.inspect', 'timeline.dependents', 'component.list']);
 
 const readBytes = (req: IncomingMessage, max: number) => new Promise<Buffer>((ok, bad) => {
   const declared = Number(req.headers['content-length'] ?? 0);
@@ -91,11 +91,11 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
     if (req.method !== 'POST') throw new BadRequest('POST the file');
     const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
     const ext = (q.get('ext') ?? '').toLowerCase();
-    if (ext !== 'step' && ext !== 'stp' && ext !== 'iges' && ext !== 'igs') throw new BadRequest('Only STEP (.step, .stp) and IGES (.iges, .igs) files can be imported');
+    if (!['step', 'stp', 'iges', 'igs', 'stl', 'obj', '3mf'].includes(ext)) throw new BadRequest('Only STEP (.step, .stp), IGES (.iges, .igs), STL (.stl), OBJ (.obj) and 3MF (.3mf) files can be imported');
     if ((await e.snapshot()).sketches.some((k) => k.active)) throw new BadRequest('Finish the sketch first');
     const bytes = new Uint8Array(await readBytes(req, MAX_IMPORT));
     if (!bytes.length) throw new BadRequest('The file is empty');
-    await e.importModel(bytes, ext, safeName(q.get('name'), 'Imported'));
+    await e.importModel(bytes, ext as 'step' | 'stp' | 'iges' | 'igs' | 'stl' | 'obj' | '3mf', safeName(q.get('name'), 'Imported'));
     return send(res, 200, await e.snapshot());
   }
   const a = req.method === 'POST' ? await readBody(req) : {};
@@ -127,6 +127,15 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
     if (!spec) throw new BadRequest('Unknown export format');
     if (!snap.bodies.length) throw new BadRequest('There is nothing to export yet: make a body first');
     return sendFile(res, await e.exportBodies(spec.format), `${name}.${spec.ext}`);
+  }
+  if (path === '/api/mesh-convert') { // Mesh to Solid: a body name and a tolerance in millimetres
+    if (typeof a.body !== 'string' || !a.body || a.body.length > 100) throw new BadRequest('Choose a mesh body');
+    const tol = a.tolerance === undefined ? 0.05 : a.tolerance;
+    if (typeof tol !== 'number' || !Number.isFinite(tol) || tol <= 0 || tol > 100) throw new BadRequest('The tolerance must be a number of millimetres above zero');
+    if ((await e.snapshot()).sketches.some((k) => k.active)) throw new BadRequest('Finish the sketch first');
+    const warnings = await e.convertMesh(a.body, `${tol} mm`);
+    const snap = await e.snapshot();
+    return send(res, 200, { ...snap, warnings: [...warnings, ...snap.warnings] });
   }
   if (path === '/api/new') { await e.newDesign(); return send(res, 200, await e.snapshot()); }
   if (path === '/api/query') {

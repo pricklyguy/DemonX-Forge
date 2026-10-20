@@ -20,18 +20,19 @@ import { pickEntity, type Picked } from './sketch/pick';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
 const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
-const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '0', shell: '2', offsetface: '0', draft: '5', hole: '5', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '' };
+const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '0', shell: '2', offsetface: '0', draft: '5', hole: '5', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '', meshconv: '' };
 /** The dialog's axis choice as the engine's `axis` parameter: a sketch axis (x, y), a sketch line's id, or a world axis (X, Y, Z). */
 const axisParam = (v: string) => v.slice(v.indexOf(':') + 1);
 const EXT_TITLE: Record<ExtKind, string> = { extrude: 'EXTRUDE', revolve: 'REVOLVE', sweep: 'SWEEP', loft: 'LOFT', rib: 'RIB', pipe: 'PIPE', emboss: 'EMBOSS' };
 /** The bodies already chosen when a body tool opens: the only body, the body of a selected face, or for Combine the second of two bodies (the first is the target). */
 const initialBodies = (t: ModTool, names: string[], picked: string | undefined): string[] => {
   if (!BODY_TOOLS.includes(t)) return [];
+  if (t === 'meshconv') return names.length === 1 ? [names[0]!] : picked && names.includes(picked) ? [picked] : []; // `names` are the mesh bodies only
   if (t === 'combine') return names.length === 2 ? [names[1]!] : picked && picked !== names[0] ? [picked] : [];
   return names.length === 1 ? [names[0]!] : picked ? [picked] : [];
 };
 const holePos = (p: readonly number[]) => ({ x: String(+p[0]!.toFixed(2)), y: String(+p[1]!.toFixed(2)), z: String(+p[2]!.toFixed(2)) });
-const MOD_TITLE: Record<ModTool, string> = { fillet: 'FILLET', chamfer: 'CHAMFER', shell: 'SHELL', presspull: 'PRESS PULL', offsetface: 'OFFSET FACE', draft: 'DRAFT', hole: 'HOLE', thread: 'THREAD', mirror: 'MIRROR', rpattern: 'RECTANGULAR PATTERN', cpattern: 'CIRCULAR PATTERN', combine: 'COMBINE', move: 'MOVE / COPY', split: 'SPLIT BODY', scale: 'SCALE', coil: 'COIL' };
+const MOD_TITLE: Record<ModTool, string> = { fillet: 'FILLET', chamfer: 'CHAMFER', shell: 'SHELL', presspull: 'PRESS PULL', offsetface: 'OFFSET FACE', draft: 'DRAFT', hole: 'HOLE', thread: 'THREAD', mirror: 'MIRROR', rpattern: 'RECTANGULAR PATTERN', cpattern: 'CIRCULAR PATTERN', combine: 'COMBINE', move: 'MOVE / COPY', split: 'SPLIT BODY', scale: 'SCALE', coil: 'COIL', meshconv: 'MESH TO SOLID' };
 const HINT: Record<string, string> = {
   pickPlane: 'Select an origin plane or a flat face of a body to sketch on. Esc cancels.',
   extrude: 'Select the profiles to extrude, set the distance, then OK. Esc cancels.',
@@ -47,6 +48,7 @@ const HINT: Record<string, string> = {
   scale: 'Click the body to scale, type the factor, choose what it scales about, then OK. Esc cancels.',
   coil: 'Set the size of the coil and where it starts, then OK. Esc cancels.',
   move: 'Click the body to move or copy, type how far and how much to turn it, then OK. Esc cancels.',
+  meshconv: 'Click the mesh to convert (an imported STL, OBJ or 3MF), check the tolerance, then OK. Esc cancels.',
   split: 'Click the body to split, choose the plane to cut along, then OK. Esc cancels.',
   combine: 'Pick the target below, click the body or bodies to combine with it, choose the operation, then OK. Esc cancels.',
   presspull: 'Click a face, then type how far to push (negative) or pull (positive), then OK. Esc cancels.',
@@ -76,15 +78,15 @@ const TOOL_HINT: Record<string, string[]> = {
   fix: ['Click a point or curve to fix it (or release it).'],
 };
 type ExtKind = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'rib' | 'pipe' | 'emboss';
-type ModTool = 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'hole' | 'thread' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | 'move' | 'split' | 'scale' | 'coil';
+type ModTool = 'fillet' | 'chamfer' | 'presspull' | 'shell' | 'offsetface' | 'draft' | 'hole' | 'thread' | 'mirror' | 'rpattern' | 'cpattern' | 'combine' | 'move' | 'split' | 'scale' | 'coil' | 'meshconv';
 const AXIS_COLOR = { mx: '#e5484d', my: '#3fb950', mz: '#4c8dff' } as const; // X red, Y green, Z blue, as in most CAD programs
-const BODY_TOOLS: ModTool[] = ['mirror', 'rpattern', 'cpattern', 'combine', 'move', 'split', 'scale']; // pick whole bodies
+const BODY_TOOLS: ModTool[] = ['mirror', 'rpattern', 'cpattern', 'combine', 'move', 'split', 'scale', 'meshconv']; // pick whole bodies
 const FACE_TOOLS: ModTool[] = ['presspull', 'shell', 'offsetface', 'draft', 'hole', 'thread']; // pick faces
 const ONE_FACE: ModTool[] = ['presspull', 'hole', 'thread']; // these work on a single face: a new click replaces the pick
-const VALUE_LABEL: Record<ModTool, string> = { fillet: 'Radius', chamfer: 'Distance', presspull: 'Distance', shell: 'Thickness', offsetface: 'Distance', draft: 'Angle', hole: 'Diameter', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '' };
+const VALUE_LABEL: Record<ModTool, string> = { fillet: 'Radius', chamfer: 'Distance', presspull: 'Distance', shell: 'Thickness', offsetface: 'Distance', draft: 'Angle', hole: 'Diameter', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '', meshconv: '' };
 const AXIS_VEC: Record<string, [number, number, number]> = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
 /** Mirror, Rectangular Pattern and Circular Pattern work on whole bodies; their settings live here. */
-type BodyForm = { plane: 'XY' | 'XZ' | 'YZ'; combine: boolean; dir1: string; count1: string; spacing1: string; dir2: string; count2: string; spacing2: string; axis: string; count: string; angle: string; neutral: 'XY' | 'XZ' | 'YZ' | 'bottom' | 'top'; target: string; keep: boolean; cop: 'join' | 'cut' | 'intersect'; mx: string; my: string; mz: string; rotAxis: 'none' | 'X' | 'Y' | 'Z'; rotAngle: string; copy: boolean; step: string; splitAxis: 'X' | 'Y' | 'Z'; splitPos: string; scaleFactor: string; scaleUneven: boolean; sx: string; sy: string; sz: string; scaleAbout: 'origin' | 'center' };
+type BodyForm = { plane: 'XY' | 'XZ' | 'YZ'; combine: boolean; dir1: string; count1: string; spacing1: string; dir2: string; count2: string; spacing2: string; axis: string; count: string; angle: string; neutral: 'XY' | 'XZ' | 'YZ' | 'bottom' | 'top'; target: string; keep: boolean; cop: 'join' | 'cut' | 'intersect'; mx: string; my: string; mz: string; rotAxis: 'none' | 'X' | 'Y' | 'Z'; rotAngle: string; copy: boolean; step: string; splitAxis: 'X' | 'Y' | 'Z'; splitPos: string; scaleFactor: string; scaleUneven: boolean; sx: string; sy: string; sz: string; scaleAbout: 'origin' | 'center'; tol: string };
 /** The Coil dialog. */
 type CoilForm = { diameter: string; turns: string; height: string; pitch: string; size: string; section: 'circular' | 'square'; axis: 'X' | 'Y' | 'Z'; bx: string; by: string; bz: string; op: 'new' | 'join' | 'cut' };
 const COIL_FORM: CoilForm = { diameter: '20', turns: '4', height: '30', pitch: '', size: '3', section: 'circular', axis: 'Z', bx: '0', by: '0', bz: '0', op: 'new' };
@@ -92,7 +94,7 @@ const COIL_FORM: CoilForm = { diameter: '20', turns: '4', height: '30', pitch: '
 type HoleForm = { x: string; y: string; z: string; depth: string; type: 'simple' | 'counterbore' | 'countersink'; cbd: string; cbh: string; csd: string; csa: string };
 const HOLE_FORM: HoleForm = { x: '', y: '', z: '', depth: '', type: 'simple', cbd: '10', cbh: '3', csd: '10', csa: '90' };
 type ThreadForm = { designation: string; length: string; modeled: boolean };
-const BODY_FORM: BodyForm = { plane: 'YZ', combine: false, dir1: 'X', count1: '3', spacing1: '20', dir2: 'none', count2: '2', spacing2: '20', axis: 'Z', count: '4', angle: '360', neutral: 'bottom', target: '', keep: false, cop: 'join', mx: '0', my: '0', mz: '0', rotAxis: 'none', rotAngle: '90', copy: false, step: '10', splitAxis: 'X', splitPos: '0', scaleFactor: '2', scaleUneven: false, sx: '1', sy: '1', sz: '1', scaleAbout: 'center' };
+const BODY_FORM: BodyForm = { plane: 'YZ', combine: false, dir1: 'X', count1: '3', spacing1: '20', dir2: 'none', count2: '2', spacing2: '20', axis: 'Z', count: '4', angle: '360', neutral: 'bottom', target: '', keep: false, cop: 'join', mx: '0', my: '0', mz: '0', rotAxis: 'none', rotAngle: '90', copy: false, step: '10', splitAxis: 'X', splitPos: '0', scaleFactor: '2', scaleUneven: false, sx: '1', sy: '1', sz: '1', scaleAbout: 'center', tol: '0.05' };
 type ExtrudeForm = { distance: string; direction: 'one' | 'rev' | 'sym'; operation: 'new' | 'join' | 'cut' | 'intersect'; axis: string; angle: string; path: string; thickness: string; depth: string; flip: boolean; ribSketch: string; pipeSketch: string; pipeDia: string; pipeWall: string; embossMode: 'emboss' | 'deboss' };
 /** The engine names the operation `new_body` in a feature's definition and `new` in the command. */
 const opFromDef = (o?: string): ExtrudeForm['operation'] => (o === 'join' || o === 'cut' || o === 'intersect' ? o : 'new');
@@ -180,6 +182,9 @@ function BodyFields({ tool, bf, setBf, bodies, allBodies, target, onEnter }: { t
           <button type="button" aria-label="Angle plus" onClick={() => setBf({ ...bf, rotAngle: String(+((Number(bf.rotAngle) || 0) + 15).toFixed(4)) })}>+</button></div></div>}
       <label className="drow"><span>Copy</span><input aria-label="Copy" type="checkbox" checked={bf.copy} onChange={(e) => setBf({ ...bf, copy: e.target.checked })} /></label>
       <div className="dnote">Drag the arrows on the body, or type or step the distances (mm). Turns are in 15° steps about a world axis.</div></>}
+    {tool === 'meshconv' && <>
+      {text('Tolerance (mm)', 'tol')}
+      <div className="dnote">Rebuilds a closed mesh of a mechanical part as real faces you can fillet, press pull and drill. It works on parts with flat and round faces and a constant cross-section (plates, brackets, blocks with holes); an organic or sculpted mesh is refused, and nothing is changed. A smaller tolerance follows the mesh more closely.</div></>}
     {tool === 'split' && <>
       {pick('Cut across', 'splitAxis', [['X', 'X (a plane at x = position)'], ['Y', 'Y (a plane at y = position)'], ['Z', 'Z (a plane at z = position)']])}
       {text('Position', 'splitPos')}
@@ -536,6 +541,7 @@ export function App() {
   const combineTarget = modBase?.bodies.some((b) => b.name === bf.target) ? bf.target : modBase?.bodies[0]?.name ?? '';
   const modifyStep = (): { command: string; params: Record<string, unknown> } | null => {
     const v = modValue.trim();
+    if (modTool === 'meshconv') return null; // no live preview: it can take a while, so it runs when OK is pressed
     if (BODY_TOOLS.includes(modTool)) {
       if (!bodiesSel.length && modTool !== 'combine') return null;
       const num = (s: string) => (s.trim() !== '' && Number.isFinite(Number(s)) ? Number(s) : null);
@@ -704,14 +710,15 @@ export function App() {
   // ---- Fillet and Chamfer: pick edges, set a size, live preview (the same mechanism as the extrude dialog)
   const edgeSets = useMemo(() => (mode === 'modify' && !FACE_TOOLS.includes(modTool) && !BODY_TOOLS.includes(modTool) && modTool !== 'coil' && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase]);
   const startModify = async (t: ModTool) => {
-    if (mode === 'modify') { if (t !== modTool && !holeEdit && !valueEdit) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(initialBodies(t, modBase?.bodies.map((b) => b.name) ?? [], undefined)); } return; }
+    if (mode === 'modify') { if (t !== modTool && !holeEdit && !valueEdit) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(initialBodies(t, (modBase?.bodies ?? []).filter((b) => t !== 'meshconv' || b.mesh).map((b) => b.name), undefined)); } return; }
     if (mode === 'extrude') await cancelExtrude();
     let s: Snapshot | null = snap;
     if (activeSketch) s = await finishSketch();
     if (!s) return;
+    if (t === 'meshconv' && !s.bodies.some((b) => b.mesh)) { setError('There is no mesh to convert: File > Import STEP / IGES / STL… brings one in.'); return; }
     if (!s.bodies.length && t !== 'coil') { setError('Make a body first (sketch and extrude), then change it.'); return; } // a coil can be the first body
     const start = FACE_TOOLS.includes(t) ? sel : null; // a face that is already selected is the one to work on
-    setBodiesSel(initialBodies(t, s.bodies.map((b) => b.name), sel?.body)); // a face that is already selected is the one to push or pull
+    setBodiesSel(initialBodies(t, s.bodies.filter((b) => t !== 'meshconv' || b.mesh).map((b) => b.name), sel?.body)); // a face that is already selected is the one to push or pull
     chooseTool(null); setSel(null); setEdgesSel([]); setFacesSel(start ? [start] : []); setHoleEdit(null); setCf({ ...COIL_FORM, op: s.bodies.length ? 'join' : 'new' }); setHf({ ...HOLE_FORM, ...(t === 'hole' && start ? holePos(start.point) : {}) }); setTf({ designation: '', length: '', modeled: false }); setModTool(t); setModBase(s); setModValue(MOD_DEFAULT[t]); setMode('modify'); setError('');
   };
   const edgePicked = (ref: EdgeRef | null) => {
@@ -726,7 +733,8 @@ export function App() {
     if (holeEdit || valueEdit) return; // an existing step keeps its faces and edges; only its numbers change
     if (BODY_TOOLS.includes(modTool)) { // a click on a body picks the whole body; the preview's copies are not pickable
       if (!modBase?.bodies.some((b) => b.name === f.body)) return;
-      if (modTool === 'split') { setBodiesSel([f.body]); return; }
+      if (modTool === 'meshconv' && !modBase.bodies.find((b) => b.name === f.body)?.mesh) { setError('That body is not a mesh. Click an imported STL, OBJ or 3MF body.'); return; }
+      if (modTool === 'split' || modTool === 'meshconv') { setBodiesSel([f.body]); setError(''); return; }
       setBodiesSel((cur) => (cur.includes(f.body) ? cur.filter((n) => n !== f.body) : [...cur, f.body]));
       return;
     }
@@ -739,6 +747,14 @@ export function App() {
   const cancelModify = async () => { closeModify(); await applyPreview(null); };
   const okModify = async () => {
     clearTimeout(previewTimer.current);
+    if (modTool === 'meshconv') { // Mesh to Solid: one real call, no preview
+      const tol = Number(bf.tol);
+      if (!bodiesSel[0]) { setError('Click the mesh to convert'); return; }
+      if (!(tol > 0) || bf.tol.trim() === '') { setError('The tolerance must be a number of millimetres above zero'); return; }
+      const s = await run(() => api.meshConvert(bodiesSel[0]!, tol));
+      if (s) { closeModify(); setNotice('Converted the mesh to a solid'); }
+      return;
+    }
     if ((holeEdit || valueEdit) && !preview.current && stepKey === baseKey.current) { closeModify(); return; } // nothing was changed
     const step = modifyStep(); if (!step) { setError(modTool === 'coil' ? 'Fill in exactly two of turns, height and pitch (blank the third), all above zero, and the diameter and section size' : modTool === 'scale' ? 'Click a body and enter a factor above zero' : modTool === 'hole' ? 'Click a face, then check the position and enter a diameter (and a depth, or leave it empty to go right through)' : modTool === 'thread' ? 'Click the round wall of a hole or boss' : modTool === 'move' ? 'Type a move or a turn (not both zero)' : modTool === 'split' ? 'Click a body and type where to cut it' : modTool === 'combine' ? 'Click at least one other body to combine with the target' : BODY_TOOLS.includes(modTool) ? (bodiesSel.length ? 'Check the numbers: counts are whole numbers of 2 or more, spacing is not zero, the two directions differ' : 'Click the body to copy') : modTool === 'offsetface' ? 'Select the face(s) to move and enter a distance (not zero)' : modTool === 'draft' ? 'Select the wall face(s) and enter an angle (not zero, under 89)' : modTool === 'presspull' ? 'Select a face and enter a distance (not zero)' : modTool === 'shell' ? 'Select the face(s) to open and enter a wall thickness' : 'Select at least one edge and enter a size'); return; }
     await applyPreview(step);
@@ -768,7 +784,7 @@ export function App() {
       if (s) { fileHandle.current = picked.handle; resetAfterLoad(); setNotice(`Opened ${picked.file.name}`); }
     } catch (e) { setError((e as Error).message); }
   })(); });
-  /** File > Import: a STEP or IGES file becomes a new component in the design (it does not replace it). */
+  /** File > Import: a STEP, IGES, STL, OBJ or 3MF file becomes a new component in the design (it does not replace it). */
   const doImport = () => { void (async () => {
     try {
       await noPreviewPending();
@@ -776,7 +792,7 @@ export function App() {
       const picked = await pickOpenFile([MODEL_TYPE]);
       if (!picked) return;
       const ext = extOf(picked.file.name);
-      if (!['step', 'stp', 'iges', 'igs'].includes(ext)) { setError('Choose a STEP (.step, .stp) or IGES (.iges, .igs) file'); return; }
+      if (!['step', 'stp', 'iges', 'igs', 'stl', 'obj', '3mf'].includes(ext)) { setError('Choose a STEP, IGES, STL, OBJ or 3MF file (.step .stp .iges .igs .stl .obj .3mf)'); return; }
       const data = await picked.file.arrayBuffer();
       const s = await run(() => api.importModel(data, stripExt(picked.file.name), ext));
       if (s) { setNotice(`Imported ${picked.file.name}`); setTimeout(() => viewApi.current?.setView('home'), 80); }
@@ -845,7 +861,7 @@ export function App() {
       if (sel) items.push({ label: 'Selected face', heading: true, onClick: () => {} }, { label: 'Press Pull   Q', onClick: () => void startModify('presspull') }, { label: 'Hole   H', onClick: () => void startModify('hole') }, { label: 'Move / Copy   M', onClick: () => void startModify('move') }, { label: 'Offset Face', onClick: () => void startModify('offsetface') }, { label: 'Draft', onClick: () => void startModify('draft') }, { label: 'Shell', onClick: () => void startModify('shell') }, { label: 'Thread', disabled: !face?.cylinder, onClick: () => void startModify('thread') }, { label: 'Create Sketch on this face', disabled: !face?.planeNormal, onClick: () => planePicked({ face: sel.point, body: sel.body, index: sel.face }) }, { label: 'Export this face as DXF', disabled: !face?.planeNormal, onClick: () => void doExport('dxf', undefined, sel) });
       items.push({ label: 'Create', heading: true, onClick: () => {} }, { label: 'Create Sketch', onClick: () => void createSketch() }, { label: 'Extrude   E', onClick: () => void startExtrude('extrude') }, { label: 'Fillet   F', disabled: none, onClick: () => void startModify('fillet') }, { label: 'Chamfer', disabled: none, onClick: () => void startModify('chamfer') },
         { label: 'Modify', heading: true, onClick: () => {} },
-        ...([['Move / Copy   M', 'move'], ['Split Body', 'split'], ['Combine', 'combine'], ['Scale', 'scale'], ['Mirror', 'mirror'], ['Rectangular Pattern', 'rpattern'], ['Circular Pattern', 'cpattern'], ['Shell', 'shell'], ['Press Pull   Q', 'presspull'], ['Hole   H', 'hole'], ['Coil', 'coil']] as [string, ModTool][]).map(([label, k]) => ({ label, disabled: none && k !== 'coil', onClick: () => void startModify(k) })),
+        ...([['Move / Copy   M', 'move'], ['Split Body', 'split'], ['Combine', 'combine'], ['Scale', 'scale'], ['Mirror', 'mirror'], ['Rectangular Pattern', 'rpattern'], ['Circular Pattern', 'cpattern'], ['Shell', 'shell'], ['Press Pull   Q', 'presspull'], ['Hole   H', 'hole'], ['Coil', 'coil'], ['Mesh to Solid', 'meshconv']] as [string, ModTool][]).map(([label, k]) => ({ label, disabled: none && k !== 'coil', onClick: () => void startModify(k) })),
         { label: 'More create', heading: true, onClick: () => {} },
         ...([['Revolve', 'revolve'], ['Sweep', 'sweep'], ['Loft', 'loft'], ['Rib', 'rib'], ['Pipe', 'pipe'], ['Emboss', 'emboss']] as [string, ExtKind][]).map(([label, k]) => ({ label, onClick: () => void startExtrude(k) })));
     }
@@ -860,7 +876,7 @@ export function App() {
       { label: 'Open…   Ctrl+O', onClick: doOpen },
       { label: 'Save   Ctrl+S', onClick: () => void doSave(false) },
       { label: 'Save As…   Ctrl+Shift+S', onClick: () => void doSave(true) },
-      { label: 'Import STEP / IGES…', onClick: doImport },
+      { label: 'Import STEP / IGES / STL…', onClick: doImport },
       { label: upd.info?.newer && !upd.info.skipped ? `Updates… (${upd.info.latest?.version} is available)` : 'Updates…', onClick: () => { setShowUpdates(true); void upd.refresh(); } },
       { label: 'Export bodies', heading: true, onClick: () => {} },
       { label: 'STEP (.step)', disabled: none, onClick: () => void doExport('step') },
@@ -1049,7 +1065,7 @@ export function App() {
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
       </header>
 
-      <Ribbon mode={mode} tool={tool} canHole={snap.bodies.length > 0 && mode !== 'pickPlane'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} extKind={mode === 'extrude' ? extKind : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onShell={() => void startModify('shell')} onOffsetFace={() => void startModify('offsetface')} onDraft={() => void startModify('draft')} onCombine={() => void startModify('combine')} onMirror={() => void startModify('mirror')} onRPattern={() => void startModify('rpattern')} onCPattern={() => void startModify('cpattern')} onCreateSketch={createSketch} onExtrude={() => void startExtrude('extrude')} onRevolve={() => void startExtrude('revolve')} onSweep={() => void startExtrude('sweep')} onLoft={() => void startExtrude('loft')} onHole={() => void startModify('hole')} onThread={() => void startModify('thread')} onMove={() => void startModify('move')} onSplit={() => void startModify('split')} onRib={() => void startExtrude('rib')} onPipe={() => void startExtrude('pipe')} onEmboss={() => void startExtrude('emboss')} onCoil={() => void startModify('coil')} onScale={() => void startModify('scale')} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
+      <Ribbon mode={mode} tool={tool} canHole={snap.bodies.length > 0 && mode !== 'pickPlane'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} extKind={mode === 'extrude' ? extKind : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onShell={() => void startModify('shell')} onOffsetFace={() => void startModify('offsetface')} onDraft={() => void startModify('draft')} onCombine={() => void startModify('combine')} onMirror={() => void startModify('mirror')} onRPattern={() => void startModify('rpattern')} onCPattern={() => void startModify('cpattern')} onCreateSketch={createSketch} onExtrude={() => void startExtrude('extrude')} onRevolve={() => void startExtrude('revolve')} onSweep={() => void startExtrude('sweep')} onLoft={() => void startExtrude('loft')} onHole={() => void startModify('hole')} onThread={() => void startModify('thread')} onMove={() => void startModify('move')} onSplit={() => void startModify('split')} onRib={() => void startExtrude('rib')} onPipe={() => void startExtrude('pipe')} onEmboss={() => void startExtrude('emboss')} onCoil={() => void startModify('coil')} onScale={() => void startModify('scale')} onMeshConvert={() => void startModify('meshconv')} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} />
 
       <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
         onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}

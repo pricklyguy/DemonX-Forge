@@ -42,6 +42,7 @@ export const Icon = {
   bCombine: () => <Svg><rect x="4" y="9" width="13" height="13" /><rect x="11" y="5" width="13" height="13" stroke={A} strokeWidth={2} /></Svg>,
   rib: () => <Svg><rect x="4" y="19" width="20" height="5" opacity=".6" /><path d="M12 19 V6 H16 V19" stroke={A} strokeWidth={2.2} /></Svg>,
   bMove: () => <Svg><rect x="4" y="12" width="10" height="10" opacity=".5" strokeDasharray="2 2" /><rect x="12" y="5" width="10" height="10" /><path d="M9 11 L16 8" stroke={A} strokeWidth={2} /></Svg>,
+  bMesh: () => <Svg><path d="M4 10 L14 4 L24 10 L24 20 L14 25 L4 20 Z" opacity=".6" /><path d="M4 10 L14 15 L24 10 M14 15 V25 M9 7 L19 12 M19 7 L9 12" stroke={A} strokeWidth={1.4} /></Svg>,
   bSplit: () => <Svg><rect x="4" y="6" width="20" height="16" /><path d="M14 3 V25" stroke={A} strokeWidth={2.2} strokeDasharray="3 2" /></Svg>,
   bThread: () => <Svg><rect x="9" y="4" width="10" height="20" /><path d="M9 8 L19 10 M9 12 L19 14 M9 16 L19 18" stroke={A} strokeWidth={1.8} /></Svg>,
   pipe: () => <Svg><path d="M5 22 C5 10 14 18 23 6" stroke={A} strokeWidth={4} opacity=".85" /><path d="M5 22 C5 10 14 18 23 6" strokeWidth={1.2} stroke="var(--bg)" /></Svg>,
