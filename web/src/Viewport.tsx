@@ -19,7 +19,7 @@ import type { EdgeRef, Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
 export interface FacePick { body: string; face: number; point: Vec3 }
 
 /** A draggable arrow: starts `base` mm along `dir` from `origin` and ends `value` further on. */
-export type Handle = { origin: Vec3; dir: Vec3; value: number; base?: number; color?: string; label?: string; onChange(v: number): void; onSubmit?(): void };
+export type Handle = { origin: Vec3; dir: Vec3; value: number; base?: number; /** When set the arrow is drawn this long whatever `value` is (Move: the arrows stay with the body, `value` is only what dragging changes) */ fixed?: number; color?: string; label?: string; onChange(v: number): void; onSubmit?(): void };
 interface Props {
   bodies: Body[];
   sketches: Sketch[];
@@ -304,6 +304,7 @@ export function Viewport(props: Props) {
       if (!(p.mode === 'sketch' && s)) return;
       const plane = planeOf(s), amber = css('--amber');
       const flat = (poly: Vec2[]) => { const o: number[] = []; for (let i = 0; i < poly.length - 1; i++) o.push(...toWorld(plane, poly[i]!), ...toWorld(plane, poly[i + 1]!)); return o; };
+      for (const poly of p.extraPreview ?? []) if (poly.length > 1) gPreview.add(thick(flat(poly), amber, 2)); // Offset: the outline as it would be
       if (isDraw(p.tool) && cursor && p.pending.length) { const seg = previewOf(p.tool, p.pending, applyTyped(p.tool, p.pending, cursor, p.sizes ?? [])).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
       liveAnchors = [];
       if (isDraw(p.tool) && cursor && p.pending.length) { // the boxes on the shape being drawn, for the stage it is at
@@ -342,7 +343,7 @@ export function Viewport(props: Props) {
     // ---- the drag arrow of Press Pull and Extrude: a line from the face to the distance, with a cone at the tip
     const handleList = (): Handle[] => P.current.handles ?? (P.current.handle ? [P.current.handle] : []);
     const geomOf = (h: Handle) => {
-      const d = new THREE.Vector3(...h.dir).normalize(), o = new THREE.Vector3(...h.origin).addScaledVector(d, h.base ?? 0), tip = o.clone().addScaledVector(d, h.value);
+      const d = new THREE.Vector3(...h.dir).normalize(), o = new THREE.Vector3(...h.origin).addScaledVector(d, h.base ?? 0), tip = o.clone().addScaledVector(d, h.fixed ?? h.value);
       return { o, d, tip };
     };
     const handleGeometry = () => { const h = handleList()[0]; return h ? geomOf(h) : null; };
@@ -350,7 +351,7 @@ export function Viewport(props: Props) {
       clear(gHandle);
       const k = wpp() * 11; // the cone is about 11 px across
       for (const h of handleList()) {
-        const g = geomOf(h), col = new THREE.Color(h.color ?? css('--accent')), s = Math.sign(h.value || 1);
+        const g = geomOf(h), col = new THREE.Color(h.color ?? css('--accent')), s = Math.sign((h.fixed ?? h.value) || 1);
         gHandle.add(thick([g.o.x, g.o.y, g.o.z, g.tip.x, g.tip.y, g.tip.z], h.color ?? css('--accent'), 3));
         const cone = new THREE.Mesh(new THREE.ConeGeometry(k, k * 2.4, 20), new THREE.MeshBasicMaterial({ color: col, depthTest: false }));
         cone.position.copy(g.tip).addScaledVector(g.d, s * k * 1.2);
@@ -669,7 +670,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
-  useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.handles?.map((h) => `${h.origin.join()}|${h.dir.join()}|${h.value}|${h.base}`).join(';'), p.theme]);
+  useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.handles?.map((h) => `${h.origin.join()}|${h.dir.join()}|${h.value}|${h.base}|${h.fixed}`).join(';'), p.theme]);
   useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);
 
   return <div className="viewport" ref={host} data-testid="viewport" />;

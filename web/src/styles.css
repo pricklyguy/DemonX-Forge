@@ -118,3 +118,4 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .update-notes { white-space: pre-wrap; max-height: 180px; overflow: auto; margin: 0; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; font: inherit; font-size: 12px; }
 .dnote.warn { color: var(--amber); }
 .updates a { color: var(--cyan); }
+.confirm.place { border-color: var(--accent); flex-wrap: wrap; max-width: min(760px, 92vw); }

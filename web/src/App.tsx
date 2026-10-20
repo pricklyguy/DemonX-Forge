@@ -13,6 +13,7 @@ import { Viewport, type FacePick } from './Viewport';
 import { normalOf, toWorld } from './sketch/plane';
 import { findRegions, pointInPolygon } from './sketch/regions';
 import { segmentsTouchBox } from './sketch/box';
+import { lineChain, offsetChain, sideDistance } from './sketch/offsetChain';
 import { UpdateBadge, UpdatesDialog, useUpdates } from './Updates';
 import { curvePoints } from './sketch/loops';
 import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
@@ -216,6 +217,8 @@ export function App() {
   const [selected, setSelected] = useState<string[]>([]);
   const [selTl, setSelTl] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
+  /** A mesh just imported: the file decides where it sits, so the owner is asked whether to bring it to the origin. */
+  const [placeImport, setPlaceImport] = useState<{ names: string[]; centre: Vec3; low: number } | null>(null);
   const [confirm, setConfirm] = useState<{ text: string; label?: string; ok(): void } | null>(null);
   const [modTool, setModTool] = useState<ModTool>('fillet');
   const [edgesSel, setEdgesSel] = useState<EdgeRef[]>([]);
@@ -357,8 +360,10 @@ export function App() {
   /** Press, drag, release with a drawing tool: the same as clicking the two corners. */
   /** Offset: the signed distance the pointer sets from the picked curve. Positive is to the left of a line's direction and inside a circle or arc, as the engine does it. */
   const offsetCurve = activeSketch?.curves.find((c) => c.id === offsetPick);
+  const offsetLines = useMemo(() => (offsetPick && activeSketch ? lineChain(activeSketch.curves, offsetPick) : null), [offsetPick, activeSketch]); // the lines joined to the picked one move together
   const liveOffset = (): number | null => {
     const c = offsetCurve, q = cursor; if (!c || !q) return null;
+    if (offsetLines) return sideDistance(offsetLines, q);
     if (c.type === 'line' && c.start && c.end) { const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], l = Math.hypot(dx, dy); return l < 1e-9 ? null : (dx * (q[1] - c.start[1]) - dy * (q[0] - c.start[0])) / l; }
     if ((c.type === 'circle' || c.type === 'arc') && c.center && c.radius !== undefined) return c.radius - Math.hypot(q[0] - c.center[0], q[1] - c.center[1]);
     return null;
@@ -367,16 +372,20 @@ export function App() {
   const commitOffset = () => {
     const d = offsetValue();
     if (offsetPick === null || d === null || d === 0) { setError('Move the pointer to one side of the curve, or type a distance'); return; }
-    send([{ command: 'sketch.offset', params: { curves: [offsetPick], distance: d, chain: true } }]);
+    // the pointer says which side (`side`), the number only how far: a negative number typed goes the other way. Offsetting the whole outline needs no sign guessing this way.
+    const away = typeof d === 'number' ? d < 0 && typed.trim() !== '' : /^\s*-/.test(String(d));
+    const dist = typeof d === 'number' ? Math.abs(d) : String(d).replace(/^\s*-\s*/, '');
+    send([{ command: 'sketch.offset', params: { curves: [offsetPick], distance: dist, chain: true, ...(cursor ? { side: cursor } : {}), ...(away ? { flip: true } : {}) } }]);
     setOffsetPick(null); clearTyped();
   };
   const offsetOutline = useMemo((): Vec2[][] => {
-    const c = offsetCurve, d = typed.trim() !== '' && Number.isFinite(Number(typed)) ? Number(typed) : liveOffset(); // eslint-disable-line react-hooks/exhaustive-deps
+    const c = offsetCurve, d = typed.trim() !== '' && Number.isFinite(Number(typed)) ? Number(typed) * (offsetLines && cursor ? Math.sign(sideDistance(offsetLines, cursor)) || 1 : 1) : liveOffset(); // eslint-disable-line react-hooks/exhaustive-deps
     if (!c || d === null || d === 0) return [];
+    if (offsetLines) return [offsetChain(offsetLines, d)];
     if (c.type === 'line' && c.start && c.end) { const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], l = Math.hypot(dx, dy) || 1, nx = (-dy / l) * d, ny = (dx / l) * d; return [[[c.start[0] + nx, c.start[1] + ny], [c.end[0] + nx, c.end[1] + ny]]]; }
     if (c.type === 'circle' && c.center && c.radius !== undefined) { const r = c.radius - d; return r > 0 ? [Array.from({ length: 65 }, (_, i) => [c.center![0] + r * Math.cos((i / 64) * Math.PI * 2), c.center![1] + r * Math.sin((i / 64) * Math.PI * 2)] as Vec2)] : []; }
     return [];
-  }, [offsetCurve, cursor, typed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [offsetCurve, offsetLines, cursor, typed]); // eslint-disable-line react-hooks/exhaustive-deps
   const sketchDrag = (a: Vec2, b: Vec2) => {
     if (!isDraw(tool) || pending.length) return;
     const first = onClick(tool, [], a);
@@ -474,9 +483,11 @@ export function App() {
     for (const b of modBase?.bodies ?? []) if (bodiesSel.includes(b.name)) for (let i = 0; i < b.positions.length; i++) { const k = i % 3; lo[k] = Math.min(lo[k]!, b.positions[i]!); hi[k] = Math.max(hi[k]!, b.positions[i]!); }
     if (!Number.isFinite(lo[0]!)) return undefined;
     const c = lo.map((l, k) => (l + hi[k]!) / 2) as Vec3;
+    const reach = Math.max(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) * 0.35 + 10; // the arrows keep this length and travel with the body
+    const shift = [Number(bf.mx) || 0, Number(bf.my) || 0, Number(bf.mz) || 0];
     return (['mx', 'my', 'mz'] as const).map((key, k) => {
       const dir: Vec3 = [k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0];
-      return { origin: c, dir, base: (hi[k]! - lo[k]!) / 2 + 6, value: Number(bf[key]) || 0, color: AXIS_COLOR[key], label: `Move ${key[1]!.toUpperCase()} arrow`, onChange: (x: number) => setBf((f) => ({ ...f, [key]: String(+x.toFixed(2)) })), onSubmit: () => void okModify() };
+      return { origin: [c[0] + shift[0]!, c[1] + shift[1]!, c[2] + shift[2]!] as Vec3, dir, base: (hi[k]! - lo[k]!) / 2 + 6, fixed: reach, value: Number(bf[key]) || 0, color: AXIS_COLOR[key], label: `Move ${key[1]!.toUpperCase()} arrow`, onChange: (x: number) => setBf((f) => ({ ...f, [key]: String(+x.toFixed(2)) })), onSubmit: () => void okModify() };
     });
   }, [mode, modTool, valueEdit, bodiesSel, modBase, bf.mx, bf.my, bf.mz]);
   const preview = useRef(false);
@@ -794,8 +805,17 @@ export function App() {
       const ext = extOf(picked.file.name);
       if (!['step', 'stp', 'iges', 'igs', 'stl', 'obj', '3mf'].includes(ext)) { setError('Choose a STEP, IGES, STL, OBJ or 3MF file (.step .stp .iges .igs .stl .obj .3mf)'); return; }
       const data = await picked.file.arrayBuffer();
+      const before = new Set(snap.bodies.map((b) => b.name));
       const s = await run(() => api.importModel(data, stripExt(picked.file.name), ext));
-      if (s) { setNotice(`Imported ${picked.file.name}`); setTimeout(() => viewApi.current?.setView('home'), 80); }
+      if (s) {
+        setNotice(`Imported ${picked.file.name}`); setTimeout(() => viewApi.current?.setView('home'), 80);
+        const fresh = s.bodies.filter((b) => !before.has(b.name) && b.mesh); // a mesh file carries its own coordinates: ask where to put it
+        if (fresh.length) {
+          const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+          for (const b of fresh) for (let i = 0; i < b.positions.length; i++) { const k = i % 3; lo[k] = Math.min(lo[k]!, b.positions[i]!); hi[k] = Math.max(hi[k]!, b.positions[i]!); }
+          setPlaceImport({ names: fresh.map((b) => b.name), centre: [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2], low: lo[2]! });
+        }
+      }
     } catch (e) { setError((e as Error).message); }
   })(); };
   const [section, setSection] = useState<{ plane: 'XY' | 'XZ' | 'YZ'; offset: string; body: string } | null>(null);
@@ -1076,7 +1096,7 @@ export function App() {
           hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showDims={showDims} onDimEdit={dimEdited} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
           handle={dragHandle} handles={moveHandles} edgeSets={edgeSets} edgeHighlight={edgesSel} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); }} onEntityDrag={entityDrag} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} onSketchBox={sketchBox} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
-          pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id)]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
+          pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id), ...(offsetPick ? [offsetPick] : [])]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
           onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
 
         <ViewCube api={viewApi} onHome={() => viewApi.current?.setView('home')} />
@@ -1187,6 +1207,11 @@ export function App() {
           </div>
         )}
 
+        {placeImport && (
+          <div className="confirm place" data-testid="place-import"><span>The file puts it with its centre at X {fmt(placeImport.centre[0])}, Y {fmt(placeImport.centre[1])} and its bottom at Z {fmt(placeImport.low)} (mm). Where should it go?</span>
+            <button data-testid="place-keep" onClick={() => setPlaceImport(null)}>Keep that position</button>
+            <button className="primary" data-testid="place-origin" onClick={() => { const p = placeImport; setPlaceImport(null); send([{ command: 'solid.move', params: { bodies: p.names, translate: [-Math.round(p.centre[0] * 1000) / 1000, -Math.round(p.centre[1] * 1000) / 1000, -Math.round(p.low * 1000) / 1000], copy: false } }]); setTimeout(() => viewApi.current?.setView('home'), 400); }}>Centre it on the origin, on the floor</button></div>
+        )}
         {confirm && (
           <div className="confirm" data-testid="confirm"><span>{confirm.text}</span><button onClick={() => setConfirm(null)}>Cancel</button><button className="primary" data-testid="confirm-ok" onClick={confirm.ok}>{confirm.label ?? 'Delete'}</button></div>
         )}

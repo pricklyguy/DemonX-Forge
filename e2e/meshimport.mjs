@@ -45,10 +45,16 @@ check(await p.getByTestId('btn-meshconv').isDisabled(), 'Mesh to Solid is greyed
 // ---- Import an STL
 await importFile(plate);
 check(await waitTrue(async () => (await state()).bodies.length === 1), 'Import brings the STL in as a body');
+await p.getByTestId('place-import').waitFor({ timeout: 10000 });
+check(/X 20, Y 15/.test(await text('place-import')) && /Z 0/.test(await text('place-import')), 'the app asks where to put it and says where the file put it', await text('place-import'));
 let st = await state();
 check(st.bodies[0].mesh === true && /Plate/.test(st.bodies[0].name), 'it is a mesh body named after the file', st.bodies[0].name);
 const q = st.bodies[0].positions; let hi = [-1e9, -1e9, -1e9]; for (let i = 0; i < q.length; i++) hi[i % 3] = Math.max(hi[i % 3], q[i]);
 check(hi.map((v) => Math.round(v)).join() === '40,30,10', 'in millimetres, 40 x 30 x 10', hi.join());
+await p.getByTestId('place-origin').click();
+const box = (s) => { const q = s.bodies[0].positions; const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (let i = 0; i < q.length; i++) { lo[i % 3] = Math.min(lo[i % 3], q[i]); hi[i % 3] = Math.max(hi[i % 3], q[i]); } return [...lo, ...hi].map((v) => Math.round(v * 10) / 10).join(','); };
+check(await waitTrue(async () => box(await state()) === '-20,-15,0,20,15,10'), '"Centre it on the origin, on the floor" moves it there (bottom at Z 0)', box(await state()));
+check(await p.getByTestId('place-import').count() === 0, 'and the question goes away');
 await p.screenshot({ path: `${shots}/m1-imported.png` });
 
 // ---- Mesh to Solid
@@ -82,6 +88,7 @@ const bracket = join(dir, 'Bracket.stl'); writeFileSync(bracket, Buffer.from(awa
 await fresh();
 await importFile(bracket);
 check(await waitTrue(async () => (await state()).bodies[0]?.mesh === true), 'the demo bracket comes in as a mesh');
+await p.getByTestId('place-keep').click();
 await p.getByTestId('btn-meshconv').click(); await p.getByTestId('modify-dialog').waitFor();
 await p.getByTestId('modify-ok').click();
 const refused = await waitTrue(async () => (await p.getByTestId('error').count()) > 0);
