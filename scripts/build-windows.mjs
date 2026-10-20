@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // Builds the Windows package: one zip with Forge, its own copy of Node, the modelling engine, and a double-click start file.
+// Layout: each version lives in versions\<version> (the program in app\, the engine in engine\), current.txt names the one that runs, and
+// launcher.mjs (run by the start file with node\node.exe) starts it. That is what lets Update now unpack a new version beside the running
+// one (see server/src/update/windows.ts).
 // Runs on Linux, macOS or Windows (CI runs it on Linux). Nothing is compiled here: the server is bundled to plain JavaScript and the
 // engine (solidcraft-cli.exe) is built separately by the "Windows package" workflow and handed in with --engine-dir.
 //
@@ -41,7 +44,8 @@ const name = `DemonX-Forge-${pkg.version}-windows-x64`;
 const outDir = path.join(root, 'dist-windows');
 const stage = path.join(outDir, 'DemonX-Forge');   // no version in the folder name, so a newer zip extracted over an older one lands in the same place
 fs.rmSync(stage, { recursive: true, force: true });
-const appDir = path.join(stage, 'app');
+const verDir = path.join(stage, 'versions', pkg.version);   // everything that belongs to this version
+const appDir = path.join(verDir, 'app');
 fs.mkdirSync(appDir, { recursive: true });
 
 // ---- the web UI (the server serves <app>/web/dist, as it does from a checkout)
@@ -62,9 +66,11 @@ fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'demo
 
 // ---- the engine and its licences (MIT OR Apache-2.0 and its dependencies: the notices must stay with it)
 say('Adding the modelling engine');
-fs.mkdirSync(path.join(stage, 'engine/licences'), { recursive: true });
-fs.copyFileSync(engineExe, path.join(stage, 'engine/solidcraft-cli.exe'));
-for (const f of ENGINE_LICENCES) fs.copyFileSync(path.join(engineDir, f), path.join(stage, 'engine/licences', f));
+fs.mkdirSync(path.join(verDir, 'engine/licences'), { recursive: true });
+fs.copyFileSync(engineExe, path.join(verDir, 'engine/solidcraft-cli.exe'));
+for (const f of ENGINE_LICENCES) fs.copyFileSync(path.join(engineDir, f), path.join(verDir, 'engine/licences', f));
+// the version the launcher runs (an update changes it)
+fs.writeFileSync(path.join(stage, 'current.txt'), pkg.version + '\n');
 
 // ---- Node for Windows (just node.exe, plus its licence)
 say(`Node ${NODE_VERSION} for Windows`);
@@ -102,9 +108,13 @@ for (const f of fs.readdirSync(path.join(root, 'scripts/windows'))) {
 fs.copyFileSync(path.join(root, 'LICENSE'), path.join(stage, 'LICENSE.txt'));
 fs.writeFileSync(path.join(stage, 'READ ME FIRST.txt'), crlf(fs.readFileSync(path.join(root, 'docs/WINDOWS.md'), 'utf8')));
 
-for (const f of ['Start DemonX Forge.bat', 'READ ME FIRST.txt', 'node/node.exe', 'engine/solidcraft-cli.exe', 'app/server.mjs', 'app/package.json', 'app/web/dist/index.html', 'app/server/fixtures/bracket.json']) {
-  if (!fs.existsSync(path.join(stage, f))) throw new Error(`the package layout is wrong: ${f} is missing`);
+// ---- what the launcher (scripts/windows/launcher.mjs) and Update now (server/src/update/windows.ts) rely on
+const V = `versions/${pkg.version}`;
+for (const f of ['Start DemonX Forge.bat', 'READ ME FIRST.txt', 'launcher.mjs', 'current.txt', 'node/node.exe', `${V}/engine/solidcraft-cli.exe`, `${V}/app/server.mjs`, `${V}/app/package.json`, `${V}/app/web/dist/index.html`, `${V}/app/server/fixtures/bracket.json`]) {
+  if (!fs.existsSync(path.join(stage, f))) throw new Error(`the package layout is wrong: ${f} is missing (the launcher and Update now need it)`);
 }
+if (fs.readFileSync(path.join(stage, 'current.txt'), 'utf8').trim() !== pkg.version) throw new Error('current.txt does not name this version');
+if (!fs.readFileSync(path.join(stage, 'Start DemonX Forge.bat'), 'utf8').includes('launcher.mjs')) throw new Error('Start DemonX Forge.bat does not start Forge through launcher.mjs');
 
 // ---- zip it
 say('Zipping');

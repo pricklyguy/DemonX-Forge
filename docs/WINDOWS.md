@@ -48,20 +48,44 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
 3. IF SOMETHING GOES WRONG
 --------------------------
 - The page says the modelling engine was not found, or it will not start: check that
-  C:\DemonX-Forge\engine\solidcraft-cli.exe exists. Antivirus programs sometimes quarantine new programs: look in
+  C:\DemonX-Forge\versions\<number>\engine\solidcraft-cli.exe exists (<number> is the version in current.txt). Antivirus programs sometimes quarantine new programs: look in
   your antivirus quarantine list, restore it, and add the DemonX-Forge folder to its exceptions.
 - Black window closes at once: open Command Prompt, type  cd C:\DemonX-Forge  then  "Start DemonX Forge.bat"  and
   read the message.
 - Port 8120 is in use (another copy of Forge is running): close it first.
 
 
-4. WHAT IS IN THE FOLDER
+4. UPDATING
+-----------
+The easy way: when the header shows a green "Update 0.x.y" button (or File > Updates...), open the window. It says what is new.
+Tick "Allow Update now" (it is off until you turn it on), save your design (File > Save), then press "Update now". Forge downloads
+the new version's Windows zip from GitHub, checks it against the checksum published with it, unpacks it NEXT TO the version you
+run (nothing that is running is touched), and restarts itself into the new one. The browser page reloads by itself.
+- Forge will not restart while the design has unsaved changes (the dot next to its name): the design lives in the running engine,
+  so a restart would lose them. Save first.
+- The old version stays in  versions\  and Forge puts it back by itself if the new one does not start. Your settings do not move.
+- Forge must have been started with "Start DemonX Forge.bat" (that is what starts it again after an update).
+- Forge asks GitHub about new releases at start and about once a day (it is the only thing it sends to the internet). Untick
+  "Check for updates" in the same window to stop that. "Skip this version" hides the button for one version.
+Versions before 0.15.0 cannot update themselves: for those, use the zip once (below). From 0.15.0 on, Update now works.
+
+By hand: download the new zip, unblock it (step 1a), close Forge, right-click the zip, Extract All, type  C:\  again, and answer
+"Replace" if asked. Your settings are in the "data" folder, which the zip does not contain, so they stay.
+To go back to an older version, extract that older zip over it the same way. (Or, if the last update just happened: put the
+version number from  previous.txt  into  current.txt  with Notepad, with Forge closed, and start it again.)
+Old versions are tidied up by Forge at its start; the newest few are kept.
+
+
+5. WHAT IS IN THE FOLDER
 ------------------------
   Start DemonX Forge.bat   starts Forge
-  app\                     Forge itself
-  node\                    its own copy of Node (the program that runs it), with its licence
-  engine\                  the modelling engine, SolidCraft (MIT or Apache-2.0 licence), and licences\ with its
+  launcher.mjs             what the start file runs: it starts the version current.txt names
+  current.txt              the version that runs (previous.txt: the one before an update)
+  versions\<number>\app\     Forge itself, one folder per version
+  versions\<number>\engine\  the modelling engine, SolidCraft (MIT or Apache-2.0 licence), and licences\ with its
                            licence texts and those of the parts it is made of
+  node\                    its own copy of Node (the program that runs it), with its licence
+  data\                    your settings (settings.json). Nothing else of yours is in the program folders.
   LICENSE.txt              Forge's own licence (GPL-3.0-or-later)
 
 Parts you make leave Forge as STEP, STL, 3MF or DXF files (File, Export).

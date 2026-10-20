@@ -112,3 +112,9 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .rubberband { position: absolute; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); } .rubberband.crossing { border-style: dashed; background: color-mix(in srgb, var(--green, var(--accent)) 14%, transparent); }
 
 .viewport { user-select: none; -webkit-user-select: none; }
+
+.update-badge { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; margin-right: 8px; }
+.dialog.updates { position: static; width: min(520px, 92vw); max-height: 86vh; overflow: auto; }
+.update-notes { white-space: pre-wrap; max-height: 180px; overflow: auto; margin: 0; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; font: inherit; font-size: 12px; }
+.dnote.warn { color: var(--amber); }
+.updates a { color: var(--cyan); }

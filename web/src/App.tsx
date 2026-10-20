@@ -13,6 +13,7 @@ import { Viewport, type FacePick } from './Viewport';
 import { normalOf, toWorld } from './sketch/plane';
 import { findRegions, pointInPolygon } from './sketch/regions';
 import { segmentsTouchBox } from './sketch/box';
+import { UpdateBadge, UpdatesDialog, useUpdates } from './Updates';
 import { curvePoints } from './sketch/loops';
 import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
 import { pickEntity, type Picked } from './sketch/pick';
@@ -226,6 +227,8 @@ export function App() {
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number } | null>(null);
   const [viewMenu, setViewMenu] = useState<{ x: number; y: number } | null>(null); // the right-click actions menu in the view
   const [showKeys, setShowKeys] = useState(false);
+  const [showUpdates, setShowUpdates] = useState(false);
+  const upd = useUpdates();
   const [notice, setNotice] = useState('');
   const fileHandle = useRef<Handle | null>(null); // the file Save writes back to (Chrome and Edge)
   /** Set while an existing extrude is open in the dialog: `key` is the profiles it had, to tell whether they changed. */
@@ -858,6 +861,7 @@ export function App() {
       { label: 'Save   Ctrl+S', onClick: () => void doSave(false) },
       { label: 'Save As…   Ctrl+Shift+S', onClick: () => void doSave(true) },
       { label: 'Import STEP / IGES…', onClick: doImport },
+      { label: upd.info?.newer && !upd.info.skipped ? `Updates… (${upd.info.latest?.version} is available)` : 'Updates…', onClick: () => { setShowUpdates(true); void upd.refresh(); } },
       { label: 'Export bodies', heading: true, onClick: () => {} },
       { label: 'STEP (.step)', disabled: none, onClick: () => void doExport('step') },
       { label: 'STL (.stl)', disabled: none, onClick: () => void doExport('stl') },
@@ -1038,6 +1042,7 @@ export function App() {
         <button data-testid="file-menu" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setFileMenu({ x: r.left, y: r.bottom + 2 }); }}>File ▾</button>
         <span className="docname" data-testid="docname">{snap.doc.name}{snap.doc.dirty && <span className="dirty" data-testid="dirty" title="Unsaved changes">●</span>}</span>
         <span className="spacer" />
+        <UpdateBadge info={upd.info} onClick={() => { setShowUpdates(true); void upd.refresh(); }} />
         <button className="hbtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy && mode === 'extrude'} onClick={undo}><Icon.undo /></button>
         <button className="hbtn" aria-label="Redo" title="Redo (Ctrl+Y)" onClick={redo}><Icon.redo /></button>
         <button className="hbtn" data-testid="help-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowKeys(true)}>?</button>
@@ -1181,6 +1186,7 @@ export function App() {
       <Timeline items={snap.timeline} marker={snap.marker} selected={selTl} onSelect={setSelTl} onEdit={editItem} onMenu={(item, x, y) => setMenu({ x, y, item })}
         onRollEnd={() => send([{ command: 'timeline.roll_to', params: {} }])} />
       {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
+      {showUpdates && <UpdatesDialog info={upd.info} error={upd.error} dirty={snap.doc.dirty} act={upd.act} onClose={() => setShowUpdates(false)} />}
       {viewMenu && <ContextMenu x={viewMenu.x} y={viewMenu.y} items={viewItems()} onClose={() => setViewMenu(null)} />}
       {fileMenu && <ContextMenu x={fileMenu.x} y={fileMenu.y} items={fileItems()} onClose={() => setFileMenu(null)} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />}

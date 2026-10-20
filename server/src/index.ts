@@ -8,12 +8,16 @@ import { EngineError, type Engine, type ExportFormat } from './engine/Engine';
 import { FileError, safeName } from './forgeFile';
 import { BadRequest, checkStep } from './commands';
 import { SolidCraftEngine } from './engine/solidcraft';
+import { BadSetting, Updates } from './update';
 
 // FORGE_ROOT is set by the Windows start file (the packaged app folder); from a checkout the root is two folders up
 const root = process.env.FORGE_ROOT ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PORT = Number(process.env.FORGE_PORT ?? 8120);
 const exe = process.platform === 'win32' ? 'solidcraft-cli.exe' : 'solidcraft-cli';
 const ENGINE_PATH = process.env.FORGE_ENGINE ?? join(root, 'data', 'engine', exe);
+// the Windows start file's launcher sets these (see scripts/windows/launcher.mjs): the Forge folder, and where settings live
+const home = process.env.FORGE_HOME ?? root;
+const dataDir = process.env.FORGE_DATA ?? join(root, 'data');
 
 let engine: Engine | undefined;
 let engineProblem = '';
@@ -28,6 +32,12 @@ const MAX_STEPS = 200;
 const MAX_FILE = 512 * 1024 * 1024; // an uploaded .forge file
 const MAX_IMPORT = 256 * 1024 * 1024; // an imported STEP or IGES file
 const appVersion = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version as string; } catch { return 'dev'; } })();
+const updates = new Updates({
+  home, dataDir, version: appVersion, launcher: process.env.FORGE_LAUNCHER === '1', releasesUrl: process.env.FORGE_UPDATE_URL || undefined, // (FORGE_UPDATE_URL is for the browser check)
+  // the design lives in the running engine, so a restart must wait until it is saved
+  busy: async () => { try { return engine && (await engine.snapshot()).doc.dirty ? 'the design has unsaved changes: save it first (File > Save)' : null; } catch { return null; } },
+  exit: (code) => { const t = setTimeout(() => process.exit(code), 5000); t.unref(); void (engine?.stop() ?? Promise.resolve()).catch(() => {}).finally(() => process.exit(code)); },
+});
 const EXPORTS: Record<string, { format: ExportFormat; ext: string }> = { step: { format: 'step', ext: 'step' }, stl: { format: 'stl', ext: 'stl' }, stla: { format: 'stla', ext: 'stl' }, '3mf': { format: '3mf', ext: '3mf' }, obj: { format: 'obj', ext: 'obj' } };
 const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.woff2': 'font/woff2' };
 const send = (res: ServerResponse, code: number, v: unknown) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(v)); };
@@ -55,6 +65,20 @@ const sendFile = (res: ServerResponse, bytes: Uint8Array, filename: string) => {
 };
 
 async function api(path: string, req: IncomingMessage, res: ServerResponse) {
+  if (path.startsWith('/api/update')) { // the update check and Update now do not need the engine
+    if (path === '/api/update' && req.method !== 'POST') return send(res, 200, updates.view());
+    if (req.method !== 'POST') throw new BadRequest('POST this');
+    const a = await readBody(req);
+    if (path === '/api/update/settings') return send(res, 200, updates.change(a));
+    if (path === '/api/update/check') { await updates.checker.check(); return send(res, 200, updates.view()); }
+    if (path === '/api/update/apply') {
+      if (typeof a.version !== 'string') throw new BadRequest('Say which version to install');
+      const refused = await updates.windows.apply(a.version);
+      if (refused) return send(res, 409, { error: refused });
+      return send(res, 200, updates.view());
+    }
+    return send(res, 404, { error: 'Unknown route' });
+  }
   if (!engine) return send(res, 503, { error: engineProblem || 'The engine is not running' });
   const e = engine;
   if (path === '/api/open') { // the body is the bytes of a .forge file; ?name= is what to call the design
@@ -157,7 +181,7 @@ export function makeServer() {
     if (!u.pathname.startsWith('/api/')) return serveStatic(u.pathname, res);
     api(u.pathname, req, res).catch((err) => {
       if (res.headersSent) return;
-      if (err instanceof BadRequest || err instanceof FileError) return send(res, 400, { error: err.message });
+      if (err instanceof BadRequest || err instanceof FileError || err instanceof BadSetting) return send(res, 400, { error: err.message });
       if (err instanceof EngineError) return send(res, 422, { error: err.message });
       console.error(err);
       send(res, 500, { error: 'Internal error' });
@@ -167,6 +191,7 @@ export function makeServer() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await startEngine();
+  updates.start();
   if (engineProblem) console.warn(engineProblem);
   makeServer().listen(PORT, '127.0.0.1', () => console.log(`DemonX Forge on http://127.0.0.1:${PORT}`));
   const bye = () => { engine?.stop().finally(() => process.exit(0)); };

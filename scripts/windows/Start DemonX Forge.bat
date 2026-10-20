@@ -1,12 +1,13 @@
 @echo off
+rem Starts DemonX Forge and opens it in your browser. Close this window to stop Forge.
+rem launcher.mjs starts the version named in current.txt, and again after an update (File > Updates > Update now)
 title DemonX Forge
 cd /d "%~dp0"
-set "FORGE_ROOT=%~dp0app"
-set "FORGE_ENGINE=%~dp0engine\solidcraft-cli.exe"
+if not defined FORGE_PORT set FORGE_PORT=8120
 echo Starting DemonX Forge. Leave this window open: closing it stops Forge.
 rem open the browser a few seconds from now, when the server is up
-start "" /min cmd /c "timeout /t 4 /nobreak >nul & start "" http://127.0.0.1:8120"
-"%~dp0node\node.exe" "%~dp0app\server.mjs"
+start "" /min cmd /c "timeout /t 4 /nobreak >nul & start "" http://127.0.0.1:%FORGE_PORT%"
+"%~dp0node\node.exe" "%~dp0launcher.mjs" forge
 echo.
-echo DemonX Forge stopped.
+echo DemonX Forge stopped. If that was not expected, the message above says why.
 pause

@@ -1,4 +1,7 @@
 import type { Snapshot, Vec3 } from '../../server/src/engine/Engine';
+import type { UpdateInfo } from '../../server/src/update/model';
+
+export type { UpdateInfo } from '../../server/src/update/model';
 
 export type { Doc, Snapshot, Body, Face, Parameter, TimelineItem, Sketch, SketchCurve, SketchPoint, SketchDimension, Profile, Vec2, Vec3 } from '../../server/src/engine/Engine';
 
@@ -60,3 +63,18 @@ export const api = {
   undo: () => call('undo', {}),
   redo: () => call('redo', {}),
 };
+
+/** The update check and Update now (the server's /api/update routes; they work without the engine). */
+async function updateCall(path: string, body?: unknown): Promise<UpdateInfo> {
+  const r = await fetch(`/api/update${path}`, { method: body === undefined ? 'GET' : 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: `The server answered ${r.status}` }));
+  if (!r.ok) throw new Error(j.error ?? `The server answered ${r.status}`);
+  return j as UpdateInfo;
+}
+export const updates = {
+  info: () => updateCall(''),
+  settings: (patch: { check?: boolean; apply?: boolean; skipped?: string }) => updateCall('/settings', patch),
+  check: () => updateCall('/check', {}),
+  apply: (version: string) => updateCall('/apply', { version }),
+};
+
