@@ -89,7 +89,7 @@ await p.getByTestId('btn-rpattern').click();
 await p.getByTestId('modify-dialog').waitFor();
 check(/RECTANGULAR/.test(await text('modify-dialog')), 'Rectangular Pattern opens its dialog');
 await p.getByLabel('Spacing', { exact: true }).fill('30');
-await waitN(3);
+for (let i = 0; i < 60 && !(await have([ORIG, '40,0,0,60,10,10', '70,0,0,90,10,10'])); i++) await settle(250);   // three copies already show at the default spacing: wait for the typed one
 check(await have([ORIG, '40,0,0,60,10,10', '70,0,0,90,10,10']), 'three copies along X, 30 apart', JSON.stringify(await boxes()));
 await p.getByLabel('Direction 2').selectOption('Y');
 await p.getByLabel('Spacing 2').fill('20');
