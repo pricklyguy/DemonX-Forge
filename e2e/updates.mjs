@@ -40,6 +40,7 @@ try {
   check(i.latest?.version === '99.0.0' && i.newer, 'the server found the newer release on the fake list', JSON.stringify(i.latest?.version));
   await p.reload(); await p.getByTestId('docname').waitFor();
   await p.getByTestId('update-badge').waitFor({ timeout: 10000 });
+  check(/^v\d+\.\d+\.\d+/.test(await p.getByTestId('app-version').innerText()), 'the header shows the running version', await p.getByTestId('app-version').innerText());
   check(/Update 99\.0\.0/.test(await p.getByTestId('update-badge').innerText()), 'the header shows an update badge with the version');
   await p.getByTestId('update-badge').click();
   await p.getByTestId('updates-dialog').waitFor();

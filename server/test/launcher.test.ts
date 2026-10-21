@@ -52,6 +52,22 @@ describe('starting the version current.txt names', () => {
     expect(ran()).toEqual(['1.0.0 server.mjs web=versions/1.0.0/app launcher=1 args=']);
   });
 
+  it('runs the MCP server once from the same version, passes the arguments on, and prints nothing of its own on standard output', () => {
+    version('1.0.0', ['server.mjs', 'mcp.mjs']);
+    plan('1.0.0', 'mcp.mjs', { exit: 4 });
+    const r = run('mcp', '--x');
+    expect(r.status).toBe(4);
+    expect(r.stdout).toBe('');
+    expect(ran()).toEqual(['1.0.0 mcp.mjs web=versions/1.0.0/app launcher=1 args=--x']);
+  });
+
+  it('says on standard error, not standard output, that an old version has no MCP server', () => {
+    const r = run('mcp');
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toMatch(/not complete/);
+  });
+
   it('says so when current.txt is missing or names nothing usable', () => {
     fs.rmSync(w('current.txt'));
     expect(run('forge').status).toBe(2);

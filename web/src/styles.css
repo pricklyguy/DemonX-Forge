@@ -120,3 +120,4 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .dnote.warn { color: var(--amber); }
 .updates a { color: var(--cyan); }
 .confirm.place { border-color: var(--accent); flex-wrap: wrap; max-width: min(760px, 92vw); }
+.appver { background: none; border-color: transparent; color: var(--muted); font-size: 11px; padding: 2px 6px; } .appver:hover { color: var(--text); border-color: var(--line); }

@@ -20,7 +20,7 @@ import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, s
 import { pickEntity, type Picked } from './sketch/pick';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
-const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, sketches: [], ms: 0, warnings: [] };
+const EMPTY: Snapshot = { doc: { name: 'Untitled', dirty: false }, bodies: [], parameters: [], timeline: [], marker: 0, stamp: '', sketches: [], ms: 0, warnings: [] };
 const MOD_DEFAULT: Record<ModTool, string> = { fillet: '2', chamfer: '1', presspull: '0', shell: '2', offsetface: '0', draft: '5', hole: '5', thread: '', mirror: '', rpattern: '', cpattern: '', combine: '', move: '', split: '', scale: '', coil: '', meshconv: '' };
 /** The dialog's axis choice as the engine's `axis` parameter: a sketch axis (x, y), a sketch line's id, or a world axis (X, Y, Z). */
 const axisParam = (v: string) => v.slice(v.indexOf(':') + 1);
@@ -1003,6 +1003,23 @@ export function App() {
   const showKeysRef = useRef(false); showKeysRef.current = showKeys;
   const latest = useRef({ offsetPick, mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline });
   latest.current = { offsetPick, mode, tool, pending, edit, sel, activeSketch, selected, picks, selTl, menu, confirm, items: snap.timeline };
+  // Another program (an AI client connected through MCP) can change the design while the page is open: notice it, when nothing here is half done
+  const watch = useRef({ mode, busy, stamp: snap.stamp, dialogs: false });
+  watch.current = { mode, busy, stamp: snap.stamp, dialogs: !!(placeImport || confirm || showUpdates || showKeys || section || edit) };
+  useEffect(() => {
+    const t = setInterval(async () => {
+      const w = watch.current;
+      if (document.hidden || w.mode !== 'model' || w.busy || w.dialogs || !w.stamp) return;
+      try {
+        const r = await fetch('/api/stamp'); if (!r.ok) return;
+        const { stamp } = await r.json() as { stamp: string };
+        if (stamp === watch.current.stamp || watch.current.busy || watch.current.mode !== 'model') return;
+        const s = await run(api.state);
+        if (s) { setSel(null); setProfiles([]); setEdgesSel([]); setNotice('The design was changed by another program (an AI client)'); }
+      } catch { /* the server is not answering: the next tick tries again */ }
+    }, 2000);
+    return () => clearInterval(t);
+  }, [run]);
   const actions = useRef({ undo, redo, startExtrude, cancelExtrude, okExtrude, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify });
   actions.current = { undo, redo, startExtrude, cancelExtrude, okExtrude, chooseTool, endChain, createSketch, deleteSelected, toggleConstruction, requestDelete, editItem, doSave, doOpen, startModify, cancelModify, okModify };
   useEffect(() => {
@@ -1079,6 +1096,7 @@ export function App() {
         <span className="docname" data-testid="docname">{snap.doc.name}{snap.doc.dirty && <span className="dirty" data-testid="dirty" title="Unsaved changes">●</span>}</span>
         <span className="spacer" />
         <UpdateBadge info={upd.info} onClick={() => { setShowUpdates(true); void upd.refresh(); }} />
+        {upd.info?.current && <button className="appver" data-testid="app-version" title="The version of DemonX Forge you are running. Click for updates." onClick={() => { setShowUpdates(true); void upd.refresh(); }}>v{upd.info.current}</button>}
         <button className="hbtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy && mode === 'extrude'} onClick={undo}><Icon.undo /></button>
         <button className="hbtn" aria-label="Redo" title="Redo (Ctrl+Y)" onClick={redo}><Icon.redo /></button>
         <button className="hbtn" data-testid="help-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowKeys(true)}>?</button>

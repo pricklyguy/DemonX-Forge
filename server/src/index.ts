@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { isLocalRequest } from './access';
 import { EngineError, type Engine, type ExportFormat } from './engine/Engine';
 import { FileError, safeName } from './forgeFile';
-import { BadRequest, checkStep } from './commands';
+import { BadRequest, checkStep, isAllowedCommand } from './commands';
 import { SolidCraftEngine } from './engine/solidcraft';
 import { BadSetting, Updates } from './update';
 
@@ -127,6 +127,22 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
     if (!spec) throw new BadRequest('Unknown export format');
     if (!snap.bodies.length) throw new BadRequest('There is nothing to export yet: make a body first');
     return sendFile(res, await e.exportBodies(spec.format), `${name}.${spec.ext}`);
+  }
+  if (path === '/api/stamp') return send(res, 200, { stamp: await e.stamp() }); // changes whenever the design does: the page asks this to notice edits made by an AI client
+  if (path === '/api/commands') { // what an AI client may ask for: the engine's catalogue, limited to the commands the browser may run
+    const q = new URL(req.url ?? '/', 'http://localhost').searchParams.get('filter') ?? a.filter; // (the body of a POST was read above)
+    if (q !== undefined && q !== null && (typeof q !== 'string' || q.length > 60)) throw new BadRequest('"filter" must be a short piece of text');
+    return send(res, 200, { commands: (await e.commandList(q || undefined)).filter((c) => isAllowedCommand(c.id)) });
+  }
+  if (path === '/api/measure') {
+    if (a.body !== undefined && (typeof a.body !== 'string' || a.body.length > 100)) throw new BadRequest('"body" must be a body name');
+    return send(res, 200, { measure: await e.measure(a.body || undefined) });
+  }
+  if (path === '/api/screenshot') {
+    const num = (v: unknown, name: string) => { if (v === undefined) return undefined; if (typeof v !== 'number' || !Number.isInteger(v) || v < 100 || v > 2000) throw new BadRequest(`"${name}" must be a whole number of pixels from 100 to 2000`); return v; };
+    if (a.view !== undefined && (typeof a.view !== 'string' || !/^[A-Za-z0-9 _-]{1,40}$/.test(a.view))) throw new BadRequest('"view" must be iso, home, front, back, top, bottom, left, right, fit or the name of a saved view');
+    const png = await e.screenshot({ view: a.view, width: num(a.width, 'width'), height: num(a.height, 'height') });
+    res.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length, 'cache-control': 'no-store' }); return void res.end(Buffer.from(png));
   }
   if (path === '/api/mesh-convert') { // Mesh to Solid: a body name and a tolerance in millimetres
     if (typeof a.body !== 'string' || !a.body || a.body.length > 100) throw new BadRequest('Choose a mesh body');

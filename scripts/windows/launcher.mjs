@@ -1,6 +1,7 @@
 // Starts DemonX Forge from whichever version folder current.txt names, and keeps it running across updates.
 //
 //   node.exe launcher.mjs      runs versions\<current>\app\server.mjs, and starts it again when it asks for that (exit code 75)
+//   node.exe launcher.mjs mcp  runs versions\<current>\app\mcp.mjs once: the MCP server an AI client starts (it talks on standard input and output)
 //
 // Why this exists: on Windows a running node.exe and the modelling engine cannot be overwritten, so Forge never updates itself in
 // place. Each version lives in its own folder (versions\<version>: the program in app\, the engine in engine\), current.txt says
@@ -38,7 +39,7 @@ function writeAtomic(file, text) {
   }
 }
 
-const ENTRY = { forge: 'server.mjs' };
+const ENTRY = { forge: 'server.mjs', mcp: 'mcp.mjs' };
 
 /**
  * Run until done. `o.home` is the Forge folder; `o.spawnChild(entry, args, env)` runs one program and resolves to its exit code
@@ -46,10 +47,11 @@ const ENTRY = { forge: 'server.mjs' };
  */
 export async function launch(mode, args, o) {
   const home = o.home;
-  const log = o.log ?? ((m) => console.log(m));
+  // (the MCP server speaks on standard output: nothing of ours may go there)
+  const log = o.log ?? ((m) => (mode === 'mcp' ? console.error(m) : console.log(m)));
   const data = o.data ?? path.join(home, 'data');
   const entryName = ENTRY[mode];
-  if (!entryName) { log(`Unknown mode "${mode}" (forge).`); return 2; }
+  if (!entryName) { log(`Unknown mode "${mode}" (forge or mcp).`); return 2; }
   const currentFile = path.join(home, 'current.txt'), previousFile = path.join(home, 'previous.txt');
   const pendingFile = path.join(data, 'update-pending.json'), failedFile = path.join(data, 'update-failed.json');
   const spawnChild = o.spawnChild ?? defaultSpawn;
@@ -71,17 +73,18 @@ export async function launch(mode, args, o) {
       return 2;
     }
     // the old layout (before versions) left an app folder behind: it is not used any more
-    if (round === 0) { removeLegacy(home, log); pruneVersions(home, version, read(previousFile), log); }
+    if (mode === 'forge' && round === 0) { removeLegacy(home, log); pruneVersions(home, version, read(previousFile), log); }
 
     const env = {
       ...process.env,
-      FORGE_HOME: home, FORGE_LAUNCHER: '1',
+      FORGE_HOME: home, FORGE_LAUNCHER: '1', FORGE_VERSION: version,
       FORGE_ROOT: dir,
       FORGE_DATA: process.env.FORGE_DATA || data,
       FORGE_ENGINE: process.env.FORGE_ENGINE || path.join(home, 'versions', version, 'engine', 'solidcraft-cli.exe'),
     };
     const code = await spawnChild(entry, args, env);
 
+    if (mode !== 'forge') return code;
     if (code === RESTART) { log(`Starting Forge again (version ${read(currentFile)})...`); continue; }
     // stopped before the update that put it there was confirmed (Forge confirms after it has run for a while): go back
     const pending = readJson(pendingFile);

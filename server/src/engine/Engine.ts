@@ -89,6 +89,8 @@ export interface Snapshot {
   timeline: TimelineItem[];
   /** How many timeline items are active; fewer than the list means the history is rolled back. */
   marker: number;
+  /** The engine's state stamp when this snapshot was made (see Engine.stamp). */
+  stamp: string;
   sketches: Sketch[];
   /** How long the engine took to produce it, for the status bar. */
   ms: number;
@@ -133,4 +135,12 @@ export interface Engine {
   query(command: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The current model as a face-tagged mesh. Bodies is empty for an empty design. */
   snapshot(): Promise<Snapshot>;
+  /** Changes whenever the design does (an edit, an undo, a redo): a cheap way to ask "has anything changed?". */
+  stamp(): Promise<string>;
+  /** The command catalogue (id, label, one-line parameter text, enabled now), optionally only those whose id or label contain `filter`. */
+  commandList(filter?: string): Promise<{ id: string; label: string; params: string; enabled: boolean }[]>;
+  /** Volume, area, centre of mass and bounding box of one body or all of them. */
+  measure(body?: string): Promise<unknown>;
+  /** A picture of the design as PNG bytes. */
+  screenshot(o: { view?: string; width?: number; height?: number }): Promise<Uint8Array>;
 }

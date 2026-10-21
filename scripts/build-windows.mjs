@@ -62,6 +62,11 @@ await build({
   bundle: true, platform: 'node', format: 'esm', target: 'node20', sourcemap: false, legalComments: 'none',
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
 });
+// the MCP server an AI client starts (node.exe launcher.mjs mcp): no packages, it only talks to Forge over HTTP
+await build({
+  entryPoints: [path.join(root, 'server/src/mcp.ts')], outfile: path.join(appDir, 'mcp.mjs'),
+  bundle: true, platform: 'node', format: 'esm', target: 'node20', sourcemap: false, legalComments: 'none',
+});
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'demonx-forge', version: pkg.version, build: commit || undefined, type: 'module' }, null, 2));
 
 // ---- the engine and its licences (MIT OR Apache-2.0 and its dependencies: the notices must stay with it)
@@ -106,11 +111,12 @@ for (const f of fs.readdirSync(path.join(root, 'scripts/windows'))) {
   fs.writeFileSync(path.join(stage, f), /\.(bat|vbs|ps1|txt)$/i.test(f) ? crlf(text) : text);
 }
 fs.copyFileSync(path.join(root, 'LICENSE'), path.join(stage, 'LICENSE.txt'));
+fs.writeFileSync(path.join(stage, 'CONNECT AN AI (MCP).txt'), crlf(fs.readFileSync(path.join(root, 'docs/MCP.md'), 'utf8')));
 fs.writeFileSync(path.join(stage, 'READ ME FIRST.txt'), crlf(fs.readFileSync(path.join(root, 'docs/WINDOWS.md'), 'utf8')));
 
 // ---- what the launcher (scripts/windows/launcher.mjs) and Update now (server/src/update/windows.ts) rely on
 const V = `versions/${pkg.version}`;
-for (const f of ['Start DemonX Forge.bat', 'READ ME FIRST.txt', 'launcher.mjs', 'current.txt', 'node/node.exe', `${V}/engine/solidcraft-cli.exe`, `${V}/app/server.mjs`, `${V}/app/package.json`, `${V}/app/web/dist/index.html`, `${V}/app/server/fixtures/bracket.json`]) {
+for (const f of ['Start DemonX Forge.bat', 'READ ME FIRST.txt', 'CONNECT AN AI (MCP).txt', 'launcher.mjs', 'current.txt', 'node/node.exe', `${V}/engine/solidcraft-cli.exe`, `${V}/app/server.mjs`, `${V}/app/mcp.mjs`, `${V}/app/package.json`, `${V}/app/web/dist/index.html`, `${V}/app/server/fixtures/bracket.json`]) {
   if (!fs.existsSync(path.join(stage, f))) throw new Error(`the package layout is wrong: ${f} is missing (the launcher and Update now need it)`);
 }
 if (fs.readFileSync(path.join(stage, 'current.txt'), 'utf8').trim() !== pkg.version) throw new Error('current.txt does not name this version');

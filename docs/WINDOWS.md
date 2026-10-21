@@ -83,10 +83,18 @@ version number from  previous.txt  into  current.txt  with Notepad, with Forge c
 Old versions are tidied up by Forge at its start; the newest few are kept.
 
 
-5. WHAT IS IN THE FOLDER
+5. LETTING AN AI USE FORGE
+--------------------------
+Forge has an MCP server, so Claude, OpenAI's Codex and other AI programs that speak MCP can read your open design, build parts in it and check
+them with a screenshot, while you watch in the Forge window. The steps to connect them are in the file "CONNECT AN AI (MCP).txt" in this folder.
+The command they start is:  node\node.exe launcher.mjs mcp  (Forge must be running). The AI cannot open, save or delete files.
+
+
+6. WHAT IS IN THE FOLDER
 ------------------------
   Start DemonX Forge.bat   starts Forge
-  launcher.mjs             what the start file runs: it starts the version current.txt names
+  launcher.mjs             what the start file runs: it starts the version current.txt names ("launcher.mjs mcp": the MCP server)
+  CONNECT AN AI (MCP).txt  how to connect Claude or OpenAI's Codex to Forge
   current.txt              the version that runs (previous.txt: the one before an update)
   versions\<number>\app\     Forge itself, one folder per version
   versions\<number>\engine\  the modelling engine, SolidCraft (MIT or Apache-2.0 licence), and licences\ with its

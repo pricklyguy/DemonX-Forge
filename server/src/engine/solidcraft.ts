@@ -110,6 +110,25 @@ export class SolidCraftEngine implements Engine {
     });
   }
 
+  async stamp(): Promise<string> { return this.serial(async () => this.stampNow()); }
+  private async stampNow(): Promise<string> { const r = await this.tool('execute', { command: 'document.inspect', params: {} }); return `${r?.revision ?? ''}:${r?.undo ?? ''}:${r?.redo ?? ''}`; }
+  commandList(filter?: string): Promise<{ id: string; label: string; params: string; enabled: boolean }[]> {
+    return this.serial(async () => {
+      const list = await this.tool('list_commands', filter ? { filter } : {});
+      return (Array.isArray(list) ? list : []).map((c: any) => ({ id: String(c.id), label: String(c.label ?? ''), params: String(c.params ?? ''), enabled: c.enabled !== false }));
+    });
+  }
+  measure(body?: string): Promise<unknown> { return this.serial(() => this.tool('measure', body ? { body } : {})); }
+  screenshot(o: { view?: string; width?: number; height?: number }): Promise<Uint8Array> {
+    return this.serial(async () => {
+      const r = await this.rpc('tools/call', { name: 'screenshot', arguments: { ...(o.view ? { view: o.view } : {}), ...(o.width ? { width: o.width } : {}), ...(o.height ? { height: o.height } : {}) } });
+      if (r?.isError) throw new EngineError(errorText(r?.content?.find((c: any) => c.type === 'text')?.text ?? 'The picture could not be made'));
+      const img = r?.content?.find((c: any) => c.type === 'image');
+      if (!img?.data) throw new EngineError('The engine returned no picture');
+      return new Uint8Array(Buffer.from(String(img.data), 'base64'));
+    });
+  }
+
   /**
    * Mesh to Solid. First by slabs (server/src/mesh/slab.ts): the mesh is cut into constant cross-sections that become sketches and extrudes, checked
    * against the mesh's volume. A part that does not fit that (or fails the check) goes to the engine's own prism converter. Both run inside the mesh's
@@ -319,7 +338,8 @@ export class SolidCraftEngine implements Engine {
       const sketches: Sketch[] = (info?.sketches ?? []).map((k: any) => toSketch(k, info?.active_sketch));
       const marker = Number(info?.marker ?? timeline.length);
       const doc = { name: this.docName, dirty: !!info?.dirty };
-      if (!names.length) return { doc, bodies: [], parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
+      const stamp = await this.stampNow();
+      if (!names.length) return { doc, bodies: [], parameters, timeline, marker, stamp, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
       const path = join(this.work, `mesh-${this.nextId}.3mf`);
       await this.tool('export', { path, format: '3mf-tagged' });
       const meshes = parse3mf(new Uint8Array(readFileSync(path)));
@@ -328,7 +348,7 @@ export class SolidCraftEngine implements Engine {
         const topo = await this.tool('body_topology', { body: m.name });
         bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace), edges: (topo?.edges ?? []).map(toEdge), mesh: meshNames.has(m.name) });
       }
-      return { doc, bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
+      return { doc, bodies, parameters, timeline, marker, stamp, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
     }
   }
 }
