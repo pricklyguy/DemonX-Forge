@@ -252,7 +252,9 @@ export function App() {
   const [hiddenBodies, setHiddenBodies] = useState<Set<string>>(new Set());
   const [hiddenSketches, setHiddenSketches] = useState<Set<number>>(new Set());
   const [showOrigin, setShowOrigin] = useState(false);
-  const [showGrid, setShowGrid] = useState(true);
+  const [showGrid, setShowGrid] = useState(() => { try { return localStorage.getItem('forge-grid') !== 'false'; } catch { return true; } });
+  const [showAxes, setShowAxes] = useState(true);
+  useEffect(() => { try { localStorage.setItem('forge-grid', String(showGrid)); } catch { /* Storage may be unavailable. */ } }, [showGrid]);
   const [showDims, setShowDims] = useState(true); // the sizes shown on a sketch (Sketch Palette > Dimensions)
   const [showEdges, setShowEdges] = useState(true);
   const [showProfiles, setShowProfiles] = useState(true);
@@ -1190,12 +1192,12 @@ export function App() {
       <Ribbon mode={mode} tool={tool} canHole={snap.bodies.length > 0 && mode !== 'pickPlane'} canModify={snap.bodies.length > 0 && mode !== 'pickPlane'} modTool={mode === 'modify' ? modTool : null} extKind={mode === 'extrude' ? extKind : null} onFillet={() => void startModify('fillet')} onChamfer={() => void startModify('chamfer')} onPressPull={() => void startModify('presspull')} onShell={() => void startModify('shell')} onOffsetFace={() => void startModify('offsetface')} onDraft={() => void startModify('draft')} onCombine={() => void startModify('combine')} onMirror={() => void startModify('mirror')} onRPattern={() => void startModify('rpattern')} onCPattern={() => void startModify('cpattern')} onCreateSketch={createSketch} onExtrude={() => void startExtrude('extrude')} onRevolve={() => void startExtrude('revolve')} onSweep={() => void startExtrude('sweep')} onLoft={() => void startExtrude('loft')} onHole={() => void startModify('hole')} onThread={() => void startModify('thread')} onMove={() => void startModify('move')} onSplit={() => void startModify('split')} onRib={() => void startExtrude('rib')} onPipe={() => void startExtrude('pipe')} onEmboss={() => void startExtrude('emboss')} onCoil={() => void startModify('coil')} onScale={() => void startModify('scale')} onMeshConvert={() => void startModify('meshconv')} onTool={(t) => chooseTool(t)} onFinish={() => void finishSketch()} measuring={measure !== null} onMeasure={() => void startMeasure()} onSection={() => setSection({ plane: 'XZ', offset: '0', body: snap.bodies[0]?.name ?? '' })} onImport={doImport} />
 
       <Browser docName={snap.doc.name} bodies={snap.bodies} sketches={snap.sketches} parameters={snap.parameters} hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} busy={busy}
-        onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} onEditSketch={(n) => void editSketch(n)}
+        onToggleBody={(n) => setHiddenBodies((s) => toggle(s, n))} onToggleSketch={(i) => setHiddenSketches((s) => toggle(s, i))} onToggleOrigin={() => setShowOrigin((v) => !v)} pickingPlane={mode === 'pickPlane'} onPickPlane={(plane) => planePicked({ plane })} onEditSketch={(n) => void editSketch(n)}
         onSetParam={async (name, value) => !!(await run(() => api.param(name, value)))} />
 
       <div className="stage">
         <Viewport bodies={snap.bodies} sketches={snap.sketches} activeSketch={activeSketch} theme={theme} mode={mode} tool={tool} pending={pending}
-          hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showDims={showDims} onDimEdit={dimEdited} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
+          hiddenBodies={hiddenBodies} hiddenSketches={hiddenSketches} showOrigin={showOrigin} showGrid={showGrid} showAxes={showAxes} showDims={showDims} onDimEdit={dimEdited} showEdges={showEdges} showProfiles={showProfiles} snap={snapOn}
           selectedFaces={mode === 'modify' ? facesSel : measure ? measure.flatMap((m) => (m.kind === 'face' ? [{ body: m.body, face: m.face }] : [])) : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
           handle={dragHandle} handles={moveHandles} edgeSets={edgeSets} edgeHighlight={measure ? measure.flatMap((m) => (m.kind === 'edge' ? [{ body: m.body, index: m.index }] : [])) : edgesSel} measuring={measure !== null} onMeasurePick={(it) => setMeasure((cur) => (!cur || cur.length >= 2 ? [it] : [...cur, it]))} markers={measure?.flatMap((m) => (m.kind === 'point' ? [m.at] : []))} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); setEdgesSel([]); }} onEntityDrag={entityDrag} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} onSketchBox={sketchBox} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id), ...(offsetPick ? [offsetPick] : [])]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
@@ -1206,15 +1208,25 @@ export function App() {
         <div className="navbar" data-testid="navbar">
           <button title="Fit to view" aria-label="Fit" onClick={() => viewApi.current?.fit()}><Icon.fit /></button>
           <button title="Home view" aria-label="Home" onClick={() => viewApi.current?.setView('home')}><Icon.home /></button>
-          <button title="Grid" aria-label="Grid" aria-pressed={showGrid} className={showGrid ? 'on' : ''} onClick={() => setShowGrid((v) => !v)}><Icon.grid /></button>
+          <button title="Show/Hide Sketch Grid" aria-label="Show/Hide Sketch Grid" aria-pressed={showGrid} className={showGrid ? 'on' : ''} onClick={() => setShowGrid((v) => !v)}><Icon.grid /></button>
+          <button title="Show/Hide Sketch Axes" aria-label="Show/Hide Sketch Axes" aria-pressed={showAxes} className={showAxes ? 'on' : ''} onClick={() => setShowAxes((v) => !v)}>Axes</button>
           <button title="Edges" aria-label="Edges" aria-pressed={showEdges} className={showEdges ? 'on' : ''} onClick={() => setShowEdges((v) => !v)}><Icon.edges /></button>
         </div>
 
+        {mode === 'pickPlane' && (
+          <div className="dialog plane-picker" role="region" aria-label="Select sketch plane" data-testid="plane-picker">
+            <div className="dhead">Select sketch plane</div>
+            <div className="dnote">Choose an origin plane or click a flat face.</div>
+            {(['XY', 'XZ', 'YZ'] as const).map((plane) => <button key={plane} data-testid={`pick-plane-${plane}`} onClick={() => planePicked({ plane })}>{plane} / {plane === 'XY' ? 'Top' : plane === 'XZ' ? 'Front' : 'Side'}</button>)}
+            <button onClick={() => setMode('model')}>Cancel</button>
+          </div>
+        )}
         {mode === 'sketch' && (
           <div className="palette" data-testid="palette">
             <div className="phead">SKETCH PALETTE</div>
             <label><span>Dimensions</span><input type="checkbox" aria-label="Dimensions" checked={showDims} onChange={(e) => setShowDims(e.target.checked)} /></label>
             <label><span>Sketch Grid</span><input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} /></label>
+            <label><span>Sketch Axes</span><input type="checkbox" checked={showAxes} onChange={(e) => setShowAxes(e.target.checked)} /></label>
             <label><span>Snap</span><input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /></label>
             <label><span>Profile</span><input type="checkbox" checked={showProfiles} onChange={(e) => setShowProfiles(e.target.checked)} /></label>
             <div className="pstat" data-testid="sketch-state">{activeSketch ? `${activeSketch.name}: ${activeSketch.dof === 0 ? 'fully constrained' : `${activeSketch.dof} degrees of freedom left`}` : ''}</div>

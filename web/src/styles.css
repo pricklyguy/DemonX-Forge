@@ -26,7 +26,7 @@ input[type='text']:focus, select:focus { outline: 1px solid var(--accent); }
 .rtabs { display: flex; gap: 2px; padding: 4px 12px 0; }
 .rtab { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 3px 12px; font-size: 11px; letter-spacing: .08em; color: var(--muted); }
 .rtab.active { color: var(--text); border-bottom-color: var(--accent); opacity: 1; }
-.rtools { display: flex; align-items: stretch; padding: 2px 12px 4px; min-height: 76px; flex-wrap: wrap; row-gap: 2px; }
+.rtools { display: flex; align-items: stretch; padding: 2px 12px 4px; min-height: 76px; flex-wrap: nowrap; }
 .rgroup { flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 0 10px; border-right: 1px solid var(--line); }
 .rbtns { display: flex; gap: 2px; }
 .rtitle { text-align: center; font-size: 10px; letter-spacing: .08em; color: var(--muted); padding-top: 2px; }
@@ -134,3 +134,17 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .rdrop button:disabled { color: var(--muted); opacity: .6; }
 .rdrop kbd { margin-left: auto; color: var(--muted); font-size: 10px; }
 .rdrop .ricon.sm svg { width: 18px; height: 18px; }
+
+/* Commands overflow into the existing group menus. */
+.model-tools { height: 78px; }
+.model-tools .rgroup { min-width: 72px; }
+.model-tools .rbtns { min-height: 48px; }
+.model-tools .rpin { display: contents; }
+@media (max-width: 950px) { .model-tools .rpin-2 { display: none; } }
+@media (max-width: 760px) { .model-tools .rpin-1 { display: none; } }
+@media (max-width: 560px) { .model-tools .rpin { display: none; } .model-tools .rgroup { padding: 0 4px; min-width: 58px; } }
+.sketch-tools { flex-wrap: wrap; row-gap: 2px; }
+.plane-picker button { text-align: left; }
+.planelabel { position: absolute; transform: translate(-50%, -50%); padding: 3px 6px; background: var(--panel); border: 1px solid currentColor; border-radius: 4px; font-size: 11px; white-space: nowrap; }
+
+.model-tools .rgroup:nth-last-child(-n+2) .rdrop { left: auto; right: 0; }

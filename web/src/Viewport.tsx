@@ -38,6 +38,7 @@ interface Props {
   hiddenSketches: Set<number>;
   showOrigin: boolean;
   showGrid: boolean;
+  showAxes: boolean;
   showEdges: boolean;
   showProfiles: boolean;
   snap: boolean;
@@ -285,19 +286,24 @@ export function Viewport(props: Props) {
       const b = new THREE.Box3(); gBodies.children.forEach((o) => b.expandByObject(o)); gSketch.children.forEach((o) => { if ((o as any).isLineSegments2) b.expandByObject(o); });
       return b.isEmpty() ? 60 : Math.max(40, b.getSize(new THREE.Vector3()).length() * 0.6);
     };
+    const planeLayer = document.createElement('div'); planeLayer.className = 'dimlayer'; el.appendChild(planeLayer);
+    let planeLabels: { el: HTMLElement; w: THREE.Vector3 }[] = [];
     let planeMeshes: THREE.Mesh[] = [];
     const rebuildPlanes = () => {
-      clear(gPlanes); planeMeshes = [];
+      clear(gPlanes); planeMeshes = []; planeLayer.replaceChildren(); planeLabels = [];
       const p = P.current;
       if (!(p.mode === 'pickPlane' || p.showOrigin)) return;
       const r = modelRadius();
       const colors: Record<string, string> = { XY: '#4f8fe0', XZ: '#4caf7a', YZ: '#e0605a' };
       for (const key of ['XY', 'XZ', 'YZ'] as const) {
         const pl = ORIGIN_PLANES[key];
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(r * 1.6, r * 1.6), new THREE.MeshBasicMaterial({ color: colors[key]!, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(r * 1.6, r * 1.6), new THREE.MeshBasicMaterial({ color: colors[key]!, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false }));
         m.matrixAutoUpdate = false; m.matrix.copy(planeMatrix(pl)); m.userData.plane = key;
-        const edge = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: colors[key]!, transparent: true, opacity: 0.8 }));
+        const edge = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: colors[key]!, transparent: true, opacity: 1 }));
         m.add(edge); gPlanes.add(m); planeMeshes.push(m);
+        const label = document.createElement('span'); label.className = 'planelabel'; label.style.color = colors[key]!;
+        label.textContent = `${key} / ${key === 'XY' ? 'Top' : key === 'XZ' ? 'Front' : 'Side'}`;
+        planeLayer.appendChild(label); planeLabels.push({ el: label, w: v3(toWorld(pl, [r * 0.65, r * 0.65])) });
       }
     };
 
@@ -305,10 +311,10 @@ export function Viewport(props: Props) {
     let gridKey = '';
     const updateGrid = () => {
       const p = P.current, s = p.activeSketch;
-      if (!(p.mode === 'sketch' && s && p.showGrid)) { if (gGrid.children.length) clear(gGrid); gridKey = ''; return; }
+      if (!(p.mode === 'sketch' && s && (p.showGrid || p.showAxes))) { if (gGrid.children.length) clear(gGrid); gridKey = ''; return; }
       const step = niceStep(wpp() * 14);
       const half = Math.ceil((cam.position.distanceTo(ctl.target) * 1.3) / (step * 10)) * step * 10;
-      const key = `${s.id}:${step}:${half}`;
+      const key = `${s.id}:${step}:${half}:${p.showGrid}:${p.showAxes}:${p.theme}`;
       if (key === gridKey) return;
       gridKey = key; clear(gGrid);
       const plane = planeOf(s), minor: number[] = [], major: number[] = [];
@@ -319,8 +325,8 @@ export function Viewport(props: Props) {
       }
       const line = css('--line');
       const mk = (pts: number[], w: number, o: number) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: line, transparent: true, opacity: o, depthWrite: false })); };
-      gGrid.add(mk(minor, 1, 0.45), mk(major, 1, 0.95));
-      gGrid.add(thick([...toWorld(plane, [-half, 0]), ...toWorld(plane, [half, 0])], '#e0605a', 1.5, 0.8), thick([...toWorld(plane, [0, -half]), ...toWorld(plane, [0, half])], '#4caf7a', 1.5, 0.8));
+      if (p.showGrid) gGrid.add(mk(minor, 1, 0.45), mk(major, 1, 0.95));
+      if (p.showAxes) gGrid.add(thick([...toWorld(plane, [-half, 0]), ...toWorld(plane, [half, 0])], '#e0605a', 1.5, 0.8), thick([...toWorld(plane, [0, -half]), ...toWorld(plane, [0, half])], '#4caf7a', 1.5, 0.8));
     };
 
     // ---- the cursor, the shape being drawn, what is under the pointer and what is selected
@@ -617,13 +623,22 @@ export function Viewport(props: Props) {
       } else if (p.mode === 'pickPlane') {
         setRay(e);
         const hit = ray.intersectObjects(planeMeshes, false)[0];
-        planeMeshes.forEach((m) => ((m.material as THREE.MeshBasicMaterial).opacity = m === hit?.object ? 0.4 : 0.16));
+        planeMeshes.forEach((m) => {
+          const active = m === hit?.object;
+          (m.material as THREE.MeshBasicMaterial).opacity = active ? 0.28 : 0.07;
+          (m.children[0] as THREE.LineSegments).scale.setScalar(active ? 1.015 : 1);
+        });
       } else if ((p.mode === 'modify' && !p.pickFaces) || p.mode === 'model') { // edges light up in the model view too: click one, then Fillet
         const h = pickEdge(e);
         if (h?.body !== hoverEdge?.body || h?.index !== hoverEdge?.index) { hoverEdge = h; rebuildEdges(); }
       }
     });
-    dom.addEventListener('pointerleave', () => { cursor = null; P.current.onCursor(null); if (P.current.mode === 'sketch') rebuildPreview(); });
+    dom.addEventListener('pointerleave', () => { cursor = null; P.current.onCursor(null); if (P.current.mode === 'sketch') rebuildPreview();
+      if (P.current.mode === 'pickPlane') planeMeshes.forEach((m) => {
+        (m.material as THREE.MeshBasicMaterial).opacity = 0.07;
+        m.children[0]!.scale.setScalar(1);
+      });
+    });
     dom.addEventListener('pointerup', (e) => {
       if (drag) { drag = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
       if (entDrag?.started) { P.current.onEntityDrag!('end', entDrag.ent, entDrag.last, entDrag.last); entDrag = null; down = null; dom.style.cursor = ''; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } return; }
@@ -712,7 +727,7 @@ export function Viewport(props: Props) {
         if (document.activeElement !== inp) inp.value = (P.current.sizes?.[i] ?? '') !== '' ? P.current.sizes![i]! : an.text; // not being edited: the typed value, or what the pointer gives
         inp.style.width = `${Math.max(4, inp.value.length + 1)}ch`;
       });
-      for (const l of labels) { const q = l.w.clone().project(cam); l.el.style.display = q.z > 1 ? 'none' : ''; l.el.style.left = `${((q.x + 1) / 2) * size.x}px`; l.el.style.top = `${((1 - q.y) / 2) * size.y}px`; }
+      for (const l of [...labels, ...planeLabels]) { const q = l.w.clone().project(cam); l.el.style.display = q.z > 1 ? 'none' : ''; l.el.style.left = `${((q.x + 1) / 2) * size.x}px`; l.el.style.top = `${((1 - q.y) / 2) * size.y}px`; }
     };
     loop();
     (window as any).__forge = {
@@ -730,7 +745,7 @@ export function Viewport(props: Props) {
     };
     const fitOnce = () => { if (!firstFit && gBodies.children.length) { firstFit = true; fit(); } };
     (S.current as any).fitOnce = fitOnce;
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; endBand(); labelLayer.remove(); handleInputs.forEach((x) => x.remove()); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose(); renderer.dispose(); el.removeChild(dom); S.current = null; endBand(); labelLayer.remove(); planeLayer.remove(); handleInputs.forEach((x) => x.remove()); liveInputs.length = 0; liveLayer.remove(); delete (window as any).__forge; };
   }, []);
 
   const p = props;
