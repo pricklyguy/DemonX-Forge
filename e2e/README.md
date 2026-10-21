@@ -22,6 +22,8 @@ Each script says in its header how to run it. They need the real engine, a built
 | `drag.mjs` | The drag arrow in Press Pull (up, down, past the face, typing, Esc) and in Extrude (the distance and the solid follow) (needs a fresh server) |
 | `drawing.mjs` | The size boxes on a shape being drawn (typing, Backspace, Tab, Enter, circle), press-drag-release drawing, clicking a finished sketch's shape then E, a rectangle crossing a circle (hover, pick the overlap, extrude it alone), the right-click menu and the shortcuts list (needs a fresh server) |
 | `select.mjs` | Open sketch: shapes light up and select (replace, Shift adds), dragging a circle's centre and one Ctrl+Z, E with three shapes, Extrude starts at 0 with a live number on the arrow, typing in it, Enter, and M for Move (needs a fresh server) |
+| `polish.mjs` | Drag-to-draw preview, typing a number right after E, edges first then Fillet (needs a fresh server) |
+| `measure.mjs` | The INSPECT and INSERT tabs and the Measure tool (needs a fresh server) |
 | `dimensions2.mjs` | Angle and point-to-point dimensions with the Dimension tool (needs a fresh server) |
 | `dimensions.mjs` | The sizes on an open sketch (measured and driving), the Dimensions check box, double-click to change a size in place, Esc, Ctrl+Z (needs a fresh server) |
 | `usability.mjs` | E on a body face (Press Pull), the compact Move / Copy dialog (typing, step buttons, arrows, Copy, undo), the ribbon in a 1000 px window, the right-click Modify section, snap hints (end, middle, crossing, alignment) and the rubber band (needs a fresh server) |

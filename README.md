@@ -20,6 +20,7 @@ It shares the look and feel of DemonX CNC and DemonX Design (the same slate and 
 **Solid features** (SOLID tab: CREATE and MODIFY)
 - Create: Extrude (E, with a live preview and a drag arrow), Revolve, Sweep, Loft, Rib, Pipe, Coil, Emboss, Mirror, Rectangular and Circular Pattern, Hole (simple, counterbore, countersink; H).
 - Modify: Fillet (F), Chamfer, Press Pull (Q; E on a selected face does the same), Shell, Offset Face, Draft, Combine (join, cut, intersect), Move / Copy (M, with X / Y / Z arrows, a step selector and turns), Split Body, Scale, Thread, Mesh to Solid.
+- Pick the edges first and then press F (or Fillet), as in Fusion, or press the key first; type the number right after it. Measure (INSPECT tab, I) gives distances, angles, lengths and diameters between points, edges and faces.
 - Select a face and press the key, or right-click anything for a menu of what applies. Every command is also on the ribbon, which wraps to a second row in a narrow window.
 
 **Editing history**

@@ -46,7 +46,7 @@ try {
   await p.getByTestId('updates-dialog').waitFor();
   check(/\d+\.\d+\.\d+/.test(await p.getByTestId('update-current').innerText()) && (await p.getByTestId('update-latest').innerText()) === '99.0.0', 'the window shows the running and the available version');
   check(/Everything is better/.test(await p.getByTestId('update-notes').innerText()), 'the release notes are shown as plain text');
-  check(await p.getByTestId('update-now').count() === 0 && /download the Windows zip/i.test(await p.getByTestId('updates-dialog').innerText()), 'off the Windows package there is no Update now button, only what to do by hand');
+  check(await p.getByTestId('update-now').count() === 0 && /download the package for your system/i.test(await p.getByTestId('updates-dialog').innerText()), 'off the Windows package there is no Update now button, only what to do by hand');
   await p.screenshot({ path: `${shots}/updates.png` });
   // settings are kept on the server
   await p.getByLabel('Check for updates').uncheck(); await settle(500);

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Icon } from './icons';
 import type { Mode, Tool } from './ui';
 
@@ -38,6 +38,10 @@ interface Props {
   onCPattern(): void;
   onTool(t: Tool): void;
   onFinish(): void;
+  measuring: boolean;
+  onMeasure(): void;
+  onSection(): void;
+  onImport(): void;
 }
 
 function Btn({ icon, label, keyHint, pressed, disabled, onClick, id }: { icon: ReactNode; label: string; keyHint?: string; pressed?: boolean; disabled?: boolean; onClick(): void; id: string }) {
@@ -55,14 +59,26 @@ const Group = ({ title, children }: { title: string; children: ReactNode }) => <
 /** The tabs and toolbar. The SKETCH tab exists only while a sketch is open, as in Fusion. */
 export function Ribbon(p: Props) {
   const sketching = p.mode === 'sketch';
+  const [tab, setTab] = useState<'solid' | 'inspect' | 'insert'>('solid');
+  const shown = sketching ? 'solid' : tab;
   return (
     <div className="ribbon" data-testid="ribbon">
       <div className="rtabs">
-        <button className={`rtab${!sketching ? ' active' : ''}`} data-testid="tab-solid" disabled>SOLID</button>
+        {(['solid', 'inspect', 'insert'] as const).map((t) => <button key={t} className={`rtab${!sketching && shown === t ? ' active' : ''}`} data-testid={`tab-${t}`} disabled={sketching} onClick={() => setTab(t)}>{t.toUpperCase()}</button>)}
         {sketching && <button className="rtab active" data-testid="tab-sketch" disabled>SKETCH</button>}
       </div>
       <div className="rtools">
-        {!sketching ? (
+        {!sketching && shown === 'inspect' ? (
+          <Group title="INSPECT">
+            <Btn id="btn-measure" icon={<Icon.bMeasure />} label="Measure" keyHint="I" pressed={p.measuring} disabled={!p.canModify} onClick={p.onMeasure} />
+            <Btn id="btn-section" icon={<Icon.bSection />} label="Section to DXF" disabled={!p.canModify} onClick={p.onSection} />
+          </Group>
+        ) : !sketching && shown === 'insert' ? (
+          <Group title="INSERT">
+            <Btn id="btn-import" icon={<Icon.bImport />} label="Import STEP / IGES / STL…" onClick={p.onImport} />
+            <Btn id="btn-meshconv-insert" icon={<Icon.bMesh />} label="Mesh to Solid" disabled={!p.canModify} onClick={p.onMeshConvert} />
+          </Group>
+        ) : !sketching ? (
           <Group title="CREATE">
             <Btn id="btn-sketch" icon={<Icon.sketch />} label="Create Sketch" pressed={p.mode === 'pickPlane'} onClick={p.onCreateSketch} />
             <Btn id="btn-extrude" icon={<Icon.extrude />} label="Extrude" keyHint="E" pressed={p.extKind === 'extrude'} onClick={p.onExtrude} />

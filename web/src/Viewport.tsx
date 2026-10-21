@@ -10,6 +10,7 @@ import { findRegions } from './sketch/regions';
 import { ORIGIN_PLANES, normalOf, rayToSketch, toWorld, type Plane } from './sketch/plane';
 import { niceStep, round3, snapGrid } from './sketch/snap';
 import { inferSnap, type Inference } from './sketch/inference';
+import type { MeasureItem } from './measure';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
 import { isDraw, preview as previewOf } from './sketch/tools';
 import { angleLayout, distanceLayout, pointLineLayout } from './sketch/dimGeometry';
@@ -54,6 +55,11 @@ interface Props {
   /** Several arrows at once (Move: one per axis). Used in place of `handle` when given. */
   handles?: Handle[];
   onEdgePick(ref: EdgeRef | null, additive: boolean): void;
+  /** The Measure tool is open: a click picks a vertex, an edge or a face (in that order of preference) and is reported here instead of selecting. */
+  measuring?: boolean;
+  onMeasurePick?(item: MeasureItem): void;
+  /** Points drawn as small crosses (the points being measured), joined by a line when there are two. */
+  markers?: Vec3[];
   onFacePick(p: FacePick | null): void;
   onPlanePick(p: PlanePick): void;
   /** `pt` is snapped for drawing tools and exact for picking tools; `tol` is about 9 screen pixels in sketch units. */
@@ -180,7 +186,9 @@ export function Viewport(props: Props) {
       return out;
     };
     const planeMatrix = (pl: Plane) => { const n = normalOf(pl); return new THREE.Matrix4().makeBasis(v3(pl.xDir), v3(pl.yDir), v3(n)).setPosition(v3(pl.origin)); };
+    let liveDrag: { from: Vec2; to: Vec2 } | null = null; // a shape being drawn by press, drag and release: shown while the button is down, and until the engine has made it
     const rebuildSketches = () => {
+      if (liveDrag) { liveDrag = null; queueMicrotask(() => rebuildPreview()); }
       clear(gSketch);
       labelLayer.replaceChildren(); labels = [];
       const p = P.current;
@@ -326,11 +334,12 @@ export function Viewport(props: Props) {
       const plane = planeOf(s), amber = css('--amber');
       const flat = (poly: Vec2[]) => { const o: number[] = []; for (let i = 0; i < poly.length - 1; i++) o.push(...toWorld(plane, poly[i]!), ...toWorld(plane, poly[i + 1]!)); return o; };
       for (const poly of p.extraPreview ?? []) if (poly.length > 1) gPreview.add(thick(flat(poly), amber, 2)); // Offset: the outline as it would be
-      if (isDraw(p.tool) && cursor && p.pending.length) { const seg = previewOf(p.tool, p.pending, applyTyped(p.tool, p.pending, cursor, p.sizes ?? [])).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
+      const pend = p.pending.length ? p.pending : liveDrag ? [liveDrag.from] : [], cur = p.pending.length ? cursor : liveDrag?.to ?? null;
+      if (isDraw(p.tool) && cur && pend.length) { const seg = previewOf(p.tool, pend, applyTyped(p.tool, pend, cur, p.sizes ?? [])).flatMap(flat); if (seg.length) gPreview.add(thick(seg, amber, 2)); }
       liveAnchors = [];
-      if (isDraw(p.tool) && cursor && p.pending.length) { // the boxes on the shape being drawn, for the stage it is at
+      if (isDraw(p.tool) && cur && pend.length) { // the boxes on the shape being drawn, for the stage it is at
         const n = (x: number) => String(Math.round(x * 100) / 100);
-        for (const bx of sizeBoxes(p.tool, p.pending, applyTyped(p.tool, p.pending, cursor, p.sizes ?? []))) liveAnchors.push({ w: new THREE.Vector3(...toWorld(plane, bx.at)), text: n(bx.value) });
+        for (const bx of sizeBoxes(p.tool, pend, applyTyped(p.tool, pend, cur, p.sizes ?? []))) liveAnchors.push({ w: new THREE.Vector3(...toWorld(plane, bx.at)), text: n(bx.value) });
       }
       ensureInputs(liveAnchors.length);
       const mark = (at: Vec2, k: number, w: number) => { const [x, y] = at, sq: Vec2[] = [[x - k, y - k], [x + k, y - k], [x + k, y + k], [x - k, y + k], [x - k, y - k]]; return thick(flat(sq), amber, w); };
@@ -359,7 +368,12 @@ export function Viewport(props: Props) {
       const p = P.current;
       const find = (r: EdgeRef) => p.edgeSets.find((s) => s.body === r.body)?.edges.find((x) => x.index === r.index);
       for (const r of p.edgeHighlight) { const g = find(r); if (g) gEdges.add(thick(g.segments, css('--accent'), 4.5)); }
-      if (hoverEdge && p.mode === 'modify') { const g = find(hoverEdge); if (g) gEdges.add(thick(g.segments, css('--amber'), 3.5)); }
+      if (p.markers?.length) { // measured points: a small cross each, and a line between two
+        const cyan = css('--cyan');
+        for (const m of p.markers) { const k = cam.position.distanceTo(new THREE.Vector3(...m)) * 0.012; gEdges.add(thick([m[0] - k, m[1], m[2], m[0] + k, m[1], m[2], m[0], m[1] - k, m[2], m[0], m[1] + k, m[2], m[0], m[1], m[2] - k, m[0], m[1], m[2] + k], cyan, 3)); }
+        if (p.markers.length === 2) gEdges.add(thick([...p.markers[0]!, ...p.markers[1]!], css('--amber'), 2));
+      }
+      if (hoverEdge && (p.mode === 'modify' || p.mode === 'model')) { const g = find(hoverEdge); if (g) gEdges.add(thick(g.segments, css('--amber'), 3.5)); }
     };
     // ---- the drag arrow of Press Pull and Extrude: a line from the face to the distance, with a cone at the tip
     const handleList = (): Handle[] => P.current.handles ?? (P.current.handle ? [P.current.handle] : []);
@@ -457,6 +471,37 @@ export function Viewport(props: Props) {
       return best;
     };
 
+    // ---- Measure: a vertex (the end of an edge), else an edge, else a face
+    const endsOf = new WeakMap<EdgeGeometry, Vec3[]>();
+    const edgeEnds = (g: EdgeGeometry): Vec3[] => {
+      let r = endsOf.get(g); if (r) return r;
+      const key = (x: number, y: number, z: number) => `${Math.round(x * 1000)},${Math.round(y * 1000)},${Math.round(z * 1000)}`, n = new Map<string, { c: number; p: Vec3 }>();
+      for (let i = 0; i < g.segments.length; i += 3) { const k = key(g.segments[i]!, g.segments[i + 1]!, g.segments[i + 2]!), e = n.get(k); if (e) e.c++; else n.set(k, { c: 1, p: [g.segments[i]!, g.segments[i + 1]!, g.segments[i + 2]!] }); }
+      r = [...n.values()].filter((e) => e.c === 1).map((e) => e.p); endsOf.set(g, r); return r;
+    };
+    const measurePick = (e: { clientX: number; clientY: number }): MeasureItem | null => {
+      const r = dom.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      setRay(e);
+      const hit = ray.intersectObjects(gBodies.children, false)[0], dFace = hit ? hit.distance : Infinity;
+      let bestV: Vec3 | null = null, bd = 10;
+      const q = new THREE.Vector3();
+      for (const set of P.current.edgeSets) for (const g of set.edges) for (const v of edgeEnds(g)) {
+        q.set(v[0], v[1], v[2]); const dist = ray.ray.origin.distanceTo(q); q.project(cam);
+        if (q.z > 1) continue;
+        const d = Math.hypot(mx - ((q.x + 1) / 2) * r.width, my - ((1 - q.y) / 2) * r.height);
+        if (d < bd && dist <= dFace + Math.max(0.8, dFace * 0.004)) { bd = d; bestV = v; }
+      }
+      if (bestV) return { kind: 'point', at: bestV };
+      const ed = pickEdge(e);
+      if (ed) { const g = P.current.edgeSets.find((x) => x.body === ed.body)?.edges.find((x) => x.index === ed.index); if (g) return { kind: 'edge', body: ed.body, index: ed.index, segments: g.segments }; }
+      const b = hit && (hit.object.userData.body as Body | undefined);
+      if (hit && b && hit.faceIndex != null) {
+        const f = b.faces.find((x) => x.index === b.faceIds[hit.faceIndex!]);
+        if (f) return { kind: 'face', body: b.name, face: f.index, area: f.area, at: hit.point.toArray() as Vec3, normal: f.planeNormal, cylinder: f.cylinder };
+      }
+      return null;
+    };
+
     // ---- camera helpers
     const target = () => ctl.target;
     const fit = () => {
@@ -520,7 +565,7 @@ export function Viewport(props: Props) {
     dom.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       if (grabHandle(e)) { down = null; dom.setPointerCapture(e.pointerId); dom.style.cursor = 'grabbing'; return; }
-      down = [e.clientX, e.clientY];
+      down = [e.clientX, e.clientY]; liveDrag = null;
       const q = P.current;
       entDrag = null;
       if (q.mode === 'sketch' && !q.tool && q.activeSketch && q.onEntityDrag) { const raw = rawPoint(e); const ent = raw ? pickEntity(q.activeSketch, raw, wpp() * 9, 'any') : null; if (ent && raw) entDrag = { ent, from: raw, at: [e.clientX, e.clientY], started: false, last: raw }; }
@@ -565,6 +610,7 @@ export function Viewport(props: Props) {
       if (p.mode === 'sketch') {
         const draw = isDraw(p.tool);
         const pt = draw ? sketchPoint(e) : rawPoint(e); cursor = pt; p.onCursor(pt);
+        liveDrag = draw && drawFrom && down && pt && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4 ? { from: drawFrom, to: pt } : null; // press and drag: the shape follows the pointer
         hover = pt && p.activeSketch && p.pickMode ? pickEntity(p.activeSketch, pt, wpp() * 9, p.pickMode) : null;
         hoverProfile(e, !!hover || !!p.tool); // a shape lights up when no curve is under the pointer
         rebuildPreview();
@@ -572,7 +618,7 @@ export function Viewport(props: Props) {
         setRay(e);
         const hit = ray.intersectObjects(planeMeshes, false)[0];
         planeMeshes.forEach((m) => ((m.material as THREE.MeshBasicMaterial).opacity = m === hit?.object ? 0.4 : 0.16));
-      } else if (p.mode === 'modify' && !p.pickFaces) {
+      } else if ((p.mode === 'modify' && !p.pickFaces) || p.mode === 'model') { // edges light up in the model view too: click one, then Fillet
         const h = pickEdge(e);
         if (h?.body !== hoverEdge?.body || h?.index !== hoverEdge?.index) { hoverEdge = h; rebuildEdges(); }
       }
@@ -593,7 +639,7 @@ export function Viewport(props: Props) {
       const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4; down = null;
       if (moved) { // press, drag and release draws a shape in one go (the same as two clicks)
         const to = drawFrom && P.current.mode === 'sketch' ? sketchPoint(e) : null;
-        if (drawFrom && to) P.current.onSketchDrag(drawFrom, to);
+        if (drawFrom && to) { liveDrag = { from: drawFrom, to }; P.current.onSketchDrag(drawFrom, to); } else liveDrag = null;
         drawFrom = null; return;
       }
       drawFrom = null;
@@ -615,6 +661,8 @@ export function Viewport(props: Props) {
         const hit = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0];
         if (hit) { const s = p.sketches.find((x) => x.id === hit.object.userData.sketch); if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) p.onProfilePick(s.id, hit.object.userData.index, pt, e.shiftKey || e.ctrlKey || e.metaKey); } }
       } else {
+        if (p.mode === 'model' && p.measuring) { const it = measurePick(e); if (it) p.onMeasurePick?.(it); return; }
+        if (p.mode === 'model') { const eh = pickEdge(e); if (eh) { p.onEdgePick(eh, e.shiftKey || e.ctrlKey || e.metaKey); return; } } // an edge under the pointer is picked before the face behind it
         setRay(e);
         const hit = ray.intersectObjects(gBodies.children, false)[0];
         const ph = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0];
@@ -644,7 +692,7 @@ export function Viewport(props: Props) {
         if (what === 'planes') rebuildPlanes();
         if (what === 'preview') rebuildPreview();
         if (what === 'handle') rebuildHandle();
-        if (what === 'edges') { if (P.current.mode !== 'modify') hoverEdge = null; rebuildEdges(); }
+        if (what === 'edges') { if (P.current.mode !== 'modify' && P.current.mode !== 'model') hoverEdge = null; rebuildEdges(); }
         if (what === 'camera') {
           const p = P.current;
           const id = p.mode === 'sketch' ? (p.activeSketch?.id ?? null) : null;
@@ -692,7 +740,7 @@ export function Viewport(props: Props) {
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);
   useEffect(() => { S.current?.rebuild('camera'); }, [p.mode, p.activeSketch?.id]);
   useEffect(() => { S.current?.rebuild('handle'); }, [p.handle?.origin.join(), p.handle?.dir.join(), p.handle?.value, p.handles?.map((h) => `${h.origin.join()}|${h.dir.join()}|${h.value}|${h.base}|${h.fixed}`).join(';'), p.theme]);
-  useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.theme]);
+  useEffect(() => { S.current?.rebuild('edges'); }, [p.mode, p.edgeSets, p.edgeHighlight, p.markers, p.theme]);
 
   return <div className="viewport" ref={host} data-testid="viewport" />;
 }
