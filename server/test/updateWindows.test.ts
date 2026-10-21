@@ -92,7 +92,7 @@ describe('Update now on Windows: the install', () => {
     fs.writeFileSync(path.join(data, 'update-applied.json'), JSON.stringify({ from: '1.0.0', to: '1.1.0' }));
     fs.writeFileSync(path.join(data, 'update-pending.json'), JSON.stringify({ version: '1.1.0', previous: '1.0.0' }));
     const b = make({ current: '1.1.0' });
-    expect(b.view().state).toBe('done');
+    expect(b.view().state).toBe('idle');
     expect(b.view().message).toBe('Updated from 1.0.0 to 1.1.0.');
     expect(exists('data/update-applied.json')).toBe(false);
     b.confirmStarted();

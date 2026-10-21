@@ -127,7 +127,7 @@ export class WindowsUpdater extends EventEmitter {
     try {
       const j = JSON.parse(fs.readFileSync(appliedFile, 'utf8')) as { from?: unknown; to?: unknown };
       if (typeof j.from === 'string' && typeof j.to === 'string' && j.to === o.current) {   // not if the owner went back by hand
-        this.v = { ...emptyApplyView(), state: 'done', target: j.to.slice(0, 64), message: `Updated from ${j.from.slice(0, 64)} to ${j.to.slice(0, 64)}.` };
+        this.v = { ...emptyApplyView(), state: 'idle', target: j.to.slice(0, 64), message: `Updated from ${j.from.slice(0, 64)} to ${j.to.slice(0, 64)}.` };
         o.log('info', this.v.message);
       }
       fs.rmSync(appliedFile, { force: true });
