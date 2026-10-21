@@ -1,4 +1,5 @@
 // Forge server: runs the engine, answers this computer only, serves the built web app.
+import { refreshStartFiles } from './update/startFiles';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
@@ -18,6 +19,7 @@ const ENGINE_PATH = process.env.FORGE_ENGINE ?? join(root, 'data', 'engine', exe
 // the Windows start file's launcher sets these (see scripts/windows/launcher.mjs): the Forge folder, and where settings live
 const home = process.env.FORGE_HOME ?? root;
 const dataDir = process.env.FORGE_DATA ?? join(root, 'data');
+if (process.env.FORGE_LAUNCHER) refreshStartFiles(home, root, (m) => console.log(m));
 
 let engine: Engine | undefined;
 let engineProblem = '';

@@ -136,6 +136,13 @@ if (WIN) {
   fs.writeFileSync(path.join(stage, 'READ ME FIRST.txt'), guide('docs/LINUX.md'));
 }
 
+// each version carries the files that sit beside versions/ so an updated install can refresh them (server/src/update/startFiles.ts)
+{
+  const rootDir = path.join(stage, `versions/${pkg.version}/app/root`);
+  fs.mkdirSync(rootDir, { recursive: true });
+  for (const e of fs.readdirSync(stage, { withFileTypes: true })) if (e.isFile() && !/^(current|previous)\.txt$/.test(e.name)) fs.copyFileSync(path.join(stage, e.name), path.join(rootDir, e.name));
+}
+
 // ---- what the launcher (scripts/windows/launcher.mjs) and Update now (server/src/update/windows.ts) rely on
 const V = `versions/${pkg.version}`;
 const START = WIN ? ['Start DemonX Forge.bat', 'Create Desktop Shortcut.bat', 'Start at login.bat', 'Stop starting at login.bat', 'forge.ico'] : ['start-forge.sh', 'install-launcher.sh', 'uninstall-launcher.sh', 'forge.png'];

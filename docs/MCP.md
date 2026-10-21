@@ -60,7 +60,8 @@ Press Ctrl+C to leave.
 
 1. Close Claude Desktop completely (also from the tray icon).
 2. Open (create it if it is not there) `%APPDATA%\Claude\claude_desktop_config.json` in Notepad. In Claude Desktop this is also under Settings >
-   Developer > Edit Config.
+   Developer > Edit Config. (If Desktop came from the Microsoft Store, the file is under
+   `%LOCALAPPDATA%\Packages\Claude_<letters>\LocalCache\Roaming\Claude\` instead; Edit Config opens the right one.)
 3. Put this in it. If the file already has an `"mcpServers"` section, add just the `"forge"` part inside it. Backslashes are doubled in JSON:
 
 ```json
@@ -80,11 +81,11 @@ Press Ctrl+C to leave.
 ## Claude Code (the command line program)
 
 ```
-claude mcp add forge -- C:\DemonX-Forge\node\node.exe C:\DemonX-Forge\launcher.mjs mcp
+claude mcp add --scope user forge -- C:\DemonX-Forge\node\node.exe C:\DemonX-Forge\launcher.mjs mcp
 claude mcp list
 ```
 
-Add `--scope user` to have it in every project, not just the current folder. Inside Claude Code, `/mcp` shows whether it is connected.
+The `--scope user` (before the name `forge`, never after the `--`) makes it available in every folder, not just the current one. Inside Claude Code, `/mcp` shows whether it is connected.
 
 ## Claude on the web or phone (claude.ai)
 
@@ -145,6 +146,7 @@ Not possible with this server, for the same reason as Claude on the web: they ne
 | What you see | Why, and what to do |
 |---|---|
 | The client says the server failed or has no tools | Run the command line by hand (see "Try it by hand"). A "cannot find" message means a wrong path: check that `C:\DemonX-Forge\launcher.mjs` and `node\node.exe` exist. In JSON files the backslashes must be doubled. |
+| "Connection closed" right away, and `launcher.mjs` is older than your version | Forge installs from before 0.21 never refreshed `launcher.mjs` when they updated, and an old one does not know `mcp`. Download the newest zip and extract it to `C:\` over the folder (your designs and settings are kept), or copy `launcher.mjs` from the zip over the old one. From 0.21 on Forge refreshes it by itself. |
 | A tool answers "Forge is not running at ..." | Start `Start DemonX Forge.bat` and try again. |
 | It works but your window does not change | The window checks every two seconds and only while you are not in the middle of a dialog or a sketch. Finish or cancel what you are doing. |
 | "Command not allowed" | It tried a file command or something that is not a modelling command. That is on purpose. |
