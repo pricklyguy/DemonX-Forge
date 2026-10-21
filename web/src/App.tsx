@@ -1179,7 +1179,7 @@ export function App() {
       <header>
         <span className="brand" data-testid="brand" aria-label="DemonX Forge"><img className="brand-mark" src="/forge-mark.png" alt="" width="60" height="38" /><img className="brand-name" src="/forge-wordmark.png" alt="DemonX Forge" width="185" height="34" /></span>
         <button data-testid="file-menu" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setFileMenu({ x: r.left, y: r.bottom + 2 }); }}>File ▾</button>
-        <span className="docname" data-testid="docname">{snap.doc.name}{snap.doc.dirty && <span className="dirty" data-testid="dirty" title="Unsaved changes">●</span>}</span>
+        <button className="docname" data-testid="docname" title="Save design (Ctrl+S)" aria-label={`Save ${snap.doc.name}`} disabled={busy} onClick={() => void doSave(!fileHandle.current && snap.doc.name === 'Untitled')}>{snap.doc.name}{snap.doc.dirty && <span className="dirty" data-testid="dirty" title="Unsaved changes">●</span>}</button>
         <span className="spacer" />
         <UpdateBadge info={upd.info} onClick={() => { setShowUpdates(true); void upd.refresh(); }} />
         {upd.info?.current && <button className="appver" data-testid="app-version" title="The version of DemonX Forge you are running. Click for updates." onClick={() => { setShowUpdates(true); void upd.refresh(); }}>v{upd.info.current}</button>}

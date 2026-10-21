@@ -148,3 +148,6 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .planelabel { position: absolute; transform: translate(-50%, -50%); padding: 3px 6px; background: var(--panel); border: 1px solid currentColor; border-radius: 4px; font-size: 11px; white-space: nowrap; }
 
 .model-tools .rgroup:nth-last-child(-n+2) .rdrop { left: auto; right: 0; }
+
+header button.docname { background: none; border-color: transparent; text-align: left; }
+header button.docname:hover:not(:disabled), header button.docname:focus-visible { color: var(--text); border-color: var(--accent); }
