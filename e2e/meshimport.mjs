@@ -71,7 +71,7 @@ await p.getByTestId('modify-dialog').waitFor({ state: 'detached', timeout: 12000
 check(await waitTrue(async () => { const s = await state(); return s.bodies.length === 1 && s.bodies[0].mesh === false; }), 'OK turns the mesh into a real solid');
 st = await state();
 check(st.bodies[0].faces.length >= 7 && st.bodies[0].edges.length > 10, 'with real faces and edges again (top, bottom, 4 sides, the hole)', `${st.bodies[0].faces.length} faces, ${st.bodies[0].edges.length} edges`);
-check(st.timeline.some((t) => /Mesh/i.test(t.type) && /Convert/i.test(t.type + t.name)), 'a convert step is in the timeline', st.timeline.map((t) => t.name).join(', '));
+check(st.timeline.some((t) => /Sketch/i.test(t.type)) && st.timeline.some((t) => /Extrude/i.test(t.type)), 'the timeline holds a sketch and an extrude (real, editable steps)', st.timeline.map((t) => t.name).join(', '));
 await p.screenshot({ path: `${shots}/m2-converted.png` });
 // it can be worked on like any solid: fillet one edge
 await p.keyboard.press('Control+z');

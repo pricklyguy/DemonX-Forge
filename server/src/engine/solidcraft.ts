@@ -4,6 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { MeshRefused, planSlabs, slabSteps } from '../mesh/slab';
 import { FileError, packForge, unpackForge } from '../forgeFile';
 import { EngineError, type Body, type CommandStep, type ExportFormat, type Engine, type BodyEdge, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
 import { parse3mf } from './mesh3mf';
@@ -103,25 +104,56 @@ export class SolidCraftEngine implements Engine {
     return this.serial(async () => {
       const warnings: string[] = [];
       for (const s of steps) warnings.push(...(await this.unknownParams(s)));
+      this.redoGroups = [];
       await this.tool('batch', { commands: steps.map((s) => ({ command: s.command, params: s.params ?? {} })), rollback: true, verbose: false });
       return warnings;
     });
   }
 
-  /** Mesh to Solid: the engine converts a mesh body only while its component is the active one, so it is activated for the step and the design goes back to the top level afterwards. */
-  convertMesh(body: string, tolerance: string): Promise<string[]> {
+  /**
+   * Mesh to Solid. First by slabs (server/src/mesh/slab.ts): the mesh is cut into constant cross-sections that become sketches and extrudes, checked
+   * against the mesh's volume. A part that does not fit that (or fails the check) goes to the engine's own prism converter. Both run inside the mesh's
+   * component, which the engine requires, and the design goes back to the top level afterwards.
+   */
+  convertMesh(body: string, tolMm: number): Promise<{ warnings: string[]; method: 'slabs' | 'engine' }> {
     return this.serial(async () => {
       const list = await this.tool('execute', { command: 'component.list', params: { bodies: true } });
       const owner = (list?.components ?? []).find((c: any) => Array.isArray(c.bodies) && c.bodies.includes(body));
       if (!owner) throw new EngineError(`There is no body "${body}"`);
-      const warnings = await this.unknownParams({ command: 'mesh.convert', params: { body, tolerance } });
+      const info = await this.tool('inspect_design');
+      const meta = (info?.bodies ?? []).find((b: any) => b.name === body);
+      if (!meta || !((meta.face_types?.mesh ?? 0) > 0)) throw new EngineError(`"${body}" is not a mesh`);
+      const mesh = (await this.snapshotNow()).bodies.find((b) => b.name === body);
+      let slabWhy = '';
       await this.tool('execute', { command: 'component.activate', params: { component: owner.id } });
       try {
-        await this.tool('batch', { commands: [{ command: 'mesh.convert', params: { body, tolerance } }], rollback: true, verbose: false });
+        if (mesh) {
+          try {
+            const steps = [{ command: 'solid.remove', params: { bodies: [body] } }, ...slabSteps(planSlabs(mesh.positions, mesh.indices, tolMm), body, `${body} section`)];
+            const before = (await this.depth()).undo;
+            this.redoGroups = [];
+            await this.tool('batch', { commands: steps, rollback: true, verbose: false });
+            const after = (await this.tool('inspect_design'))?.bodies?.find((b: any) => b.name === body);
+            const want = Number(meta.volume_mm3), got = Number(after?.volume_mm3);
+            if (!after || !(Math.abs(got - want) <= Math.max(want * 0.01, 1e-6))) {
+              for (let d = (await this.depth()).undo; d > before; d--) await this.tool('undo');
+              slabWhy = `the rebuilt solid does not match the mesh (volume ${Number.isFinite(got) ? got.toFixed(1) : 'none'} against ${want.toFixed(1)} mm³)`;
+            } else { this.groups.push({ before, after: (await this.depth()).undo, key: await this.stateKey() }); return { warnings: [], method: 'slabs' as const }; }
+          } catch (e) {
+            slabWhy = e instanceof MeshRefused ? e.message : errorText(String((e as Error).message ?? e));
+          }
+        }
+        const tol = `${tolMm} mm`;
+        const warnings = await this.unknownParams({ command: 'mesh.convert', params: { body, tolerance: tol } });
+        try {
+          await this.tool('batch', { commands: [{ command: 'mesh.convert', params: { body, tolerance: tol } }], rollback: true, verbose: false });
+          return { warnings, method: 'engine' as const };
+        } catch (e) {
+          throw new EngineError(`This mesh could not be rebuilt. ${slabWhy ? `Sketches and extrudes: ${slabWhy}. ` : ''}The engine's prism converter: ${errorText(String((e as Error).message ?? e)).replace(/^Step 1 \(mesh\.convert\): /, '').replace(/ Nothing was changed\.$/, '')}. Nothing was changed.`);
+        }
       } finally {
         await this.tool('execute', { command: 'component.activate', params: { component: 0 } });
       }
-      return warnings;
     });
   }
 
@@ -144,6 +176,7 @@ export class SolidCraftEngine implements Engine {
 
   load(bytes: Uint8Array, name: string): Promise<void> {
     return this.serial(async () => {
+      this.groups = []; this.redoGroups = [];
       const { design } = unpackForge(bytes); // throws FileError before the design is touched
       const path = this.tmp('solidcraft');
       try {
@@ -154,7 +187,7 @@ export class SolidCraftEngine implements Engine {
     });
   }
 
-  newDesign(): Promise<void> { return this.serial(async () => { await this.tool('new_design', {}); this.docName = 'Untitled'; }); }
+  newDesign(): Promise<void> { return this.serial(async () => { await this.tool('new_design', {}); this.docName = 'Untitled'; this.groups = []; this.redoGroups = []; }); }
 
   exportBodies(format: ExportFormat): Promise<Uint8Array> {
     return this.serial(async () => {
@@ -230,11 +263,46 @@ export class SolidCraftEngine implements Engine {
     });
   }
 
-  undo(): Promise<void> { return this.serial(async () => { await this.tool('undo'); }); }
-  redo(): Promise<void> { return this.serial(async () => { await this.tool('redo'); }); }
+  /**
+   * Some operations (Mesh to Solid by slabs) are many steps in the engine's history but one thing to the owner: Ctrl+Z takes the whole group back
+   * and Ctrl+Y brings it again. A group counts only while the history is exactly as it left it (same depth, same timeline).
+   */
+  private groups: { before: number; after: number; key: string }[] = [];
+  private redoGroups: { before: number; after: number; key: string }[] = [];
+  private async depth(): Promise<{ undo: number; redo: number }> { const r = await this.tool('execute', { command: 'document.inspect', params: {} }); return { undo: Number(r?.undo ?? 0), redo: Number(r?.redo ?? 0) }; }
+  private async stateKey(): Promise<string> { const i = await this.tool('inspect_design'); return JSON.stringify((i?.timeline ?? []).map((x: any) => [x.id, x.name, x.type, !!x.suppressed])); }
 
-  snapshot(): Promise<Snapshot> {
+  undo(): Promise<void> {
     return this.serial(async () => {
+      const top = this.groups[this.groups.length - 1];
+      if (top) {
+        const d = await this.depth();
+        if (d.undo === top.after && (await this.stateKey()) === top.key) {
+          for (let i = top.after; i > top.before; i--) await this.tool('undo');
+          this.groups.pop(); this.redoGroups.push(top); return;
+        }
+      }
+      await this.tool('undo');
+    });
+  }
+  redo(): Promise<void> {
+    return this.serial(async () => {
+      const r = this.redoGroups[this.redoGroups.length - 1];
+      if (r) {
+        const d = await this.depth();
+        if (d.undo === r.before && d.redo >= r.after - r.before) {
+          for (let i = r.before; i < r.after; i++) await this.tool('redo');
+          this.redoGroups.pop(); this.groups.push(r); return;
+        }
+      }
+      await this.tool('redo');
+    });
+  }
+
+  snapshot(): Promise<Snapshot> { return this.serial(() => this.snapshotNow()); }
+
+  private async snapshotNow(): Promise<Snapshot> {
+    {
       const t0 = performance.now();
       const info = await this.tool('inspect_design');
       const names: string[] = (info?.bodies ?? []).map((b: any) => String(b.name));
@@ -254,7 +322,7 @@ export class SolidCraftEngine implements Engine {
         bodies.push({ ...m, faces: (topo?.faces ?? []).map(toFace), edges: (topo?.edges ?? []).map(toEdge), mesh: meshNames.has(m.name) });
       }
       return { doc, bodies, parameters, timeline, marker, sketches, ms: Math.round(performance.now() - t0), warnings: [] };
-    });
+    }
   }
 }
 

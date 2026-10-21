@@ -45,8 +45,9 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
 - Bringing a part in: File, "Import STEP / IGES / STL...". STEP and IGES give solid bodies. An STL, OBJ or 3MF file gives a mesh
   body (a skin of triangles, read in millimetres with Z up). A mesh can be moved (M), scaled and mirrored, and exported again, but
   it has no real faces or edges. "Mesh to Solid" (on the MODIFY tab) rebuilds a closed mesh of a mechanical part as real faces,
-  so you can fillet, press pull, drill and split it. It works on parts made of flat and round faces with a constant cross-section
-  (plates, brackets, blocks with holes). A sculpted or organic mesh is refused with a reason and nothing is changed.
+  so you can fillet, press pull, drill and split it. It rebuilds the part as sketches and extrudes you can edit, and works on
+  parts made of flat steps and straight walls along one direction (plates, lips, ribs, round and slotted holes, rounded corners).
+  A part with slanted, tapered or sculpted faces is refused with a reason and nothing is changed. Ctrl+Z takes it all back.
 - "Load the demo bracket" gives a ready-made part to look at.
 
 

@@ -133,9 +133,9 @@ async function api(path: string, req: IncomingMessage, res: ServerResponse) {
     const tol = a.tolerance === undefined ? 0.05 : a.tolerance;
     if (typeof tol !== 'number' || !Number.isFinite(tol) || tol <= 0 || tol > 100) throw new BadRequest('The tolerance must be a number of millimetres above zero');
     if ((await e.snapshot()).sketches.some((k) => k.active)) throw new BadRequest('Finish the sketch first');
-    const warnings = await e.convertMesh(a.body, `${tol} mm`);
+    const done = await e.convertMesh(a.body, tol);
     const snap = await e.snapshot();
-    return send(res, 200, { ...snap, warnings: [...warnings, ...snap.warnings] });
+    return send(res, 200, { ...snap, warnings: [...done.warnings, ...snap.warnings], method: done.method });
   }
   if (path === '/api/new') { await e.newDesign(); return send(res, 200, await e.snapshot()); }
   if (path === '/api/query') {

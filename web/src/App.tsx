@@ -185,7 +185,7 @@ function BodyFields({ tool, bf, setBf, bodies, allBodies, target, onEnter }: { t
       <div className="dnote">Drag the arrows on the body, or type or step the distances (mm). Turns are in 15° steps about a world axis.</div></>}
     {tool === 'meshconv' && <>
       {text('Tolerance (mm)', 'tol')}
-      <div className="dnote">Rebuilds a closed mesh of a mechanical part as real faces you can fillet, press pull and drill. It works on parts with flat and round faces and a constant cross-section (plates, brackets, blocks with holes); an organic or sculpted mesh is refused, and nothing is changed. A smaller tolerance follows the mesh more closely.</div></>}
+      <div className="dnote">Rebuilds a closed mesh of a mechanical part as sketches and extrudes (real faces you can fillet, press pull and drill). It works on parts made of flat steps and straight walls along one direction: plates, lips, ribs, round and slotted holes, rounded corners. Slanted, tapered or sculpted faces are refused, and nothing is changed. Ctrl+Z takes it all back at once. A smaller tolerance follows the mesh more closely.</div></>}
     {tool === 'split' && <>
       {pick('Cut across', 'splitAxis', [['X', 'X (a plane at x = position)'], ['Y', 'Y (a plane at y = position)'], ['Z', 'Z (a plane at z = position)']])}
       {text('Position', 'splitPos')}
@@ -763,7 +763,7 @@ export function App() {
       if (!bodiesSel[0]) { setError('Click the mesh to convert'); return; }
       if (!(tol > 0) || bf.tol.trim() === '') { setError('The tolerance must be a number of millimetres above zero'); return; }
       const s = await run(() => api.meshConvert(bodiesSel[0]!, tol));
-      if (s) { closeModify(); setNotice('Converted the mesh to a solid'); }
+      if (s) { closeModify(); setNotice((s as { method?: string }).method === 'slabs' ? 'Rebuilt the mesh as sketches and extrudes (one Ctrl+Z takes it all back)' : 'Converted the mesh to a solid'); }
       return;
     }
     if ((holeEdit || valueEdit) && !preview.current && stepKey === baseKey.current) { closeModify(); return; } // nothing was changed

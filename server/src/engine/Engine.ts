@@ -113,8 +113,8 @@ export interface Engine {
   exportSectionDxf(sec: { plane: 'XY' | 'XZ' | 'YZ'; offset: number; body: string }): Promise<Uint8Array>;
   /** Insert a STEP or IGES file as a new component. */
   /** STEP and IGES give solid bodies; STL, OBJ and 3MF give mesh bodies (a triangle mesh, millimetres, Z up) that Mesh to Solid can turn into solids. */
-  /** Reconstruct a closed, constant-section mesh body (planar and cylindrical faces) as an editable solid. */
-  convertMesh(body: string, tolerance: string): Promise<string[]>;
+  /** Rebuild a closed mesh body as an editable solid: as sketches and extrudes when it is made of flat steps and straight walls, otherwise by the engine's prism converter. */
+  convertMesh(body: string, tolMm: number): Promise<{ warnings: string[]; method: 'slabs' | 'engine' }>;
   importModel(bytes: Uint8Array, ext: 'step' | 'stp' | 'iges' | 'igs' | 'stl' | 'obj' | '3mf', name: string): Promise<string[]>;
   undo(): Promise<void>;
   redo(): Promise<void>;
