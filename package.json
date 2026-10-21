@@ -1,6 +1,6 @@
 {
   "name": "demonx-forge",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": true,
   "license": "GPL-3.0-or-later",
   "description": "DemonX Forge: a Fusion-style parametric 3D CAD application that runs locally",
@@ -15,7 +15,8 @@
     "start": "npm run start -w server",
     "test": "npm test -w server && npm test -w web",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
-    "package:windows": "node scripts/build-windows.mjs"
+    "package:windows": "node scripts/build-windows.mjs",
+    "package:linux": "node scripts/build-package.mjs --platform linux"
   },
   "engines": {
     "node": ">=20"

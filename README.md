@@ -51,6 +51,22 @@ It shares the look and feel of DemonX CNC and DemonX Design (the same slate and 
 
 Everything it needs is in the folder, including its own Node and the modelling engine; nothing else to install. `READ ME FIRST.txt` in the folder (`docs/WINDOWS.md`) has the first-run notes, how updating works and what to do if something goes wrong. After that, **Update now** in the app installs newer versions.
 
+## Install (Linux)
+
+Download `DemonX-Forge-<version>-linux-x64.tar.gz` from the Releases page, then:
+
+```bash
+cd ~ && tar -xzf ~/Downloads/DemonX-Forge-*-linux-x64.tar.gz
+cd DemonX-Forge && ./start-forge.sh          # opens http://127.0.0.1:8120 in your browser
+./install-launcher.sh                        # optional: menu entry, desktop icon, start at login
+```
+
+It carries its own Node and the engine (x86-64, Ubuntu 22.04 or newer). `docs/LINUX.md` is the step-by-step guide.
+
+## Desktop icon and starting at login
+
+On Windows, `Create Desktop Shortcut.bat` puts an icon on the desktop and `Start at login.bat` makes Forge start when you sign in; on Linux `install-launcher.sh` does both. Both ask whether Forge should also open the browser each time.
+
 ## Run it from the source
 
 ```bash
@@ -59,7 +75,7 @@ npm install
 npm run build && npm start      # http://127.0.0.1:8120
 npm run dev:server              # and, in another terminal: npm run dev:web
 npm run typecheck && npm test   # unit tests (several use the real engine and skip themselves without it)
-npm run package:windows -- --engine-dir <dir>   # the Windows zip; CI does this on every tag
+npm run package:windows -- --engine-dir <dir>   # the Windows zip (or: node scripts/build-package.mjs --platform linux --engine-dir <dir>); CI does both on every tag
 ```
 
 Browser checks (Playwright, real browser, real engine) are in `e2e/`; each script's header says how to run it and `e2e/README.md` lists them. Stop a test server by port (`fuser -k 8120/tcp`), never with `pkill -f`.
@@ -82,7 +98,7 @@ A Node server runs a modelling engine as a hidden process (today SolidCraft's he
 
 ## Not here yet
 
-Assemblies and joints, sheet metal, CAM, rendering and simulation (not planned); More import formats (FreeCAD, Rhino); angle and point-to-point sketch dimensions; dragging for fillet radius and hole position; Mesh to Solid for sculpted or uneven shapes; a Start menu entry and code signing for the Windows package; macOS and Linux packages (it runs from source on both).
+Assemblies and joints, sheet metal, CAM, rendering and simulation (not planned); More import formats (FreeCAD, Rhino); angle and point-to-point sketch dimensions; dragging for fillet radius and hole position; Mesh to Solid for sculpted or uneven shapes; a Start menu entry and code signing for the Windows package; Update now on Linux; a package for macOS and for ARM computers such as the Raspberry Pi (it runs from source on both).
 
 ## Licence
 

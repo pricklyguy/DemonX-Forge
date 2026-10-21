@@ -155,7 +155,7 @@ describe('tidying up', () => {
     fs.mkdirSync(w('app'));
     fs.writeFileSync(w('app', 'server.mjs'), '// 2.0.0');
     fs.mkdirSync(w('engine'));
-    fs.writeFileSync(w('engine', 'solidcraft-cli.exe'), 'old engine');
+    fs.writeFileSync(w('engine', process.platform === 'win32' ? 'solidcraft-cli.exe' : 'solidcraft-cli'), 'old engine');
     run('forge');
     expect(exists('app')).toBe(false);
     expect(exists('engine')).toBe(false);

@@ -15,6 +15,7 @@ a. Right-click the zip file you downloaded, choose Properties. If you see an "Un
 b. Right-click the zip, choose "Extract All...". When it asks where, type  C:\  and press Extract.
    That gives you the folder  C:\DemonX-Forge  . (Do not run it from inside the zip.)
 c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
+d. For an icon on your desktop, double-click  "Create Desktop Shortcut.bat"  once. After that, double-click the icon to start Forge.
 
 
 2. FIRST START
@@ -50,6 +51,15 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
   slotted holes, rounded corners), with holes, countersinks and bosses across it. A sculpted part, or walls that lean unevenly, are
   refused with a reason and nothing is changed. Ctrl+Z takes it all back.
 - "Load the demo bracket" gives a ready-made part to look at.
+
+
+2b. A DESKTOP ICON, AND STARTING BY ITSELF
+------------------------------------------
+- "Create Desktop Shortcut.bat" puts a "DemonX Forge" icon on your desktop that starts Forge (it is a shortcut to "Start DemonX Forge.bat").
+  Delete the icon like any other to remove it.
+- "Start at login.bat" makes Forge start by itself, minimised, when you sign in to Windows. It asks whether it should also open the browser each
+  time (Y for a computer you sit at, N to run in the background and open Forge yourself from the desktop icon). Run it again to change your answer.
+  "Stop starting at login.bat" undoes it. (The computer must be signed in: Forge is not a Windows service.)
 
 
 3. IF SOMETHING GOES WRONG
@@ -92,7 +102,9 @@ The command they start is:  node\node.exe launcher.mjs mcp  (Forge must be runni
 
 6. WHAT IS IN THE FOLDER
 ------------------------
-  Start DemonX Forge.bat   starts Forge
+  Start DemonX Forge.bat   starts Forge ("Start DemonX Forge.bat nobrowser" starts it without opening the browser)
+  Create Desktop Shortcut.bat, Start at login.bat, Stop starting at login.bat   the desktop icon and starting at login (see step 2b)
+  forge.ico                the icon of those shortcuts
   launcher.mjs             what the start file runs: it starts the version current.txt names ("launcher.mjs mcp": the MCP server)
   CONNECT AN AI (MCP).txt  how to connect Claude or OpenAI's Codex to Forge
   current.txt              the version that runs (previous.txt: the one before an update)

@@ -6,3 +6,4 @@ data/
 # private working notes (not part of the project)
 docs/private/
 dist-windows/
+dist-linux/

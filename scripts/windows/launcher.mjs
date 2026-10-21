@@ -20,6 +20,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const RESTART = 75;
+/** The engine program's file name on this system */
+const EXE = process.platform === 'win32' ? 'solidcraft-cli.exe' : 'solidcraft-cli';
 export const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 /** How many version folders are kept (the running one, the one before it, and one more: Design may still run from an older one) */
 export const KEEP_VERSIONS = 3;
@@ -80,7 +82,7 @@ export async function launch(mode, args, o) {
       FORGE_HOME: home, FORGE_LAUNCHER: '1', FORGE_VERSION: version,
       FORGE_ROOT: dir,
       FORGE_DATA: process.env.FORGE_DATA || data,
-      FORGE_ENGINE: process.env.FORGE_ENGINE || path.join(home, 'versions', version, 'engine', 'solidcraft-cli.exe'),
+      FORGE_ENGINE: process.env.FORGE_ENGINE || path.join(home, 'versions', version, 'engine', EXE),
     };
     const code = await spawnChild(entry, args, env);
 
@@ -110,7 +112,7 @@ function failUpdate(failedFile, pendingFile, version, previous, why) {
 
 // the old layout (before versions) left an app folder and an engine folder next to the start file: they are not used any more
 function removeLegacy(home, log) {
-  for (const [dir, marker] of [['app', 'server.mjs'], ['engine', 'solidcraft-cli.exe']]) {
+  for (const [dir, marker] of [['app', 'server.mjs'], ['engine', EXE]]) {
     const legacy = path.join(home, dir);
     if (!fs.existsSync(path.join(legacy, marker))) continue;
     try { fs.rmSync(legacy, { recursive: true, force: true }); log(`Removed the old ${dir} folder (this install now keeps each version in its own folder under versions).`); } catch { /* in use: tried again at the next start */ }

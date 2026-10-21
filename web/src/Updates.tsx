@@ -66,7 +66,7 @@ export function UpdatesDialog({ info, error, dirty, act, onClose }: { info: Upda
         {working && <div className="dnote" data-testid="update-progress">{a.state === 'done' ? a.message : a.step}</div>}
         {!working && a.message && <div className={`dnote${a.state === 'failed' ? ' warn' : ''}`} data-testid="update-message">{a.message}</div>}
         {dirty && info.newer && windows && <div className="dnote warn" data-testid="update-dirty">Save your design first (File &gt; Save): Forge restarts to update, and unsaved changes would be lost.</div>}
-        {!windows && info.newer && <div className="dnote">To update: download the Windows zip from the release page and extract it over the old folder (see READ ME FIRST).</div>}
+        {!windows && info.newer && <div className="dnote">To update: download the package for your system from the release page and extract it over the old folder (see READ ME FIRST).</div>}
         {windows && info.newer && !a.available && !working && a.reason && <div className="dnote" data-testid="update-reason">{a.reason}</div>}
 
         <label className="drow"><span>Check</span><input type="checkbox" aria-label="Check for updates" checked={info.enabled} onChange={(e) => void act(() => updates.settings({ check: e.target.checked }), { enabled: e.target.checked })} /></label>
