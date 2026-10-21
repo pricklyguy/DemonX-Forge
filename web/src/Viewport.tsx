@@ -12,6 +12,7 @@ import { niceStep, round3, snapGrid } from './sketch/snap';
 import { inferSnap, type Inference } from './sketch/inference';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
 import { isDraw, preview as previewOf } from './sketch/tools';
+import { angleLayout, distanceLayout, pointLineLayout } from './sketch/dimGeometry';
 import type { EdgeGeometry } from '../../server/src/engine/meshEdges';
 import { applyTyped, sizeBoxes } from './sketch/tools';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, Tool, ViewApi } from './ui';
@@ -64,7 +65,8 @@ interface Props {
   /** Show the sizes of the sketch's curves (driving dimensions, and measured sizes where there is none) as labels you can double-click to change. */
   showDims?: boolean;
   /** A dimension label was double-clicked and a new value typed into it. */
-  onDimEdit?(curveId: string, text: string): void;
+  /** `param` names the dimension's parameter (angles and distances); a length, diameter or radius is found from `curveId`. */
+  onDimEdit?(curveId: string, text: string, param?: string): void;
   /** With no tool, pressing on a point or curve and dragging moves it ('move' for each step, 'end' on release). */
   onEntityDrag?(phase: 'start' | 'move' | 'end', ent: Picked, from: Vec2, to: Vec2): void;
   /** Sketches whose closed shapes can be clicked in the model view (the ones no feature has used yet). */
@@ -186,16 +188,18 @@ export function Viewport(props: Props) {
       for (const s of p.sketches) {
         if (p.hiddenSketches.has(s.id) || !s.visible) continue;
         const plane = planeOf(s), isActive = s.active;
+        const dimLines: number[] = []; // the arcs and lines of angle and distance dimensions
+        const seg = (a: Vec2, b: Vec2) => { dimLines.push(...toWorld(plane, a), ...toWorld(plane, b)); };
         if (p.showDims !== false) { // the sizes on the sketch: a driving dimension where there is one, otherwise the measured size (double-click either to change it)
           const n2 = (x: number) => String(Math.round(x * 1000) / 1000);
-          const label = (curveId: string, at: Vec2, text: string, driving: boolean) => {
-            const lab = document.createElement('div'); lab.className = `dimlabel dimedit${driving ? '' : ' measured'}`; lab.dataset.testid = driving ? 'dimlabel' : 'measured'; lab.dataset.curve = curveId; lab.textContent = text; lab.title = 'Double-click to change';
+          const label = (curveId: string, at: Vec2, text: string, driving: boolean, param?: string) => {
+            const lab = document.createElement('div'); lab.className = `dimlabel dimedit${driving ? '' : ' measured'}`; lab.dataset.testid = driving ? 'dimlabel' : 'measured'; lab.dataset.curve = curveId; if (param) lab.dataset.param = param; lab.textContent = text; lab.title = 'Double-click to change';
             lab.addEventListener('dblclick', (ev) => {
               ev.stopPropagation(); if (lab.querySelector('input')) return;
-              const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'dimedit-input'; inp.setAttribute('aria-label', 'Dimension value'); inp.value = text.replace(/^[ØR]/, '');
+              const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'dimedit-input'; inp.setAttribute('aria-label', 'Dimension value'); inp.value = text.replace(/^[ØR]|°$/g, '');
               lab.textContent = ''; lab.appendChild(inp); inp.focus(); inp.select();
               let done = false;
-              const finish = (commit: boolean) => { if (done) return; done = true; const val = inp.value.trim(); if (commit && val && val !== text.replace(/^[ØR]/, '')) P.current.onDimEdit?.(curveId, val); lab.textContent = text; };
+              const finish = (commit: boolean) => { if (done) return; done = true; const val = inp.value.trim(); if (commit && val && val !== text.replace(/^[ØR]|°$/g, '')) P.current.onDimEdit?.(curveId, val, param); lab.textContent = text; };
               inp.addEventListener('keydown', (k) => { if (k.key === 'Enter') { k.preventDefault(); finish(true); } else if (k.key === 'Escape') { k.stopPropagation(); finish(false); } k.stopPropagation(); });
               inp.addEventListener('blur', () => finish(false));
             });
@@ -204,6 +208,22 @@ export function Viewport(props: Props) {
           };
           const has = new Set<string>();
           for (const d of s.dimensions) {
+            if (d.kind === 'angle' && d.lines) { // between two lines: an arc round the corner, the number beside it
+              const a = s.curves.find((x) => x.id === d.lines![0]), b = s.curves.find((x) => x.id === d.lines![1]); if (!a || !b) continue;
+              const lay = angleLayout(a, b, Math.abs(d.value), wpp() * 46); if (!lay) continue;
+              for (let i = 0; i + 1 < lay.arc.length; i++) seg(lay.arc[i]!, lay.arc[i + 1]!);
+              label(`${a.id}|${b.id}`, lay.label, `${n2((Math.abs(d.value) * 180) / Math.PI)}°`, true, d.param); continue;
+            }
+            if (/^distance(_x|_y)?$/.test(d.kind) && d.points?.length === 2) { // between two points
+              const lay = distanceLayout(d.points[0]!.at, d.points[1]!.at, d.kind as 'distance' | 'distance_x' | 'distance_y', wpp() * 18);
+              for (const [a, b] of lay.segments) seg(a, b);
+              label(d.points.map((q) => q.id).join('|'), lay.label, n2(d.value), true, d.param); continue;
+            }
+            if (d.kind === 'point_line_distance' && d.points?.length === 1 && d.line) { // from a point to a line
+              const l = s.curves.find((x) => x.id === d.line); const lay = l && pointLineLayout(d.points[0]!.at, l, wpp() * 14); if (!lay) continue;
+              for (const [a, b] of lay.segments) seg(a, b);
+              label(`${d.points[0]!.id}|${d.line}`, lay.label, n2(d.value), true, d.param); continue;
+            }
             const c = s.curves.find((x) => x.id === d.curve); if (!c) continue;
             const at: Vec2 = c.start && c.end ? [(c.start[0] + c.end[0]) / 2, (c.start[1] + c.end[1]) / 2] : c.center ? [c.center[0] + (c.radius ?? 0), c.center[1]] : [0, 0];
             label(c.id, at, `${d.kind === 'diameter' ? 'Ø' : d.kind === 'radius' ? 'R' : ''}${n2(d.value)}`, true); has.add(c.id);
@@ -227,6 +247,7 @@ export function Viewport(props: Props) {
             }
           }
         }
+        if (dimLines.length) gSketch.add(thick(dimLines, css('--muted'), 1.25, 0.9));
         const open: number[] = [], solid: number[] = [], construction: number[] = [];
         for (const c of s.curves) (c.construction ? construction : isActive && c.fullyConstrained ? solid : open).push(...curveSegments(c, plane));
         if (open.length) gSketch.add(thick(open, cyan, isActive ? 2.5 : 1.75, isActive ? 1 : 0.7));

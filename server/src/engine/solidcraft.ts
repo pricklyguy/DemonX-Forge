@@ -397,10 +397,19 @@ export function toSketch(k: any, activeId: unknown): Sketch {
     };
   });
   const points = (k.points ?? []).filter((q: any) => q.id !== 'origin').map((q: any) => ({ id: String(q.id), at: v2(q.at), fixed: !!q.fixed }));
-  const dimensions = (k.constraints ?? []).filter((c: any) => typeof c.param === 'string').map((c: any) => ({
-    id: String(c.id), kind: String(c.type), param: String(c.param), expression: String(c.expression ?? c.value), value: Number(c.value),
-    ...(typeof c.l === 'number' && curves[c.l] ? { curve: curves[c.l].id } : {}),
-  }));
+  const everyPoint = k.points ?? []; // (the origin is first: the constraints count the points with it)
+  const pt = (i: unknown) => (typeof i === 'number' && everyPoint[i] ? { id: String(everyPoint[i].id), at: v2(everyPoint[i].at) } : null);
+  const dimensions = (k.constraints ?? []).filter((c: any) => typeof c.param === 'string').map((c: any) => {
+    const kind = String(c.type);
+    const ends = [pt(c.p), pt(c.q)].filter((x): x is { id: string; at: Vec2 } => !!x);
+    return {
+      id: String(c.id), kind, param: String(c.param), expression: String(c.expression ?? c.value), value: Number(c.value),
+      ...(typeof c.l === 'number' && curves[c.l] ? { curve: curves[c.l].id } : {}),
+      ...(kind === 'angle' && typeof c.a === 'number' && typeof c.b === 'number' && curves[c.a] && curves[c.b] ? { lines: [curves[c.a].id, curves[c.b].id] as [string, string] } : {}),
+      ...(/^distance(_x|_y)?$/.test(kind) && ends.length === 2 ? { points: ends } : {}),
+      ...(kind === 'point_line_distance' && ends.length === 1 && typeof c.l === 'number' && curves[c.l] ? { points: ends, line: curves[c.l].id } : {}),
+    };
+  });
   const profiles = (k.profiles ?? []).map((p: any) => ({
     index: Number(p.index), area: Number(p.area_mm2 ?? 0), centroid: v2(p.centroid_sketch), curves: (p.curves ?? []).map(String), holes: (p.holes ?? []).map((h: any) => (h ?? []).map(String)),
   }));

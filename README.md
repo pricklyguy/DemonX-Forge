@@ -14,7 +14,7 @@ It shares the look and feel of DemonX CNC and DemonX Design (the same slate and 
 
 **Sketching** (SKETCH tab, Fusion's keys: L R C A D T O)
 - Line, 2-point and centre rectangle, centre circle and 2-point circle, 3-point arc, slot; Trim, Extend, Offset (a whole connected outline moves, toward the pointer), sketch Fillet.
-- Constraints: coincident, horizontal / vertical, parallel, perpendicular, tangent, equal, concentric, midpoint, fix. Sketch dimensions you can double-click to change, shown on the sketch with a check box to hide them.
+- Constraints: coincident, horizontal / vertical, parallel, perpendicular, tangent, equal, concentric, midpoint, fix. Sketch dimensions (lengths, diameters and radii, angles between lines, distances between points or from a point to a line) you can double-click to change, shown on the sketch with a check box to hide them.
 - Drag to draw, or type the sizes into boxes on the shape. Snap hints as you draw: ends, centres, crossings, midpoints, and alignment with other points. Rubber-band selection (left to right: wholly inside; right to left: touching). Drag a point or a curve to move it.
 
 **Solid features** (SOLID tab: CREATE and MODIFY)
@@ -98,7 +98,7 @@ A Node server runs a modelling engine as a hidden process (today SolidCraft's he
 
 ## Not here yet
 
-Assemblies and joints, sheet metal, CAM, rendering and simulation (not planned); More import formats (FreeCAD, Rhino); angle and point-to-point sketch dimensions; dragging for fillet radius and hole position; Mesh to Solid for sculpted or uneven shapes; a Start menu entry and code signing for the Windows package; Update now on Linux; a package for macOS and for ARM computers such as the Raspberry Pi (it runs from source on both).
+Assemblies and joints, sheet metal, CAM, rendering and simulation (not planned); More import formats (FreeCAD, Rhino); dragging for fillet radius and hole position; Mesh to Solid for sculpted or uneven shapes; a Start menu entry and code signing for the Windows package; Update now on Linux; a package for macOS and for ARM computers such as the Raspberry Pi (it runs from source on both).
 
 ## Licence
 

@@ -38,7 +38,15 @@ export interface SketchCurve {
 export interface SketchPoint { id: string; at: Vec2; fixed: boolean }
 
 /** A driving dimension (a number the sketch is solved to). `curve` is set for dimensions on one curve. */
-export interface SketchDimension { id: string; kind: string; param: string; expression: string; value: number; curve?: string }
+export interface SketchDimension {
+  id: string; kind: string; param: string; expression: string; value: number; curve?: string;
+  /** An angle: the two lines it is between. */
+  lines?: [string, string];
+  /** A distance between two points (kind distance, distance_x or distance_y): the points, with where they are now. */
+  points?: { id: string; at: Vec2 }[];
+  /** A distance from a point (in `points`) to a line (kind point_line_distance). */
+  line?: string;
+}
 
 /** A closed region of a sketch that can be extruded. `holes` are the loops inside it, as curve ids. */
 export interface Profile { index: number; area: number; centroid: Vec2; curves: string[]; holes: string[][] }

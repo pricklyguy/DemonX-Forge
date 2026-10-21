@@ -14,7 +14,7 @@ const DRAW: DrawTool[] = ['line', 'rect', 'rectCenter', 'circle', 'circle2', 'ar
 export const isDraw = (t: Tool | null): t is DrawTool => !!t && (DRAW as string[]).includes(t);
 /** What the pointer can land on for a tool that picks existing geometry. */
 export const PICK_MODE: Record<PickTool, 'curve' | 'point' | 'any'> = {
-  dimension: 'curve', trim: 'curve', extend: 'curve', offset: 'curve', fillet: 'point',
+  dimension: 'any', trim: 'curve', extend: 'curve', offset: 'curve', fillet: 'point',
   horizontal: 'any', coincident: 'any', parallel: 'curve', perpendicular: 'curve', tangent: 'curve', equal: 'curve', midpoint: 'any', concentric: 'curve', fix: 'any',
 };
 

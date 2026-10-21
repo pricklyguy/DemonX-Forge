@@ -1,7 +1,7 @@
 import { chainOrder } from './chain';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { buildEdgeGeometry } from '../../server/src/engine/meshEdges';
-import { api, type Snapshot, type SketchCurve, type TimelineItem, type Vec2, type Vec3 } from './api';
+import { api, type Snapshot, type Sketch, type SketchCurve, type TimelineItem, type Vec2, type Vec3 } from './api';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Browser } from './Browser';
 import { canPick, download, extOf, FORGE_TYPE, MODEL_TYPE, pickOpenFile, pickSaveHandle, stripExt, typeForExt, writeHandle, type Handle } from './files';
@@ -56,6 +56,7 @@ const HINT: Record<string, string> = {
 };
 /** Status-bar help for a sketch tool, by how many points are already placed (or picked). */
 const TOOL_HINT: Record<string, string[]> = {
+  dimension: ['Click a line, circle, arc or point to dimension it (click a dimensioned one to change it). Esc ends the tool.', 'Click another line for an angle, a point or line for a distance, or type the value. Esc cancels.'],
   line: ['Click the start point.', 'Click the next point, or type a length. Right-click or Esc ends the line.'],
   rect: ['Click the first corner.', 'Click the opposite corner, or type width,height.'],
   rectCenter: ['Click the centre.', 'Click a corner, or type width,height.'],
@@ -63,7 +64,6 @@ const TOOL_HINT: Record<string, string[]> = {
   circle2: ['Click one end of the diameter.', 'Click the other end, or type a diameter.'],
   arc3: ['Click the start point.', 'Click the end point.', 'Click a point the arc passes through.'],
   slot: ['Click the centre of the first end.', 'Click the centre of the other end.', 'Click to set the width, or type it.'],
-  dimension: ['Click a line, circle or arc to dimension it (click a dimensioned one to change it). Esc ends the tool.'],
   trim: ['Click the piece of a line, arc or circle to remove, between its nearest crossings.'],
   extend: ['Click near the end of a line or arc to extend it to the nearest curve.'],
   offset: ['Click a curve (its connected chain is offset), then type the distance.'],
@@ -213,7 +213,7 @@ export function App() {
   const [typed2, setTyped2] = useState(''); // the second box (height, angle) of the typed sizes
   const [sizes, setSizes] = useState<string[]>(['', '']); // what is typed into the boxes on the shape being drawn
   const clearTyped = () => { setTyped(''); setTyped2(''); setSizes(['', '']); };
-  const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string): void } | null>(null);
+  const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string, option?: string): void; options?: string[]; option?: string; valueFor?(option: string): string } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [selTl, setSelTl] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; item: TimelineItem } | null>(null);
@@ -328,7 +328,7 @@ export function App() {
     if (!hit) { setError(''); return; }
     setError('');
     switch (tool) {
-      case 'dimension': { const c = sk.curves.find((x) => x.id === hit.id); if (c) curvePick(c); break; }
+      case 'dimension': dimClick(sk, hit); break;
       case 'trim': send([{ command: 'sketch.trim', params: { curve: hit.id, at: pt } }]); break;
       case 'extend': send([{ command: 'sketch.extend', params: { curve: hit.id, at: pt } }]); break;
       case 'offset': setOffsetPick(hit.id); clearTyped(); break; // the pointer now sets the distance; a click places it
@@ -403,12 +403,55 @@ export function App() {
     applyResult(onClick(tool, pending, applyTyped(tool, pending, cur, sizes)));
   };
   const endChain = () => { setPending([]); clearTyped(); setTool((t) => (t === 'line' ? null : t)); };
-  const curvePick = (c: SketchCurve) => {
+  /** The Dimension tool: a circle or arc is sized at once; a line is sized at once, or a second pick makes an angle or a distance; two points make a distance. */
+  const dimClick = (sk: Sketch, hit: Picked) => {
+    const done = () => setPicks([]);
+    const pointAt = (id: string) => sk.points.find((q) => q.id === id)?.at;
+    const lineEnds = (id: string): [Vec2, Vec2] | null => { const c = sk.curves.find((x) => x.id === id); return c?.type === 'line' && c.start && c.end ? [c.start, c.end] : null; };
+    const first = picks[0];
+    if (!first) {
+      if (hit.kind === 'point') { setPicks([hit]); return; }
+      const c = sk.curves.find((x) => x.id === hit.id);
+      if (!c) return;
+      if (c.type === 'line') setPicks([hit]);
+      curvePick(c, done);
+      return;
+    }
+    if (first.id === hit.id) return;
+    if (first.kind === 'curve' && hit.kind === 'curve') {
+      const a = lineEnds(first.id), b = lineEnds(hit.id);
+      if (!a || !b) { done(); setError('An angle needs two straight lines'); return; }
+      const ang = (l: [Vec2, Vec2]) => Math.atan2(l[1][1] - l[0][1], l[1][0] - l[0][0]);
+      let d = Math.abs(ang(a) - ang(b)) % Math.PI; if (d > Math.PI / 2) d = Math.PI - d;
+      setEdit({ title: `Angle between ${first.id} and ${hit.id} (degrees)`, value: fmt((d * 180) / Math.PI), submit: (v) => { done(); send([{ command: 'sketch.dimension', params: { entities: [first.id, hit.id], type: 'angle', value: numOrExpr(v) } }]); } });
+      return;
+    }
+    const pt = first.kind === 'point' ? first : hit.kind === 'point' ? hit : null;
+    const other = pt === first ? hit : first;
+    const p = pt ? pointAt(pt.id) : undefined;
+    if (!pt || !p) { done(); return; }
+    if (other.kind === 'curve') {
+      const l = lineEnds(other.id);
+      if (!l) { done(); setError('Pick a straight line for a point-to-line distance'); return; }
+      const dx = l[1][0] - l[0][0], dy = l[1][1] - l[0][1], len = Math.hypot(dx, dy) || 1;
+      const dist = Math.abs((p[0] - l[0][0]) * dy - (p[1] - l[0][1]) * dx) / len;
+      setEdit({ title: `Distance from ${pt.id} to ${other.id}`, value: fmt(dist), submit: (v) => { done(); send([{ command: 'sketch.dimension', params: { entities: [pt.id, other.id], type: 'distance', value: numOrExpr(v) } }]); } });
+      return;
+    }
+    const q = pointAt(other.id);
+    if (!q) { done(); return; }
+    const valueFor = (o: string) => fmt(o === 'Horizontal' ? Math.abs(q[0] - p[0]) : o === 'Vertical' ? Math.abs(q[1] - p[1]) : Math.hypot(q[0] - p[0], q[1] - p[1]));
+    const ids = [pt.id, other.id];
+    setEdit({ title: `Distance between ${ids[0]} and ${ids[1]}`, value: valueFor('Aligned'), options: ['Aligned', 'Horizontal', 'Vertical'], option: 'Aligned', valueFor,
+      submit: (v, o) => { done(); send([{ command: 'sketch.dimension', params: { entities: ids, type: o === 'Horizontal' ? 'horizontal' : o === 'Vertical' ? 'vertical' : 'distance', value: numOrExpr(v) } }]); } });
+  };
+  const curvePick = (c: SketchCurve, onDone?: () => void) => {
     const existing = activeSketch?.dimensions.find((d) => d.curve === c.id); // already dimensioned: edit that value instead of adding a second one
     const what = c.type === 'line' ? 'Length' : c.type === 'circle' ? 'Diameter' : 'Radius';
     setEdit({
       title: `${existing ? 'Change ' : ''}${what} of ${c.id}`, value: existing ? existing.expression : fmt(lengthOf(c)),
       submit: (v) => {
+        onDone?.();
         if (existing) { void run(() => api.param(existing.param, v.trim())); return; }
         const step = dimensionFor(c, v);
         if (!step) setError('That curve cannot be dimensioned yet'); else send([step]);
@@ -416,7 +459,8 @@ export function App() {
     });
   };
   /** A size label on the sketch was double-clicked and a value typed: change the driving dimension, or make one from the measured size. */
-  const dimEdited = (curveId: string, text: string) => {
+  const dimEdited = (curveId: string, text: string, param?: string) => {
+    if (param) { void run(() => api.param(param, text.trim())); return; }
     const c = activeSketch?.curves.find((x) => x.id === curveId); if (!c) return;
     const existing = activeSketch?.dimensions.find((d) => d.curve === c.id);
     if (existing) { void run(() => api.param(existing.param, text.trim())); return; }
@@ -1221,7 +1265,12 @@ export function App() {
           <div className="entry dim" data-testid="value-entry">
             <span>{edit.title}</span>
             <input autoFocus aria-label="Value" type="text" value={edit.value} onFocus={(e) => e.target.select()} onChange={(e) => setEdit({ ...edit, value: e.target.value })}
-              onKeyDown={(e) => { if (e.key === 'Enter') { const { submit, value } = edit; setEdit(null); submit(value); } }} />
+              onKeyDown={(e) => { if (e.key === 'Enter') { const { submit, value, option } = edit; setEdit(null); submit(value, option); } }} />
+            {edit.options && (
+              <select aria-label="Kind" data-testid="value-option" value={edit.option} onChange={(e) => setEdit({ ...edit, option: e.target.value, value: edit.valueFor ? edit.valueFor(e.target.value) : edit.value })}>
+                {edit.options.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            )}
           </div>
         )}
 
