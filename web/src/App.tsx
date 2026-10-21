@@ -214,7 +214,8 @@ export function App() {
   const offsetRef = useRef<HTMLInputElement>(null);
   const [typed2, setTyped2] = useState(''); // the second box (height, angle) of the typed sizes
   const [sizes, setSizes] = useState<string[]>(['', '']); // what is typed into the boxes on the shape being drawn
-  const clearTyped = () => { setTyped(''); setTyped2(''); setSizes(['', '']); };
+  const [offsetTouched, setOffsetTouched] = useState(false); // the Offset box shows what was typed (even nothing) once it has been edited, else the live distance
+  const clearTyped = () => { setTyped(''); setTyped2(''); setSizes(['', '']); setOffsetTouched(false); };
   const [edit, setEdit] = useState<{ title: string; value: string; submit(v: string, option?: string): void; options?: string[]; option?: string; valueFor?(option: string): string } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [selTl, setSelTl] = useState<number | null>(null);
@@ -1134,7 +1135,7 @@ export function App() {
         return;
       }
       if (L.mode === 'sketch') {
-        if (L.tool === 'offset' && L.offsetPick && (k === 'tab' || /^[0-9.\-]$/.test(e.key))) { e.preventDefault(); if (k !== 'tab') setTyped(e.key); setTimeout(() => offsetRef.current?.focus(), 0); return; }
+        if (L.tool === 'offset' && L.offsetPick && (k === 'tab' || /^[0-9.\-]$/.test(e.key))) { e.preventDefault(); if (k !== 'tab') { setTyped(e.key); setOffsetTouched(true); } setTimeout(() => offsetRef.current?.focus(), 0); return; }
         if (L.pending.length && k === 'tab' && sizeFields(L.tool, L.pending.length).length) { e.preventDefault(); viewApi.current?.focusSize(0); return; } // Tab goes to the size boxes on the shape, then between them
         if (L.pending.length && sizeFields(L.tool, L.pending.length).length && /^[0-9.\-]$/.test(e.key)) { if (viewApi.current?.focusSize(0, e.key)) e.preventDefault(); return; }
         const map: Record<string, Tool> = { l: 'line', r: 'rect', c: 'circle', a: 'arc3', d: 'dimension', t: 'trim', o: 'offset' };
@@ -1286,7 +1287,7 @@ export function App() {
 
         {mode === 'sketch' && tool === 'offset' && offsetPick && (
           <div className="entry" data-testid="offset-entry">
-            <label>Offset<input ref={offsetRef} aria-label="Offset distance" type="text" value={typed !== '' ? typed : showSize(liveOffset() === null ? undefined : Math.round(liveOffset()! * 10) / 10)} onFocus={(e) => e.target.select()} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitOffset(); }} /></label>
+            <label>Offset<input ref={offsetRef} aria-label="Offset distance" type="text" value={offsetTouched || typed !== '' ? typed : showSize(liveOffset() === null ? undefined : Math.round(liveOffset()! * 10) / 10)} onFocus={(e) => e.target.select()} onChange={(e) => { setTyped(e.target.value); setOffsetTouched(true); }} onKeyDown={(e) => { if (e.key === 'Enter') commitOffset(); }} /></label>
             <span className="hint">Move the mouse to the side you want and click, or type a distance and press Enter</span>
           </div>
         )}
