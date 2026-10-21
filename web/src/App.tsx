@@ -16,7 +16,7 @@ import { segmentsTouchBox } from './sketch/box';
 import { lineChain, offsetChain, sideDistance } from './sketch/offsetChain';
 import { UpdateBadge, UpdatesDialog, useUpdates } from './Updates';
 import { curvePoints } from './sketch/loops';
-import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
+import { OPEN_ON_DRAG, PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
 import { pickEntity, type Picked } from './sketch/pick';
 import { inwardBisector } from './edgeDir';
 import { describe as describeItem, measureOne, measureTwo, type MeasureItem } from './measure';
@@ -391,6 +391,7 @@ export function App() {
   const sketchDrag = (a: Vec2, b: Vec2) => {
     if (!isDraw(tool) || pending.length) return;
     const first = onClick(tool, [], a);
+    if (OPEN_ON_DRAG.includes(tool as string)) { applyResult(first); return; } // the shape stays open under the pointer: adjust it, then click or type the size
     applyResult(onClick(tool, first.pending, b));
   };
   /** Sketches no feature has used yet: their closed shapes show in the model view and can be clicked, then E extrudes them. */

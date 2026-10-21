@@ -11,6 +11,8 @@ export interface Step { command: string; params: Record<string, unknown> }
 export interface Result { steps: Step[]; pending: Vec2[]; message?: string }
 
 const DRAW: DrawTool[] = ['line', 'rect', 'rectCenter', 'circle', 'circle2', 'arc3', 'slot'];
+/** After press, drag and release these stay open (the first corner or centre is placed, the pointer still sets the size, a click or typed size finishes), as in Fusion. */
+export const OPEN_ON_DRAG: readonly string[] = ['rect', 'rectCenter', 'circle', 'circle2'];
 export const isDraw = (t: Tool | null): t is DrawTool => !!t && (DRAW as string[]).includes(t);
 /** What the pointer can land on for a tool that picks existing geometry. */
 export const PICK_MODE: Record<PickTool, 'curve' | 'point' | 'any'> = {

@@ -28,7 +28,9 @@ const [x0, y0] = await at([0, 0]), [x1, y1] = await at([50, 30]);
 await p.mouse.move(x0, y0); await p.mouse.down(); await p.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await p.mouse.move(x1, y1, { steps: 4 }); await settle(300);
 check((await p.locator('.dimlabel.live').count()) > 0, 'while the button is down the size boxes of the rectangle are shown (it is being drawn)');
 await p.screenshot({ path: `${shots}/pl1-drag.png` });
-await p.mouse.up();
+await p.mouse.up(); await settle(500);
+check((await p.locator('.dimlabel.live').count()) > 0, 'after release the rectangle stays open so its size can still be changed');
+await p.mouse.move(x1 + 20, y1 + 10, { steps: 3 }); await p.mouse.move(x1, y1, { steps: 3 }); await p.mouse.click(x1, y1);
 for (let i = 0; i < 40; i++) { const k = (await state()).sketches.find((q) => q.active); if (k?.curves.length === 4) break; await settle(250); }
 const k = (await state()).sketches.find((q) => q.active);
 const xs = k.curves.flatMap((c) => [c.start[0], c.end[0]]), ys = k.curves.flatMap((c) => [c.start[1], c.end[1]]);
@@ -73,7 +75,7 @@ await p.mouse.move(tip.at[0], tip.at[1]); await p.mouse.down(); await p.mouse.mo
 const dragged = Number(await p.getByLabel('Radius').inputValue());
 check(dragged > 3, 'dragging the arrow outward makes the radius bigger', String(dragged));
 await p.getByLabel('Radius').fill('2');
-for (let i = 0; i < 40; i++) { if ((await state()).bodies[0].faces.length === 7) break; await settle(250); }
+for (let i = 0; i < 80; i++) { if ((await state()).bodies[0].faces.length === 7) break; await settle(250); }
 check((await state()).bodies[0].faces.length === 7, 'the live preview shows the rounded edge (7 faces) before pressing OK');
 await p.screenshot({ path: `${shots}/pl2-fillet.png` });
 await p.keyboard.press('Enter');

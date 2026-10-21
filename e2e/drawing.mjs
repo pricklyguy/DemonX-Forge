@@ -123,14 +123,16 @@ await p.keyboard.press('r');
 const [ax, ay] = await at([-50, -30]), [bx, by] = await at([-20, -50]);
 await p.mouse.move(ax, ay); await p.mouse.down();
 for (let i = 1; i <= 6; i++) await p.mouse.move(ax + ((bx - ax) * i) / 6, ay + ((by - ay) * i) / 6);
-await p.mouse.up(); await settle(800);
+await p.mouse.up(); await settle(600);
+check((await p.locator('.dimlabel.live').count()) > 0 && (await state()).sketches[0].curves.filter((c) => c.type === 'line' && c.end[0] <= -19.9 && c.start[1] <= -29.9).length === 0, 'after the drag the rectangle stays open (size boxes shown, nothing made yet)');
+await p.mouse.click(bx, by); await settle(800); // a click finishes it
 s = await state(); sk = s.sketches[0];
 const l3 = sk.curves.filter((c) => c.type === 'line' && !c.construction).filter((c) => Math.max(c.start[0], c.end[0]) <= -19.9 && Math.min(c.start[1], c.end[1]) <= -29.9);
 check(l3.length === 4, 'dragging corner to corner draws a rectangle', `${l3.length} lines`);
-check((await p.getByTestId('entry').count()) === 0, 'and no size box is left open');
+check((await p.getByTestId('entry').count()) === 0, 'and no size box is left open once it is made');
 await p.mouse.move(ax, ay); await p.mouse.down();
 for (let i = 1; i <= 6; i++) await p.mouse.move(ax + 40 * i, ay + 5 * i);
-await p.mouse.up(); await settle(500);
+await p.mouse.up(); await settle(400); await p.mouse.click(ax + 240, ay + 30); await settle(500);
 
 // ---- finish the sketch; the shapes can be clicked in the model view, then E
 await p.getByTestId('btn-finish').click(); await settle(1000);

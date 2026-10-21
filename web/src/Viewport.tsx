@@ -12,7 +12,7 @@ import { niceStep, round3, snapGrid } from './sketch/snap';
 import { inferSnap, type Inference } from './sketch/inference';
 import type { MeasureItem } from './measure';
 import { pickEntity, type PickMode, type Picked } from './sketch/pick';
-import { isDraw, preview as previewOf } from './sketch/tools';
+import { OPEN_ON_DRAG, isDraw, preview as previewOf } from './sketch/tools';
 import { angleLayout, distanceLayout, pointLineLayout } from './sketch/dimGeometry';
 import type { EdgeGeometry } from '../../server/src/engine/meshEdges';
 import { applyTyped, sizeBoxes } from './sketch/tools';
@@ -639,7 +639,7 @@ export function Viewport(props: Props) {
       const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4; down = null;
       if (moved) { // press, drag and release draws a shape in one go (the same as two clicks)
         const to = drawFrom && P.current.mode === 'sketch' ? sketchPoint(e) : null;
-        if (drawFrom && to) { liveDrag = { from: drawFrom, to }; P.current.onSketchDrag(drawFrom, to); } else liveDrag = null;
+        if (drawFrom && to) { liveDrag = OPEN_ON_DRAG.includes(P.current.tool as string) ? null : { from: drawFrom, to }; P.current.onSketchDrag(drawFrom, to); } else liveDrag = null;
         drawFrom = null; return;
       }
       drawFrom = null;

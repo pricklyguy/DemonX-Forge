@@ -125,3 +125,12 @@ input.dimin:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--acc
 .dialog.measure .mitem { border-top: 1px solid var(--line); padding-top: 4px; }
 .dialog.measure .mitem.between { border-top-color: var(--accent); }
 .dialog.measure .drow { display: flex; justify-content: space-between; gap: 8px; }
+.rgroup { position: relative; }
+.rmenu { background: none; border: none; padding: 0 4px; font: inherit; letter-spacing: inherit; color: inherit; cursor: pointer; }
+.rmenu:hover { color: var(--text); }
+.rdrop { position: absolute; top: 100%; left: 4px; z-index: 30; min-width: 220px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.rdrop button { display: flex; align-items: center; gap: 8px; text-align: left; background: none; border: none; padding: 4px 8px; border-radius: 4px; color: var(--text); font-size: 12px; }
+.rdrop button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.rdrop button:disabled { color: var(--muted); opacity: .6; }
+.rdrop kbd { margin-left: auto; color: var(--muted); font-size: 10px; }
+.rdrop .ricon.sm svg { width: 18px; height: 18px; }

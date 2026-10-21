@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from './icons';
 import type { Mode, Tool } from './ui';
 
@@ -54,62 +54,93 @@ function Btn({ icon, label, keyHint, pressed, disabled, onClick, id }: { icon: R
 function Cbtn({ id, icon, label, tool, p }: { id: string; icon: ReactNode; label: string; tool: Tool; p: Props }) {
   return <button className={`cbtn${p.tool === tool ? ' on' : ''}`} aria-pressed={p.tool === tool} title={label} aria-label={label} data-testid={id} onClick={() => p.onTool(tool)}>{icon}</button>;
 }
+interface Cmd { id: string; icon: ReactNode; label: string; keyHint?: string; pressed?: boolean; disabled?: boolean; onClick(): void }
+/** A group of buttons whose title opens a menu listing the same commands (Fusion's CREATE ▾), for the keyboard and for a narrow window. */
+function CmdGroup({ title, cmds, open, setOpen }: { title: string; cmds: Cmd[]; open: string | null; setOpen(v: string | null): void }) {
+  return (
+    <div className="rgroup">
+      <div className="rbtns">{cmds.map((c) => <Btn key={c.id} {...c} />)}</div>
+      <div className="rtitle"><button className="rmenu" data-testid={`menu-${title.toLowerCase()}`} aria-haspopup="menu" aria-expanded={open === title} onClick={() => setOpen(open === title ? null : title)}>{title} ▾</button></div>
+      {open === title && (
+        <div className="rdrop" role="menu" data-testid={`dropdown-${title.toLowerCase()}`}>
+          {cmds.map((c) => <button key={c.id} role="menuitem" disabled={c.disabled} data-testid={`item-${c.id}`} onClick={() => { setOpen(null); c.onClick(); }}><span className="ricon sm">{c.icon}</span><span>{c.label}</span>{c.keyHint && <kbd>{c.keyHint}</kbd>}</button>)}
+        </div>
+      )}
+    </div>
+  );
+}
 const Group = ({ title, children }: { title: string; children: ReactNode }) => <div className="rgroup"><div className="rbtns">{children}</div><div className="rtitle">{title}</div></div>;
 
 /** The tabs and toolbar. The SKETCH tab exists only while a sketch is open, as in Fusion. */
 export function Ribbon(p: Props) {
   const sketching = p.mode === 'sketch';
-  const [tab, setTab] = useState<'solid' | 'inspect' | 'insert'>('solid');
+  const [tab, setTab] = useState<'solid' | 'mesh'>('solid');
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => { if (!(e.target as HTMLElement).closest?.('.rdrop, .rmenu')) setOpen(null); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
+    document.addEventListener('pointerdown', away); window.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc); };
+  }, [open]);
+  const create: Cmd[] = [
+    { id: 'btn-sketch', icon: <Icon.sketch />, label: 'Create Sketch', pressed: p.mode === 'pickPlane', onClick: p.onCreateSketch },
+    { id: 'btn-extrude', icon: <Icon.extrude />, label: 'Extrude', keyHint: 'E', pressed: p.extKind === 'extrude', onClick: p.onExtrude },
+    { id: 'btn-revolve', icon: <Icon.revolve />, label: 'Revolve', pressed: p.extKind === 'revolve', onClick: p.onRevolve },
+    { id: 'btn-sweep', icon: <Icon.sweep />, label: 'Sweep', pressed: p.extKind === 'sweep', onClick: p.onSweep },
+    { id: 'btn-loft', icon: <Icon.loft />, label: 'Loft', pressed: p.extKind === 'loft', onClick: p.onLoft },
+    { id: 'btn-rib', icon: <Icon.rib />, label: 'Rib', pressed: p.extKind === 'rib', disabled: !p.canModify, onClick: p.onRib },
+    { id: 'btn-pipe', icon: <Icon.pipe />, label: 'Pipe', pressed: p.extKind === 'pipe', onClick: p.onPipe },
+    { id: 'btn-coil', icon: <Icon.coil />, label: 'Coil', pressed: p.modTool === 'coil', onClick: p.onCoil },
+    { id: 'btn-emboss', icon: <Icon.emboss />, label: 'Emboss', pressed: p.extKind === 'emboss', onClick: p.onEmboss },
+    { id: 'btn-mirror', icon: <Icon.mirror />, label: 'Mirror', pressed: p.modTool === 'mirror', disabled: !p.canModify, onClick: p.onMirror },
+    { id: 'btn-rpattern', icon: <Icon.rpattern />, label: 'Rect. Pattern', pressed: p.modTool === 'rpattern', disabled: !p.canModify, onClick: p.onRPattern },
+    { id: 'btn-cpattern', icon: <Icon.cpattern />, label: 'Circ. Pattern', pressed: p.modTool === 'cpattern', disabled: !p.canModify, onClick: p.onCPattern },
+    { id: 'btn-hole', icon: <Icon.hole />, label: 'Hole', keyHint: 'H', pressed: p.modTool === 'hole', disabled: !p.canHole, onClick: p.onHole },
+  ];
+  const modify: Cmd[] = [
+    { id: 'btn-fillet', icon: <Icon.bFillet />, label: 'Fillet', keyHint: 'F', pressed: p.modTool === 'fillet', disabled: !p.canModify, onClick: p.onFillet },
+    { id: 'btn-chamfer', icon: <Icon.bChamfer />, label: 'Chamfer', pressed: p.modTool === 'chamfer', disabled: !p.canModify, onClick: p.onChamfer },
+    { id: 'btn-presspull', icon: <Icon.bPressPull />, label: 'Press Pull', keyHint: 'Q', pressed: p.modTool === 'presspull', disabled: !p.canModify, onClick: p.onPressPull },
+    { id: 'btn-shell', icon: <Icon.bShell />, label: 'Shell', pressed: p.modTool === 'shell', disabled: !p.canModify, onClick: p.onShell },
+    { id: 'btn-offsetface', icon: <Icon.bOffsetFace />, label: 'Offset Face', pressed: p.modTool === 'offsetface', disabled: !p.canModify, onClick: p.onOffsetFace },
+    { id: 'btn-draft', icon: <Icon.bDraft />, label: 'Draft', pressed: p.modTool === 'draft', disabled: !p.canModify, onClick: p.onDraft },
+    { id: 'btn-combine', icon: <Icon.bCombine />, label: 'Combine', pressed: p.modTool === 'combine', disabled: !p.canModify, onClick: p.onCombine },
+    { id: 'btn-move', icon: <Icon.bMove />, label: 'Move / Copy', pressed: p.modTool === 'move', disabled: !p.canModify, onClick: p.onMove },
+    { id: 'btn-meshconv', icon: <Icon.bMesh />, label: 'Mesh to Solid', pressed: p.modTool === 'meshconv', disabled: !p.canModify, onClick: p.onMeshConvert },
+    { id: 'btn-split', icon: <Icon.bSplit />, label: 'Split Body', pressed: p.modTool === 'split', disabled: !p.canModify, onClick: p.onSplit },
+    { id: 'btn-scale', icon: <Icon.bScale />, label: 'Scale', pressed: p.modTool === 'scale', disabled: !p.canModify, onClick: p.onScale },
+    { id: 'btn-thread', icon: <Icon.bThread />, label: 'Thread', pressed: p.modTool === 'thread', disabled: !p.canModify, onClick: p.onThread },
+  ];
+  const inspect: Cmd[] = [
+    { id: 'btn-measure', icon: <Icon.bMeasure />, label: 'Measure', keyHint: 'I', pressed: p.measuring, disabled: !p.canModify, onClick: p.onMeasure },
+    { id: 'btn-section', icon: <Icon.bSection />, label: 'Section to DXF', disabled: !p.canModify, onClick: p.onSection },
+  ];
+  const insert: Cmd[] = [
+    { id: 'btn-import', icon: <Icon.bImport />, label: 'Import STEP / IGES / STL…', onClick: p.onImport },
+  ];
+  const meshTools: Cmd[] = [
+    { id: 'btn-import-mesh', icon: <Icon.bImport />, label: 'Insert Mesh (STL, OBJ, 3MF)…', onClick: p.onImport },
+    { id: 'btn-meshconv-mesh', icon: <Icon.bMesh />, label: 'Mesh to Solid', pressed: p.modTool === 'meshconv', disabled: !p.canModify, onClick: p.onMeshConvert },
+    { id: 'btn-scale-mesh', icon: <Icon.bScale />, label: 'Scale', pressed: p.modTool === 'scale', disabled: !p.canModify, onClick: p.onScale },
+  ];
+
   const shown = sketching ? 'solid' : tab;
   return (
     <div className="ribbon" data-testid="ribbon">
       <div className="rtabs">
-        {(['solid', 'inspect', 'insert'] as const).map((t) => <button key={t} className={`rtab${!sketching && shown === t ? ' active' : ''}`} data-testid={`tab-${t}`} disabled={sketching} onClick={() => setTab(t)}>{t.toUpperCase()}</button>)}
+        {(['solid', 'mesh'] as const).map((t) => <button key={t} className={`rtab${!sketching && shown === t ? ' active' : ''}`} data-testid={`tab-${t}`} disabled={sketching} onClick={() => setTab(t)}>{t.toUpperCase()}</button>)}
         {sketching && <button className="rtab active" data-testid="tab-sketch" disabled>SKETCH</button>}
       </div>
       <div className="rtools">
-        {!sketching && shown === 'inspect' ? (
-          <Group title="INSPECT">
-            <Btn id="btn-measure" icon={<Icon.bMeasure />} label="Measure" keyHint="I" pressed={p.measuring} disabled={!p.canModify} onClick={p.onMeasure} />
-            <Btn id="btn-section" icon={<Icon.bSection />} label="Section to DXF" disabled={!p.canModify} onClick={p.onSection} />
-          </Group>
-        ) : !sketching && shown === 'insert' ? (
-          <Group title="INSERT">
-            <Btn id="btn-import" icon={<Icon.bImport />} label="Import STEP / IGES / STL…" onClick={p.onImport} />
-            <Btn id="btn-meshconv-insert" icon={<Icon.bMesh />} label="Mesh to Solid" disabled={!p.canModify} onClick={p.onMeshConvert} />
-          </Group>
-        ) : !sketching ? (
-          <Group title="CREATE">
-            <Btn id="btn-sketch" icon={<Icon.sketch />} label="Create Sketch" pressed={p.mode === 'pickPlane'} onClick={p.onCreateSketch} />
-            <Btn id="btn-extrude" icon={<Icon.extrude />} label="Extrude" keyHint="E" pressed={p.extKind === 'extrude'} onClick={p.onExtrude} />
-            <Btn id="btn-revolve" icon={<Icon.revolve />} label="Revolve" pressed={p.extKind === 'revolve'} onClick={p.onRevolve} />
-            <Btn id="btn-sweep" icon={<Icon.sweep />} label="Sweep" pressed={p.extKind === 'sweep'} onClick={p.onSweep} />
-            <Btn id="btn-loft" icon={<Icon.loft />} label="Loft" pressed={p.extKind === 'loft'} onClick={p.onLoft} />
-            <Btn id="btn-rib" icon={<Icon.rib />} label="Rib" pressed={p.extKind === 'rib'} disabled={!p.canModify} onClick={p.onRib} />
-            <Btn id="btn-pipe" icon={<Icon.pipe />} label="Pipe" pressed={p.extKind === 'pipe'} onClick={p.onPipe} />
-            <Btn id="btn-coil" icon={<Icon.coil />} label="Coil" pressed={p.modTool === 'coil'} onClick={p.onCoil} />
-            <Btn id="btn-emboss" icon={<Icon.emboss />} label="Emboss" pressed={p.extKind === 'emboss'} onClick={p.onEmboss} />
-            <Btn id="btn-mirror" icon={<Icon.mirror />} label="Mirror" pressed={p.modTool === 'mirror'} disabled={!p.canModify} onClick={p.onMirror} />
-            <Btn id="btn-rpattern" icon={<Icon.rpattern />} label="Rect. Pattern" pressed={p.modTool === 'rpattern'} disabled={!p.canModify} onClick={p.onRPattern} />
-            <Btn id="btn-cpattern" icon={<Icon.cpattern />} label="Circ. Pattern" pressed={p.modTool === 'cpattern'} disabled={!p.canModify} onClick={p.onCPattern} />
-            <Btn id="btn-hole" icon={<Icon.hole />} label="Hole" keyHint="H" pressed={p.modTool === 'hole'} disabled={!p.canHole} onClick={p.onHole} />
-          </Group>
-        ) : null}
-        {!sketching ? (
-          <Group title="MODIFY">
-            <Btn id="btn-fillet" icon={<Icon.bFillet />} label="Fillet" keyHint="F" pressed={p.modTool === 'fillet'} disabled={!p.canModify} onClick={p.onFillet} />
-            <Btn id="btn-chamfer" icon={<Icon.bChamfer />} label="Chamfer" pressed={p.modTool === 'chamfer'} disabled={!p.canModify} onClick={p.onChamfer} />
-            <Btn id="btn-presspull" icon={<Icon.bPressPull />} label="Press Pull" keyHint="Q" pressed={p.modTool === 'presspull'} disabled={!p.canModify} onClick={p.onPressPull} />
-            <Btn id="btn-shell" icon={<Icon.bShell />} label="Shell" pressed={p.modTool === 'shell'} disabled={!p.canModify} onClick={p.onShell} />
-            <Btn id="btn-offsetface" icon={<Icon.bOffsetFace />} label="Offset Face" pressed={p.modTool === 'offsetface'} disabled={!p.canModify} onClick={p.onOffsetFace} />
-            <Btn id="btn-draft" icon={<Icon.bDraft />} label="Draft" pressed={p.modTool === 'draft'} disabled={!p.canModify} onClick={p.onDraft} />
-            <Btn id="btn-combine" icon={<Icon.bCombine />} label="Combine" pressed={p.modTool === 'combine'} disabled={!p.canModify} onClick={p.onCombine} />
-            <Btn id="btn-move" icon={<Icon.bMove />} label="Move / Copy" pressed={p.modTool === 'move'} disabled={!p.canModify} onClick={p.onMove} />
-            <Btn id="btn-meshconv" icon={<Icon.bMesh />} label="Mesh to Solid" pressed={p.modTool === 'meshconv'} disabled={!p.canModify} onClick={p.onMeshConvert} />
-            <Btn id="btn-split" icon={<Icon.bSplit />} label="Split Body" pressed={p.modTool === 'split'} disabled={!p.canModify} onClick={p.onSplit} />
-            <Btn id="btn-scale" icon={<Icon.bScale />} label="Scale" pressed={p.modTool === 'scale'} disabled={!p.canModify} onClick={p.onScale} />
-            <Btn id="btn-thread" icon={<Icon.bThread />} label="Thread" pressed={p.modTool === 'thread'} disabled={!p.canModify} onClick={p.onThread} />
-          </Group>
+        {!sketching && shown === 'mesh' ? <CmdGroup title="MESH" cmds={meshTools} open={open} setOpen={setOpen} /> : !sketching ? (
+          <>
+            <CmdGroup title="CREATE" cmds={create} open={open} setOpen={setOpen} />
+            <CmdGroup title="MODIFY" cmds={modify} open={open} setOpen={setOpen} />
+            <div className="rspacer" />
+            <CmdGroup title="INSPECT" cmds={inspect} open={open} setOpen={setOpen} />
+            <CmdGroup title="INSERT" cmds={insert} open={open} setOpen={setOpen} />
+          </>
         ) : (
           <>
             <Group title="CREATE">

@@ -25,13 +25,21 @@ await p.evaluate(() => fetch('/api/batch', { method: 'POST', body: JSON.stringif
   { command: 'solid.extrude', params: { sketch: 'S1', profiles: [0], distance: 12, operation: 'new' } }] }) }));
 await p.reload(); await p.getByTestId('btn-extrude').waitFor({ timeout: 30000 }); await settle(1500);
 
-// ---- tabs
-check(await p.getByTestId('btn-extrude').isVisible(), 'the SOLID tab shows Create and Modify as before');
-await p.getByTestId('tab-inspect').click();
-check(await p.getByTestId('btn-measure').isVisible() && !(await p.getByTestId('btn-extrude').count()), 'the INSPECT tab shows Measure (and the Solid tools are not shown)');
-await p.getByTestId('tab-insert').click();
-check(await p.getByTestId('btn-import').isVisible(), 'the INSERT tab shows Import');
-await p.getByTestId('tab-inspect').click();
+// ---- the ribbon: Create, Modify, Inspect and Insert groups on the SOLID tab, each with a menu; a MESH tab
+check(await p.getByTestId('btn-extrude').isVisible() && await p.getByTestId('btn-measure').isVisible() && await p.getByTestId('btn-import').isVisible(), 'the SOLID tab shows Create, Modify, Inspect (Measure) and Insert (Import)');
+check((await p.getByTestId('tab-inspect').count()) === 0, 'Inspect and Insert are groups, not tabs, as in Fusion');
+await p.getByTestId('menu-create').click();
+check(await p.getByTestId('dropdown-create').isVisible() && await p.getByTestId('item-btn-loft').isVisible(), 'the CREATE ▾ menu lists the create commands');
+await p.keyboard.press('Escape'); await settle(200);
+check((await p.getByTestId('dropdown-create').count()) === 0, 'Esc closes the menu');
+await p.getByTestId('menu-inspect').click();
+await p.getByTestId('item-btn-measure').click();
+await p.getByTestId('measure-panel').waitFor();
+check(true, 'Measure starts from the INSPECT ▾ menu');
+await p.keyboard.press('Escape'); await settle(200);
+await p.getByTestId('tab-mesh').click();
+check(await p.getByTestId('btn-meshconv-mesh').isVisible() && !(await p.getByTestId('btn-extrude').count()), 'the MESH tab has the mesh tools (Mesh to Solid) and not the Solid ones');
+await p.getByTestId('tab-solid').click();
 
 // ---- vertex to vertex
 await p.getByTestId('btn-measure').click();
