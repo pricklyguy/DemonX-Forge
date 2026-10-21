@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/presspull.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -49,10 +50,10 @@ const waitN = async (n) => { for (let i = 0; i < 60; i++) { if ((await boxes()).
 const have = async (list) => { const got = await boxes(); return list.every((x) => got.includes(x)); };
 const ORIG = '10,0,0,30,10,10';
 check(JSON.stringify(await boxes()) === JSON.stringify([ORIG]), 'one body: a 20 x 10 x 10 block', JSON.stringify(await boxes()));
-check(await p.getByTestId('btn-mirror').isEnabled() && await p.getByTestId('btn-rpattern').isEnabled() && await p.getByTestId('btn-cpattern').isEnabled(), 'Mirror and the two patterns are available');
+check(await enabled(p, 'btn-mirror') && await enabled(p, 'btn-rpattern') && await enabled(p, 'btn-cpattern'), 'Mirror and the two patterns are available');
 
 // ---- Mirror
-await p.getByTestId('btn-mirror').click();
+await pick(p, 'btn-mirror');
 await p.getByTestId('modify-dialog').waitFor();
 check(/MIRROR/.test(await text('modify-dialog')) && /Body1/.test(await text('edge-count')), 'Mirror opens with the only body already chosen');
 await waitN(2);
@@ -72,7 +73,7 @@ await p.keyboard.press('Escape');
 await p.getByTestId('modify-dialog').waitFor({ state: 'detached' });
 await settle(600);
 check((await boxes()).length === 1, 'Esc removes the preview');
-await p.getByTestId('btn-mirror').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-mirror'); await p.getByTestId('modify-dialog').waitFor();
 await waitN(2);
 await p.getByTestId('modify-ok').click();
 await p.getByTestId('modify-dialog').waitFor({ state: 'detached' });
@@ -85,7 +86,7 @@ check((await boxes()).length === 2, 'and Ctrl+Y brings it back');
 await p.keyboard.press('Control+z'); await waitN(1); await settle(500);
 
 // ---- Rectangular Pattern
-await p.getByTestId('btn-rpattern').click();
+await pick(p, 'btn-rpattern');
 await p.getByTestId('modify-dialog').waitFor();
 check(/RECTANGULAR/.test(await text('modify-dialog')), 'Rectangular Pattern opens its dialog');
 await p.getByLabel('Spacing', { exact: true }).fill('30');
@@ -108,7 +109,7 @@ check((await boxes()).length === 6 && (await p.getByTestId('timeline').locator('
 await p.keyboard.press('Control+z'); await waitN(1); await settle(500);
 
 // ---- Circular Pattern
-await p.getByTestId('btn-cpattern').click();
+await pick(p, 'btn-cpattern');
 await p.getByTestId('modify-dialog').waitFor();
 check(/CIRCULAR/.test(await text('modify-dialog')), 'Circular Pattern opens its dialog');
 await waitN(4);

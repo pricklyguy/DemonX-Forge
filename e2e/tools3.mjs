@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/tools3.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -32,7 +33,7 @@ await reload();
 const ONE = '0,0,0,40,30,10';
 
 // ---------------- Move / Copy
-await p.getByTestId('btn-move').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-move'); await p.getByTestId('modify-dialog').waitFor();
 check(/MOVE/.test(await text('modify-dialog')) && /Body1/.test(await text('edge-count')), 'Move / Copy opens with the only body chosen');
 await p.getByLabel('Move X', { exact: true }).fill('50');
 check(await waitTrue(async () => await same(['50,0,0,90,30,10'])), 'a move of 50 in X shifts the body', JSON.stringify(await boxes()));
@@ -52,7 +53,7 @@ await p.keyboard.press('Control+z');
 check(await waitTrue(async () => await same([ONE])), 'one Ctrl+Z undoes it');
 
 // ---------------- Split Body
-await p.getByTestId('btn-split').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-split'); await p.getByTestId('modify-dialog').waitFor();
 check(/SPLIT/.test(await text('modify-dialog')), 'Split Body opens its dialog');
 await p.getByLabel('Position', { exact: true }).fill('15');
 check(await waitTrue(async () => await same(['0,0,0,15,30,10', '15,0,0,40,30,10'])), 'a plane at x = 15 cuts it into two bodies', JSON.stringify(await boxes()));
@@ -65,7 +66,7 @@ await p.keyboard.press('Escape'); await p.getByTestId('modify-dialog').waitFor({
 check(await same([ONE]), 'Esc leaves the one body');
 
 // ---------------- Hole: create, then edit
-await p.getByTestId('btn-hole').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-hole'); await p.getByTestId('modify-dialog').waitFor();
 check(/HOLE/.test(await text('modify-dialog')) && /Select a face/.test(await text('edge-count')), 'Hole opens asking for a face');
 const f0 = await faces();
 await clickWorld([30, 5, 10]); await settle(400); // away from the dialog, which covers the middle of the part
@@ -106,7 +107,7 @@ await p.keyboard.press('Control+z'); await settle(1000);
 // ---------------- Thread: on a hole wall
 await api([{ command: 'solid.hole', params: { position: [30, 12, 10], diameter: 10 } }]);
 await reload();
-await p.getByTestId('btn-thread').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-thread'); await p.getByTestId('modify-dialog').waitFor();
 check(/THREAD/.test(await text('modify-dialog')), 'Thread opens its dialog');
 await settle(800);
 await clickWorld([37, 4, 10]); await settle(500);   // the flat top: not round
@@ -135,7 +136,7 @@ await api([{ command: 'solid.box', params: { length: 40, width: 30, height: 20, 
 await reload();
 const f11 = await faces();
 check(f11 === 11, 'an open box (11 faces) and a line across its floor', `${f11}`);
-await p.getByTestId('btn-rib').click(); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
+await pick(p, 'btn-rib'); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
 check(/RIB/.test(await text('extrude-dialog')) && (await p.getByLabel('Rib thickness').count()) === 1 && (await p.getByLabel('Rib sketch').innerText()).includes('RibLine'), 'Rib opens with the sketch, a thickness and a depth');
 await p.getByLabel('Rib depth').fill('');
 await settle(1800);

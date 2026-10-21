@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/shapes.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -30,7 +31,7 @@ await p.getByTestId('demo').waitFor({ timeout: 30000 });
 // ---------------- Scale
 await api([{ command: 'solid.box', params: { length: 40, width: 30, height: 10, corner: [0, 0, 0] } }]);
 await reload();
-await p.getByTestId('btn-scale').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-scale'); await p.getByTestId('modify-dialog').waitFor();
 check(/SCALE/.test(await text('modify-dialog')) && /Body1/.test(await text('edge-count')), 'Scale opens with the only body chosen');
 check(await waitIs(['-20,-15,-5,60,45,15']), 'factor 2 about the middle of the body doubles it in place', JSON.stringify(await boxes()));
 await p.getByLabel('About').selectOption('origin');
@@ -50,7 +51,7 @@ check(await waitIs(['0,0,0,40,30,10']), 'one Ctrl+Z undoes it');
 
 // ---------------- Coil (needs no body)
 await fresh(); await reload();
-await p.getByTestId('btn-coil').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-coil'); await p.getByTestId('modify-dialog').waitFor();
 check(/COIL/.test(await text('modify-dialog')), 'Coil opens with no body in the design');
 check(await waitIs(['-11.5,-11.5,-1.5,11.5,11.5,31.5']), 'the default coil: 20 across, 4 turns, 30 tall, wire 3', JSON.stringify(await boxes()));
 await p.screenshot({ path: `${shots}/k1-coil.png` });
@@ -70,7 +71,7 @@ check(await waitIs([]), 'one Ctrl+Z undoes it');
 await fresh();
 await api([{ command: 'sketch.create', params: { plane: 'XZ', name: 'Run' } }, { command: 'sketch.line', params: { points: [[0, 0], [0, -40]] } }, { command: 'sketch.finish' }]);
 await reload();
-await p.getByTestId('btn-pipe').click(); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
+await pick(p, 'btn-pipe'); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
 check(/PIPE/.test(await text('extrude-dialog')) && (await p.getByLabel('Pipe path').innerText()).includes('Run'), 'Pipe opens with the sketch as the path');
 check(await waitIs(['-3,-3,0,3,3,40']), 'a solid rod 6 across and 40 long', JSON.stringify(await boxes()));
 await p.getByLabel('Pipe wall').fill('1'); await p.getByLabel('Pipe diameter').fill('10');
@@ -91,7 +92,7 @@ await api([{ command: 'solid.box', params: { length: 40, width: 30, height: 10, 
 const top = (await state()).bodies[0].faces.find((f) => (f.planeNormal?.[2] ?? 0) > 0.9);
 await api([{ command: 'sketch.create', params: { plane: { face: top.point, body: 'Body1', index: top.index }, name: 'Logo' } }, { command: 'sketch.circle.center', params: { center: [20, 15], diameter: 10 } }, { command: 'sketch.finish' }]);
 await reload();
-await p.getByTestId('btn-emboss').click(); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
+await pick(p, 'btn-emboss'); await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
 check(/EMBOSS/.test(await text('extrude-dialog')), 'Emboss opens');
 await settle(500);
 if (!/1 selected/.test(await text('profile-count'))) { // the face's own outline is a profile too, so the circle is clicked

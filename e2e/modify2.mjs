@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/presspull.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -40,7 +41,7 @@ const ONE = '0,0,0,40,30,10';
 check(JSON.stringify(await boxes()) === JSON.stringify([ONE]), 'a 40 x 30 x 10 block', JSON.stringify(await boxes()));
 
 // ---- Offset Face: the front wall (y = 0)
-await p.getByTestId('btn-offsetface').click();
+await pick(p, 'btn-offsetface');
 await p.getByTestId('modify-dialog').waitFor();
 check(/OFFSET FACE/.test(await text('modify-dialog')) && /Select faces/.test(await text('edge-count')), 'Offset Face opens asking for faces');
 await clickWorld([20, 0, 5]); await settle(300);
@@ -55,7 +56,7 @@ await p.keyboard.press('Escape');
 await p.getByTestId('modify-dialog').waitFor({ state: 'detached' });
 await settle(600);
 check(JSON.stringify(await boxes()) === JSON.stringify([ONE]), 'Esc puts it back', JSON.stringify(await boxes()));
-await p.getByTestId('btn-offsetface').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-offsetface'); await p.getByTestId('modify-dialog').waitFor();
 await clickWorld([20, 0, 5]); await settle(300);
 await p.getByLabel('Distance').fill('5');
 await waitTrue(async () => JSON.stringify(await boxes()) === JSON.stringify(['0,-5,0,40,30,10']));
@@ -67,7 +68,7 @@ await p.keyboard.press('Control+z');
 check(await waitTrue(async () => JSON.stringify(await boxes()) === JSON.stringify([ONE])), 'one Ctrl+Z undoes it');
 
 // ---- Draft: tilt the front wall 5 degrees about the bottom
-await p.getByTestId('btn-draft').click();
+await pick(p, 'btn-draft');
 await p.getByTestId('modify-dialog').waitFor();
 check(/DRAFT/.test(await text('modify-dialog')) && (await p.getByLabel('Neutral plane').count()) === 1 && (await p.getByLabel('Angle').count()) === 1, 'Draft asks for faces, a neutral plane and an angle');
 await clickWorld([20, 0, 5]); await settle(300);
@@ -96,7 +97,7 @@ await p.getByTestId('timeline').waitFor({ timeout: 30000 });
 await settle(1000);
 const TWO = ['0,0,0,40,30,10', '30,5,0,50,25,20'];
 check(JSON.stringify(await boxes()) === JSON.stringify(TWO), 'two overlapping blocks', JSON.stringify(await boxes()));
-await p.getByTestId('btn-combine').click();
+await pick(p, 'btn-combine');
 await p.getByTestId('modify-dialog').waitFor();
 check(/COMBINE/.test(await text('modify-dialog')) && /Body2/.test(await text('edge-count')), 'Combine opens with Body1 as the target and Body2 as the tool');
 check(await waitTrue(async () => JSON.stringify(await boxes()) === JSON.stringify(['0,0,0,50,30,20'])), 'Join merges them into one body', JSON.stringify(await boxes()));

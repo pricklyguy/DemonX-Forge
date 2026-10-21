@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/presspull.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -24,7 +25,7 @@ const waitTop = async (z) => { for (let i = 0; i < 60; i++) { if (Math.abs((awai
 
 await p.goto(URL);
 await p.getByTestId('demo').waitFor({ timeout: 30000 });
-check(await p.getByTestId('btn-presspull').isDisabled(), 'Press Pull is greyed out until there is a body');
+check(!(await enabled(p, 'btn-presspull')), 'Press Pull is greyed out until there is a body');
 
 // ---- a 40 x 30 plate, 10 thick
 await p.getByTestId('btn-sketch').click();
@@ -67,7 +68,7 @@ check((await top()) === 10, 'Esc removes the preview: back to 10', `${await top(
 check((await p.getByTestId('timeline').locator('[data-name^=Press]').count()) === 0, 'and nothing is left in the timeline');
 
 // ---- a negative distance pushes the face in (cuts)
-await p.getByTestId('btn-presspull').click();
+await pick(p, 'btn-presspull');
 await p.getByTestId('modify-dialog').waitFor();
 await clickWorld([20, 15, 10]); await settle(300);
 await p.getByLabel('Distance').fill('-4');

@@ -44,9 +44,9 @@ interface Props {
   onImport(): void;
 }
 
-function Btn({ icon, label, keyHint, pressed, disabled, onClick, id }: { icon: ReactNode; label: string; keyHint?: string; pressed?: boolean; disabled?: boolean; onClick(): void; id: string }) {
+function Btn({ icon, label, keyHint, pressed, disabled, onClick, id, tooltip }: { tooltip?: string; icon: ReactNode; label: string; keyHint?: string; pressed?: boolean; disabled?: boolean; onClick(): void; id: string }) {
   return (
-    <button className={`rbtn${pressed ? ' on' : ''}`} aria-pressed={pressed} disabled={disabled} title={keyHint ? `${label} (${keyHint})` : label} data-testid={id} onClick={onClick}>
+    <button className={`rbtn${pressed ? ' on' : ''}`} aria-pressed={pressed} disabled={disabled} title={tooltip ?? (keyHint ? `${label} (${keyHint})` : label)} data-testid={id} onClick={onClick}>
       <span className="ricon">{icon}</span><span className="rlabel">{label}</span>
     </button>
   );
@@ -54,12 +54,12 @@ function Btn({ icon, label, keyHint, pressed, disabled, onClick, id }: { icon: R
 function Cbtn({ id, icon, label, tool, p }: { id: string; icon: ReactNode; label: string; tool: Tool; p: Props }) {
   return <button className={`cbtn${p.tool === tool ? ' on' : ''}`} aria-pressed={p.tool === tool} title={label} aria-label={label} data-testid={id} onClick={() => p.onTool(tool)}>{icon}</button>;
 }
-interface Cmd { id: string; icon: ReactNode; label: string; keyHint?: string; pressed?: boolean; disabled?: boolean; onClick(): void }
+interface Cmd { pinned?: boolean; tooltip?: string; id: string; icon: ReactNode; label: string; keyHint?: string; pressed?: boolean; disabled?: boolean; onClick(): void }
 /** A group of buttons whose title opens a menu listing the same commands (Fusion's CREATE ▾), for the keyboard and for a narrow window. */
 function CmdGroup({ title, cmds, open, setOpen }: { title: string; cmds: Cmd[]; open: string | null; setOpen(v: string | null): void }) {
   return (
     <div className="rgroup">
-      <div className="rbtns">{cmds.map((c) => <Btn key={c.id} {...c} />)}</div>
+      <div className="rbtns">{cmds.filter((c) => c.pinned).map((c, i) => <span className={`rpin rpin-${i}`} key={c.id}><Btn {...c} /></span>)}</div>
       <div className="rtitle"><button className="rmenu" data-testid={`menu-${title.toLowerCase()}`} aria-haspopup="menu" aria-expanded={open === title} onClick={() => setOpen(open === title ? null : title)}>{title} ▾</button></div>
       {open === title && (
         <div className="rdrop" role="menu" data-testid={`dropdown-${title.toLowerCase()}`}>
@@ -84,9 +84,9 @@ export function Ribbon(p: Props) {
     return () => { document.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc); };
   }, [open]);
   const create: Cmd[] = [
-    { id: 'btn-sketch', icon: <Icon.sketch />, label: 'Create Sketch', pressed: p.mode === 'pickPlane', onClick: p.onCreateSketch },
-    { id: 'btn-extrude', icon: <Icon.extrude />, label: 'Extrude', keyHint: 'E', pressed: p.extKind === 'extrude', onClick: p.onExtrude },
-    { id: 'btn-revolve', icon: <Icon.revolve />, label: 'Revolve', pressed: p.extKind === 'revolve', onClick: p.onRevolve },
+    { id: 'btn-sketch', pinned: true, icon: <Icon.sketch />, label: 'Create Sketch', pressed: p.mode === 'pickPlane', onClick: p.onCreateSketch },
+    { id: 'btn-extrude', pinned: true, icon: <Icon.extrude />, label: 'Extrude', keyHint: 'E', pressed: p.extKind === 'extrude', onClick: p.onExtrude },
+    { id: 'btn-revolve', pinned: true, icon: <Icon.revolve />, label: 'Revolve', pressed: p.extKind === 'revolve', onClick: p.onRevolve },
     { id: 'btn-sweep', icon: <Icon.sweep />, label: 'Sweep', pressed: p.extKind === 'sweep', onClick: p.onSweep },
     { id: 'btn-loft', icon: <Icon.loft />, label: 'Loft', pressed: p.extKind === 'loft', onClick: p.onLoft },
     { id: 'btn-rib', icon: <Icon.rib />, label: 'Rib', pressed: p.extKind === 'rib', disabled: !p.canModify, onClick: p.onRib },
@@ -99,8 +99,8 @@ export function Ribbon(p: Props) {
     { id: 'btn-hole', icon: <Icon.hole />, label: 'Hole', keyHint: 'H', pressed: p.modTool === 'hole', disabled: !p.canHole, onClick: p.onHole },
   ];
   const modify: Cmd[] = [
-    { id: 'btn-fillet', icon: <Icon.bFillet />, label: 'Fillet', keyHint: 'F', pressed: p.modTool === 'fillet', disabled: !p.canModify, onClick: p.onFillet },
-    { id: 'btn-chamfer', icon: <Icon.bChamfer />, label: 'Chamfer', pressed: p.modTool === 'chamfer', disabled: !p.canModify, onClick: p.onChamfer },
+    { id: 'btn-fillet', pinned: true, icon: <Icon.bFillet />, label: 'Fillet', keyHint: 'F', pressed: p.modTool === 'fillet', disabled: !p.canModify, onClick: p.onFillet },
+    { id: 'btn-chamfer', pinned: true, icon: <Icon.bChamfer />, label: 'Chamfer', pressed: p.modTool === 'chamfer', disabled: !p.canModify, onClick: p.onChamfer },
     { id: 'btn-presspull', icon: <Icon.bPressPull />, label: 'Press Pull', keyHint: 'Q', pressed: p.modTool === 'presspull', disabled: !p.canModify, onClick: p.onPressPull },
     { id: 'btn-shell', icon: <Icon.bShell />, label: 'Shell', pressed: p.modTool === 'shell', disabled: !p.canModify, onClick: p.onShell },
     { id: 'btn-offsetface', icon: <Icon.bOffsetFace />, label: 'Offset Face', pressed: p.modTool === 'offsetface', disabled: !p.canModify, onClick: p.onOffsetFace },
@@ -113,16 +113,16 @@ export function Ribbon(p: Props) {
     { id: 'btn-thread', icon: <Icon.bThread />, label: 'Thread', pressed: p.modTool === 'thread', disabled: !p.canModify, onClick: p.onThread },
   ];
   const inspect: Cmd[] = [
-    { id: 'btn-measure', icon: <Icon.bMeasure />, label: 'Measure', keyHint: 'I', pressed: p.measuring, disabled: !p.canModify, onClick: p.onMeasure },
+    { id: 'btn-measure', pinned: true, icon: <Icon.bMeasure />, label: 'Measure', keyHint: 'I', pressed: p.measuring, disabled: !p.canModify, onClick: p.onMeasure },
     { id: 'btn-section', icon: <Icon.bSection />, label: 'Section to DXF', disabled: !p.canModify, onClick: p.onSection },
   ];
   const insert: Cmd[] = [
-    { id: 'btn-import', icon: <Icon.bImport />, label: 'Import STEP / IGES / STL…', onClick: p.onImport },
+    { id: 'btn-import', pinned: true, icon: <Icon.bImport />, label: 'Import', tooltip: 'Import STEP / IGES / STL / OBJ / 3MF…', onClick: p.onImport },
   ];
   const meshTools: Cmd[] = [
-    { id: 'btn-import-mesh', icon: <Icon.bImport />, label: 'Insert Mesh (STL, OBJ, 3MF)…', onClick: p.onImport },
-    { id: 'btn-meshconv-mesh', icon: <Icon.bMesh />, label: 'Mesh to Solid', pressed: p.modTool === 'meshconv', disabled: !p.canModify, onClick: p.onMeshConvert },
-    { id: 'btn-scale-mesh', icon: <Icon.bScale />, label: 'Scale', pressed: p.modTool === 'scale', disabled: !p.canModify, onClick: p.onScale },
+    { id: 'btn-import-mesh', pinned: true, icon: <Icon.bImport />, label: 'Insert Mesh (STL, OBJ, 3MF)…', onClick: p.onImport },
+    { id: 'btn-meshconv-mesh', pinned: true, icon: <Icon.bMesh />, label: 'Mesh to Solid', pressed: p.modTool === 'meshconv', disabled: !p.canModify, onClick: p.onMeshConvert },
+    { id: 'btn-scale-mesh', pinned: true, icon: <Icon.bScale />, label: 'Scale', pressed: p.modTool === 'scale', disabled: !p.canModify, onClick: p.onScale },
   ];
 
   const shown = sketching ? 'solid' : tab;
@@ -132,7 +132,7 @@ export function Ribbon(p: Props) {
         {(['solid', 'mesh'] as const).map((t) => <button key={t} className={`rtab${!sketching && shown === t ? ' active' : ''}`} data-testid={`tab-${t}`} disabled={sketching} onClick={() => setTab(t)}>{t.toUpperCase()}</button>)}
         {sketching && <button className="rtab active" data-testid="tab-sketch" disabled>SKETCH</button>}
       </div>
-      <div className="rtools">
+      <div className={`rtools${sketching ? " sketch-tools" : " model-tools"}`}>
         {!sketching && shown === 'mesh' ? <CmdGroup title="MESH" cmds={meshTools} open={open} setOpen={setOpen} /> : !sketching ? (
           <>
             <CmdGroup title="CREATE" cmds={create} open={open} setOpen={setOpen} />

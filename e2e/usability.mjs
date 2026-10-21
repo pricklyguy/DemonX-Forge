@@ -69,7 +69,7 @@ check(await waitTrue(async () => (await boxes()).length === 1), 'one undo takes 
 
 // ---- the whole ribbon is reachable in a narrow window, and the right-click menu has the Modify tools
 await p.setViewportSize({ width: 1000, height: 700 }); await settle(500);
-for (const id of ['btn-move', 'btn-split', 'btn-scale', 'btn-thread']) { const r = await p.getByTestId(id).boundingBox(); check(r && r.x >= 0 && r.x + r.width <= 1000, `${id} is inside a 1000 px window`, JSON.stringify(r)); }
+for (const id of ['btn-fillet', 'btn-measure', 'btn-import', 'menu-create', 'menu-modify', 'menu-inspect', 'menu-insert']) { const r = await p.getByTestId(id).boundingBox(); check(r && r.x >= 0 && r.x + r.width <= 1000, `${id} is inside a 1000 px window`, JSON.stringify(r)); }
 await p.setViewportSize({ width: 1440, height: 860 }); await settle(400);
 await p.mouse.click(1200, 600, { button: 'right' });
 check(await p.getByTestId('context-menu').getByRole('button', { name: 'Split Body' }).isVisible() && await p.getByTestId('context-menu').getByRole('button', { name: /Move \/ Copy/ }).isVisible(), 'right-click menu lists Move / Copy and Split Body');

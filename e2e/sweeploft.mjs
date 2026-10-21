@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/presspull.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -41,7 +42,7 @@ const boxes = () => p.evaluate(async () => (await (await fetch('/api/state')).js
 const waitBoxes = async (v) => { for (let i = 0; i < 60; i++) { if (JSON.stringify(await boxes()) === JSON.stringify(v)) return; await settle(250); } };
 
 // ---- Sweep: the circle (sketch Round) along the line (sketch Rail)
-await p.getByTestId('btn-sweep').click();
+await pick(p, 'btn-sweep');
 await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
 check(/SWEEP/.test(await text('extrude-dialog')) && (await p.getByLabel('Path').count()) === 1, 'Sweep opens a dialog with a Path');
 check(/1 selected/.test(await text('profile-count')), 'the circle is already the profile');
@@ -53,7 +54,7 @@ await p.keyboard.press('Escape');
 await p.getByTestId('extrude-dialog').waitFor({ state: 'detached' });
 await settle(600);
 check((await boxes()).length === 0, 'Esc removes the preview');
-await p.getByTestId('btn-sweep').click(); await p.getByTestId('extrude-dialog').waitFor();
+await pick(p, 'btn-sweep'); await p.getByTestId('extrude-dialog').waitFor();
 await waitBoxes(['-5,-5,0,5,5,40']);
 await p.getByTestId('extrude-ok').click();
 await p.getByTestId('extrude-dialog').waitFor({ state: 'detached' });
@@ -72,7 +73,7 @@ await api([
 await p.reload();
 await p.getByTestId('timeline').waitFor({ timeout: 30000 });
 await settle(800);
-await p.getByTestId('btn-loft').click();
+await pick(p, 'btn-loft');
 await p.getByTestId('extrude-dialog').waitFor({ timeout: 15000 });
 check(/LOFT/.test(await text('extrude-dialog')) && /Select profiles/.test(await text('profile-count')), 'Loft opens asking for profiles');
 const [cx, cy] = await proj([0, 0, 0]);

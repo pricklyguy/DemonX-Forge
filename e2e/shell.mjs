@@ -2,6 +2,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/presspull.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
@@ -26,7 +27,7 @@ const waitTop = async (z) => { for (let i = 0; i < 60; i++) { if (Math.abs((awai
 
 await p.goto(URL);
 await p.getByTestId('demo').waitFor({ timeout: 30000 });
-check(await p.getByTestId('btn-shell').isDisabled(), 'Shell is greyed out until there is a body');
+check(!(await enabled(p, 'btn-shell')), 'Shell is greyed out until there is a body');
 
 // ---- a 40 x 30 plate, 10 thick
 await p.getByTestId('btn-sketch').click();
@@ -48,7 +49,7 @@ await settle(700);
 check((await top()) === 10, 'the plate is 10 thick', `${await top()}`);
 
 // ---- Shell: click the top face, 2 mm walls
-await p.getByTestId('btn-shell').click();
+await pick(p, 'btn-shell');
 await p.getByTestId('modify-dialog').waitFor();
 check(/SHELL/.test(await text('modify-dialog')) && /Select faces/.test(await text('edge-count')), 'Shell opens its dialog asking for faces');
 check(/leave open/.test(await text('hint')), 'and the status bar says what to do');

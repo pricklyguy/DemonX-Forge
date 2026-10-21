@@ -4,6 +4,7 @@
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/meshimport.mjs      Screenshots go to $SHOTS (default /tmp).
+import { pick, enabled } from './menu.mjs';
 import { chromium } from 'playwright';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,8 +40,8 @@ const plate = join(dir, 'Plate One.stl'); writeFileSync(plate, Buffer.from(await
 await fresh();
 
 // ---- Mesh to Solid with no mesh in the design
-await p.getByTestId('btn-meshconv').isDisabled(); // (disabled while there is no body at all)
-check(await p.getByTestId('btn-meshconv').isDisabled(), 'Mesh to Solid is greyed out in an empty design');
+!(await enabled(p, 'btn-meshconv')); // (disabled while there is no body at all)
+check(!(await enabled(p, 'btn-meshconv')), 'Mesh to Solid is greyed out in an empty design');
 
 // ---- Import an STL
 await importFile(plate);
@@ -58,7 +59,7 @@ check(await p.getByTestId('place-import').count() === 0, 'and the question goes 
 await p.screenshot({ path: `${shots}/m1-imported.png` });
 
 // ---- Mesh to Solid
-await p.getByTestId('btn-meshconv').click();
+await pick(p, 'btn-meshconv');
 await p.getByTestId('modify-dialog').waitFor();
 check(/MESH TO SOLID/.test(await text('modify-dialog')) && /Plate/.test(await text('edge-count')), 'Mesh to Solid opens with the only mesh already chosen', await text('edge-count'));
 await p.getByLabel('Tolerance (mm)').fill('0');
@@ -89,7 +90,7 @@ await fresh();
 await importFile(bracket);
 check(await waitTrue(async () => (await state()).bodies[0]?.mesh === true), 'the demo bracket comes in as a mesh');
 await p.getByTestId('place-keep').click();
-await p.getByTestId('btn-meshconv').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-meshconv'); await p.getByTestId('modify-dialog').waitFor();
 await p.getByTestId('modify-ok').click();
 await p.getByTestId('modify-dialog').waitFor({ state: 'detached', timeout: 120000 });
 check(await waitTrue(async () => (await state()).bodies[0]?.mesh === false), 'the bracket is rebuilt as a solid, with its holes');
@@ -112,7 +113,7 @@ await fresh();
 await importFile(chamfered);
 check(await waitTrue(async () => (await state()).bodies[0]?.mesh === true), 'a block chamfered along two edges comes in as a mesh');
 await p.getByTestId('place-keep').click();
-await p.getByTestId('btn-meshconv').click(); await p.getByTestId('modify-dialog').waitFor();
+await pick(p, 'btn-meshconv'); await p.getByTestId('modify-dialog').waitFor();
 await p.getByTestId('modify-ok').click();
 const refused = await waitTrue(async () => (await p.getByTestId('error').count()) > 0);
 check(refused && (await state()).bodies[0].mesh === true, 'it is refused with a reason, the mesh is left alone, the dialog stays open', refused ? await text('error') : '');

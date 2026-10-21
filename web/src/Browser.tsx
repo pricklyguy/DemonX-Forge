@@ -6,6 +6,7 @@ interface Props {
   docName: string;
   bodies: Body[]; sketches: Sketch[]; parameters: Parameter[];
   hiddenBodies: Set<string>; hiddenSketches: Set<number>; showOrigin: boolean; busy: boolean;
+  pickingPlane: boolean; onPickPlane(plane: 'XY' | 'XZ' | 'YZ'): void;
   onToggleBody(name: string): void; onToggleSketch(id: number): void; onToggleOrigin(): void; onEditSketch(name: string): void;
   onSetParam(name: string, value: string): Promise<boolean>;
 }
@@ -42,7 +43,7 @@ export function Browser(p: Props) {
       <Node id="root" label={p.docName}>
         <Node id="settings" label="Document Settings"><div className="bleaf">Units: mm</div></Node>
         <Node id="origin" label="Origin" eye={p.showOrigin} onEye={p.onToggleOrigin} open={false}>
-          <div className="bleaf">XY plane</div><div className="bleaf">XZ plane</div><div className="bleaf">YZ plane</div>
+          {(['XY', 'XZ', 'YZ'] as const).map((plane) => <div className="bleaf" key={plane}>{p.pickingPlane ? <button onClick={() => p.onPickPlane(plane)}>{plane} / {plane === 'XY' ? 'Top' : plane === 'XZ' ? 'Front' : 'Side'}</button> : `${plane} plane`}</div>)}
         </Node>
         <Node id="bodies" label={`Bodies (${p.bodies.length})`}>
           {p.bodies.map((b) => <Node key={b.name} id={`body-${b.name}`} label={b.name} eye={!p.hiddenBodies.has(b.name)} onEye={() => p.onToggleBody(b.name)} />)}
