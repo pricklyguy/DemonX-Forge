@@ -63,6 +63,16 @@ await p.getByTestId('modify-dialog').waitFor({ timeout: 15000 });
 check(/1 selected/.test(await p.getByTestId('edge-count').innerText()), 'Fillet opens with that edge already selected', await p.getByTestId('edge-count').innerText());
 await p.keyboard.type('2');
 check((await p.getByLabel('Radius').inputValue()) === '2', 'typing a number goes straight into the Radius box', await p.getByLabel('Radius').inputValue());
+// the radius arrow sits on the edge and can be dragged
+await settle(600);
+const tip = await p.evaluate(() => window.__forge.handleTip(0));
+check(!!tip && tip.value === 2, 'a radius arrow is shown on the picked edge (value 2)', JSON.stringify(tip));
+const [mx, my] = await proj([25, 0, 12]);
+const to = [tip.at[0] + (tip.at[0] - mx) * 1.5, tip.at[1] + (tip.at[1] - my) * 1.5];
+await p.mouse.move(tip.at[0], tip.at[1]); await p.mouse.down(); await p.mouse.move(to[0], to[1], { steps: 8 }); await p.mouse.up(); await settle(600);
+const dragged = Number(await p.getByLabel('Radius').inputValue());
+check(dragged > 3, 'dragging the arrow outward makes the radius bigger', String(dragged));
+await p.getByLabel('Radius').fill('2');
 for (let i = 0; i < 40; i++) { if ((await state()).bodies[0].faces.length === 7) break; await settle(250); }
 check((await state()).bodies[0].faces.length === 7, 'the live preview shows the rounded edge (7 faces) before pressing OK');
 await p.screenshot({ path: `${shots}/pl2-fillet.png` });

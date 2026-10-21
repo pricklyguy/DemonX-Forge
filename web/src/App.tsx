@@ -18,6 +18,7 @@ import { UpdateBadge, UpdatesDialog, useUpdates } from './Updates';
 import { curvePoints } from './sketch/loops';
 import { PICK_MODE, applyTyped, constraintStep, dimensionFor, isDraw, onClick, sizeFields, type Tool } from './sketch/tools';
 import { pickEntity, type Picked } from './sketch/pick';
+import { inwardBisector } from './edgeDir';
 import { describe as describeItem, measureOne, measureTwo, type MeasureItem } from './measure';
 import type { EdgeRef, Mode, PlanePick, ProfileRef, ViewApi } from './ui';
 
@@ -504,12 +505,20 @@ export function App() {
   /** Pipe: a sketch with lines or arcs is the path. */
   const pipeOptions = useMemo(() => snap.sketches.filter((s) => s.curves.some((c) => !c.construction && (c.type === 'line' || c.type === 'arc'))).map((s) => ({ value: String(s.id), label: s.name })), [snap.sketches]);
   const pipeChoice = pipeOptions.some((o) => o.value === ext.pipeSketch) ? ext.pipeSketch : pipeOptions[0]?.value ?? '';
+  const isEdgeTool = (t: ModTool) => !FACE_TOOLS.includes(t) && !BODY_TOOLS.includes(t) && t !== 'coil';
+  const edgeSets = useMemo(() => (mode === 'modify' && isEdgeTool(modTool) && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : mode === 'model' ? snap.bodies.filter((b) => !b.mesh).map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase, snap.bodies]);
   /** The arrow to drag in the view: Press Pull's face, or the extrude's profile. Its value is the dialog's distance. */
   const dragHandle = useMemo(() => {
     if (mode === 'modify' && (modTool === 'presspull' || modTool === 'offsetface') && facesSel[0] && !valueEdit) {
       const f = modBase?.bodies.find((b) => b.name === facesSel[0]!.body)?.faces.find((q) => q.index === facesSel[0]!.face);
       const n = Number(modValue); if (!f?.planeNormal || !Number.isFinite(n)) return null;
       return { origin: facesSel[0]!.point as Vec3, dir: f.planeNormal as Vec3, value: n, onChange: (x: number) => setModValue(String(+x.toFixed(2))), onSubmit: () => void okModify() };
+    }
+    if (mode === 'modify' && (modTool === 'fillet' || modTool === 'chamfer') && edgesSel[0] && !valueEdit) { // the radius (or distance) arrow sits on the first picked edge and points into the material
+      const ref = edgesSel[0]!, g = edgeSets.find((x) => x.body === ref.body)?.edges.find((x) => x.index === ref.index), body = modBase?.bodies.find((b) => b.name === ref.body);
+      const n = Number(modValue); if (!g?.faces || !body || !Number.isFinite(n)) return null;
+      const dir = inwardBisector(body, g.faces, g.mid); if (!dir) return null;
+      return { origin: g.mid as Vec3, dir, value: n, onChange: (x: number) => setModValue(String(Math.max(0.1, +x.toFixed(2)))), onSubmit: () => void okModify() };
     }
     if (mode === 'extrude' && extKind === 'extrude' && profiles[0]) {
       const sk = snap.sketches.find((q) => q.id === profiles[0]!.sketch); const n = Number(ext.distance);
@@ -520,7 +529,7 @@ export function App() {
       return { origin: toWorld(sk.plane, profiles[0]!.at), dir: [nrm[0] * sgn, nrm[1] * sgn, nrm[2] * sgn] as Vec3, value: n, onChange: (x: number) => setExt((cur) => ({ ...cur, distance: String(+x.toFixed(2)) })), onSubmit: () => void okExtrude() };
     }
     return null;
-  }, [mode, modTool, facesSel, valueEdit, modBase, modValue, extKind, profiles, snap.sketches, ext.distance, ext.direction, ext.operation, editing, bodyCenter]);
+  }, [mode, modTool, facesSel, edgesSel, edgeSets, valueEdit, modBase, modValue, extKind, profiles, snap.sketches, ext.distance, ext.direction, ext.operation, editing, bodyCenter]);
   /** Move: one arrow per axis on the chosen bodies, starting at the body's surface (dragging changes the move distance). */
   const moveHandles = useMemo(() => {
     if (mode !== 'modify' || modTool !== 'move' || valueEdit || !bodiesSel.length) return undefined;
@@ -780,8 +789,6 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [measure]);
   const measureRows = useMemo(() => (measure?.length === 2 ? measureTwo(measure[0]!, measure[1]!) : []), [measure]);
-  const isEdgeTool = (t: ModTool) => !FACE_TOOLS.includes(t) && !BODY_TOOLS.includes(t) && t !== 'coil';
-  const edgeSets = useMemo(() => (mode === 'modify' && isEdgeTool(modTool) && modBase ? modBase.bodies.map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : mode === 'model' ? snap.bodies.filter((b) => !b.mesh).map((b) => ({ body: b.name, edges: buildEdgeGeometry(b) })) : []), [mode, modTool, modBase, snap.bodies]);
   const startModify = async (t: ModTool) => {
     if (mode === 'modify') { if (t !== modTool && !holeEdit && !valueEdit) { await applyPreview(null); setModTool(t); setModValue(MOD_DEFAULT[t]); setFacesSel([]); setBodiesSel(initialBodies(t, (modBase?.bodies ?? []).filter((b) => t !== 'meshconv' || b.mesh).map((b) => b.name), undefined)); } return; }
     if (mode === 'extrude') await cancelExtrude();

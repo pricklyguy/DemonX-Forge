@@ -9,6 +9,8 @@ export interface EdgeGeometry {
   segments: number[];
   mid: Vec3;
   length: number;
+  /** The two faces the edge lies between, when the engine's name says so. */
+  faces?: [number, number];
 }
 
 interface Seg { a: number; b: number }
@@ -72,7 +74,7 @@ export function buildEdgeGeometry(body: Body): EdgeGeometry[] {
     }
     // an edge with no two-face boundary in the mesh (a seam inside one face): a straight line between its ends keeps it selectable
     if (!segments.length) segments = [...e.start, ...e.end];
-    return { index: e.index, name: e.name, segments, mid: e.mid, length: e.length };
+    return { index: e.index, name: e.name, segments, mid: e.mid, length: e.length, ...(f1 !== undefined && f2 !== undefined ? { faces: [f1, f2] as [number, number] } : {}) };
   });
 }
 
