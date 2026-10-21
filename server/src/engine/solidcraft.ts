@@ -4,7 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { MeshRefused, planSlabs, slabSteps } from '../mesh/slab';
+import { MeshRefused, describePlan, meshSteps, planMesh, type MeshPlan } from '../mesh/slab';
 import { FileError, packForge, unpackForge } from '../forgeFile';
 import { EngineError, type Body, type CommandStep, type ExportFormat, type Engine, type BodyEdge, type Face, type Parameter, type Sketch, type Snapshot, type TimelineItem, type Vec2, type Vec3 } from './Engine';
 import { parse3mf } from './mesh3mf';
@@ -128,19 +128,26 @@ export class SolidCraftEngine implements Engine {
       await this.tool('execute', { command: 'component.activate', params: { component: owner.id } });
       try {
         if (mesh) {
-          try {
-            const steps = [{ command: 'solid.remove', params: { bodies: [body] } }, ...slabSteps(planSlabs(mesh.positions, mesh.indices, tolMm), body, `${body} section`)];
-            const before = (await this.depth()).undo;
-            this.redoGroups = [];
-            await this.tool('batch', { commands: steps, rollback: true, verbose: false });
-            const after = (await this.tool('inspect_design'))?.bodies?.find((b: any) => b.name === body);
-            const want = Number(meta.volume_mm3), got = Number(after?.volume_mm3);
-            if (!after || !(Math.abs(got - want) <= Math.max(want * 0.01, 1e-6))) {
-              for (let d = (await this.depth()).undo; d > before; d--) await this.tool('undo');
-              slabWhy = `the rebuilt solid does not match the mesh (volume ${Number.isFinite(got) ? got.toFixed(1) : 'none'} against ${want.toFixed(1)} mm³)`;
-            } else { this.groups.push({ before, after: (await this.depth()).undo, key: await this.stateKey() }); return { warnings: [], method: 'slabs' as const }; }
-          } catch (e) {
-            slabWhy = e instanceof MeshRefused ? e.message : errorText(String((e as Error).message ?? e));
+          let plans: MeshPlan[] = [];
+          try { plans = planMesh(mesh.positions, mesh.indices, tolMm); } catch (e) { slabWhy = e instanceof MeshRefused ? e.message : String((e as Error).message ?? e); }
+          for (const plan of plans) {
+            try {
+              const steps = [{ command: 'solid.remove', params: { bodies: [body] } }, ...meshSteps(plan, body, `${body} section`)];
+              const before = (await this.depth()).undo;
+              this.redoGroups = [];
+              try { await this.tool('batch', { commands: steps, rollback: true, verbose: false }); } catch (e) { slabWhy = `${describePlan(plan)}: ${errorText(String((e as Error).message ?? e))}`; continue; }
+              const after = (await this.tool('inspect_design'))?.bodies?.find((b: any) => b.name === body);
+              const want = Number(meta.volume_mm3), got = Number(after?.volume_mm3);
+              if (!after || !(Math.abs(got - want) <= Math.max(want * 0.01, 1e-6))) {
+                for (let d = (await this.depth()).undo; d > before; d--) await this.tool('undo');
+                slabWhy = `${describePlan(plan)}: the rebuilt solid does not match the mesh (volume ${Number.isFinite(got) ? got.toFixed(1) : 'none'} against ${want.toFixed(1)} mm³)`;
+                continue;
+              }
+              this.groups.push({ before, after: (await this.depth()).undo, key: await this.stateKey() });
+              return { warnings: [], method: 'slabs' as const };
+            } catch (e) {
+              slabWhy = e instanceof MeshRefused ? e.message : errorText(String((e as Error).message ?? e));
+            }
           }
         }
         const tol = `${tolMm} mm`;

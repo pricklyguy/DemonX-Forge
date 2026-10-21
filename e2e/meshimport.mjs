@@ -1,6 +1,6 @@
 // Real-browser check of File > Import STL and Mesh to Solid against the real engine: a part exported as STL comes back as a mesh body,
-// Mesh to Solid rebuilds it as a real solid (undo gives the mesh back), a sculpted-looking part (the demo bracket) is refused with a reason,
-// a junk STL is refused, and Mesh to Solid with no mesh says so.
+// Mesh to Solid rebuilds it as a real solid (undo gives the mesh back), the demo bracket (a prism with holes across it) is rebuilt too,
+// a block chamfered in two directions is refused with a reason, and a junk STL is refused.
 // Needs: the engine (FORGE_ENGINE or data/engine/), a built app (npm run build), and a FRESH server:
 //   FORGE_PORT=8120 npm start      (stop it afterwards by port: fuser -k 8120/tcp)
 // Run: node e2e/meshimport.mjs      Screenshots go to $SHOTS (default /tmp).
@@ -81,13 +81,36 @@ check(await waitTrue(async () => (await state()).bodies[0]?.mesh === false), 'an
 const ok1 = await p.evaluate(async () => { const s = await (await fetch('/api/state')).json(); const e = s.bodies[0].edges.find((x) => Math.abs(x.length - 30) < 0.01); const r = await fetch('/api/command', { method: 'POST', body: JSON.stringify({ command: 'solid.fillet', params: { edges: [{ body: s.bodies[0].name, index: e.index }], radius: 2 } }) }); return r.ok; });
 check(ok1, 'the converted solid can be filleted');
 
-// ---- a part that is not a constant-section mechanical part is refused, and stays a mesh
+// ---- the demo bracket (an L-shaped section with holes through its base) is rebuilt: a prism along one direction and cuts along another
 await fresh();
 await p.evaluate(() => fetch('/api/demo', { method: 'POST', body: '{}' }));
 const bracket = join(dir, 'Bracket.stl'); writeFileSync(bracket, Buffer.from(await exportStl()));
 await fresh();
 await importFile(bracket);
 check(await waitTrue(async () => (await state()).bodies[0]?.mesh === true), 'the demo bracket comes in as a mesh');
+await p.getByTestId('place-keep').click();
+await p.getByTestId('btn-meshconv').click(); await p.getByTestId('modify-dialog').waitFor();
+await p.getByTestId('modify-ok').click();
+await p.getByTestId('modify-dialog').waitFor({ state: 'detached', timeout: 120000 });
+check(await waitTrue(async () => (await state()).bodies[0]?.mesh === false), 'the bracket is rebuilt as a solid, with its holes');
+st = await state();
+check(st.timeline.filter((t) => /Sketch/i.test(t.type)).length >= 2, 'from several sketches (the section along its length and the holes across it)', st.timeline.map((t) => t.name).join(', '));
+await p.keyboard.press('Control+z');
+check(await waitTrue(async () => (await state()).bodies[0]?.mesh === true && (await state()).timeline.length === 1), 'and one Ctrl+Z gives the mesh back');
+
+// ---- a part with a slanted face in two directions is refused, and stays a mesh
+await fresh();
+await p.evaluate(async () => {
+  const post = (path, body) => fetch(path, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json());
+  let s = await post('/api/batch', { steps: [{ command: 'solid.box', params: { length: 40, width: 30, height: 10, corner: [0, 0, 0] } }] });
+  const top = (axis) => s.bodies[0].edges.find((e) => Math.abs(e.start[2] - 10) < 1e-6 && Math.abs(e.end[2] - 10) < 1e-6 && Math.abs(e.start[axis] - e.end[axis]) < 1e-6 && e.length > 20);
+  s = await post('/api/batch', { steps: [{ command: 'solid.chamfer', params: { edges: [{ body: s.bodies[0].name, index: top(0).index }], distance: 4 } }] });
+  await post('/api/batch', { steps: [{ command: 'solid.chamfer', params: { edges: [{ body: s.bodies[0].name, index: top(1).index }], distance: 4 } }] });
+});
+const chamfered = join(dir, 'Chamfered.stl'); writeFileSync(chamfered, Buffer.from(await exportStl()));
+await fresh();
+await importFile(chamfered);
+check(await waitTrue(async () => (await state()).bodies[0]?.mesh === true), 'a block chamfered along two edges comes in as a mesh');
 await p.getByTestId('place-keep').click();
 await p.getByTestId('btn-meshconv').click(); await p.getByTestId('modify-dialog').waitFor();
 await p.getByTestId('modify-ok').click();

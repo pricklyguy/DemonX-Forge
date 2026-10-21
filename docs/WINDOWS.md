@@ -46,8 +46,9 @@ c. Open  C:\DemonX-Forge  and double-click  "Start DemonX Forge.bat".
   body (a skin of triangles, read in millimetres with Z up). A mesh can be moved (M), scaled and mirrored, and exported again, but
   it has no real faces or edges. "Mesh to Solid" (on the MODIFY tab) rebuilds a closed mesh of a mechanical part as real faces,
   so you can fillet, press pull, drill and split it. It rebuilds the part as sketches and extrudes you can edit, and works on
-  parts made of flat steps and straight walls along one direction (plates, lips, ribs, round and slotted holes, rounded corners).
-  A part with slanted, tapered or sculpted faces is refused with a reason and nothing is changed. Ctrl+Z takes it all back.
+  parts made of flat steps and straight or evenly leaning walls along one main direction (plates, lips, ribs, drafted walls, round and
+  slotted holes, rounded corners), with holes, countersinks and bosses across it. A sculpted part, or walls that lean unevenly, are
+  refused with a reason and nothing is changed. Ctrl+Z takes it all back.
 - "Load the demo bracket" gives a ready-made part to look at.
 
 

@@ -66,6 +66,11 @@ function facets(pts: V2[]): boolean {
 /** One closed ring as sketch pieces that join end to end: lines, arcs and, for a round hole, a circle. (A smooth shape that is not a circle, such as an ellipse, comes out as several arcs; null only when the ring is too small to be a shape.) */
 export function ringToPieces(ring: V2[], tol: number): Piece[] | null {
   const p = simplifyRing(ring, tol), n = p.length; if (n < 3) return null;
+  // a ring whose points and whose edges' middles all lie on one circle is a circle, however unevenly its points are spaced (a cut through a cone's facets)
+  if (n >= 8) {
+    const f = fitCircle(p);
+    if (f && p.every((q, i) => { const m: V2 = [(q[0] + p[(i + 1) % n]![0]) / 2, (q[1] + p[(i + 1) % n]![1]) / 2]; return Math.abs(dist(q, f.c) - f.r) <= tol * 1.5 && Math.abs(dist(m, f.c) - f.r) <= tol * 1.5; })) return [{ kind: 'circle', center: f.c, radius: f.r }];
+  }
   const turns = p.map((q, i) => turn(p[(i + n - 1) % n]!, q, p[(i + 1) % n]!));
   const sharp = turns.map((t) => Math.abs(t) > 46 * DEG);
   if (!sharp.some(Boolean)) { // smooth all the way round: a circle, or a slot-like shape whose lines join the arcs without a corner

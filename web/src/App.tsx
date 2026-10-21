@@ -185,7 +185,7 @@ function BodyFields({ tool, bf, setBf, bodies, allBodies, target, onEnter }: { t
       <div className="dnote">Drag the arrows on the body, or type or step the distances (mm). Turns are in 15° steps about a world axis.</div></>}
     {tool === 'meshconv' && <>
       {text('Tolerance (mm)', 'tol')}
-      <div className="dnote">Rebuilds a closed mesh of a mechanical part as sketches and extrudes (real faces you can fillet, press pull and drill). It works on parts made of flat steps and straight walls along one direction: plates, lips, ribs, round and slotted holes, rounded corners. Slanted, tapered or sculpted faces are refused, and nothing is changed. Ctrl+Z takes it all back at once. A smaller tolerance follows the mesh more closely.</div></>}
+      <div className="dnote">Rebuilds a closed mesh of a mechanical part as sketches and extrudes (real faces you can fillet, press pull and drill). It works on parts made of flat steps and straight or evenly leaning walls along one main direction (plates, lips, ribs, drafted walls, round and slotted holes, rounded corners), with holes, countersinks and bosses across it. Sculpted shapes, spheres and walls that lean unevenly are refused, and nothing is changed. Ctrl+Z takes it all back at once. A smaller tolerance follows the mesh more closely.</div></>}
     {tool === 'split' && <>
       {pick('Cut across', 'splitAxis', [['X', 'X (a plane at x = position)'], ['Y', 'Y (a plane at y = position)'], ['Z', 'Z (a plane at z = position)']])}
       {text('Position', 'splitPos')}
