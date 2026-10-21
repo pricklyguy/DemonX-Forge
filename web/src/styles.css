@@ -1,6 +1,7 @@
-/* The DemonX colour variables (same names and values as DemonX CNC); dark by default, light on request. */
-:root { --bg:#14130f; --panel:#1e1d17; --panel2:#27261e; --line:#38362a; --text:#ece8d8; --muted:#9a9680; --accent:#6aa84f; --accent-text:#0e1a08; --amber:#e0a030; --cyan:#2bb5c9; --danger:#d8503c; --ok:#4caf7a; color-scheme: dark; }
-:root[data-theme='light'] { --bg:#f4efe0; --panel:#fffdf6; --panel2:#efe8d2; --line:#d5cba8; --text:#26230f; --muted:#6d684c; --accent:#3f7d2c; --accent-text:#ffffff; --amber:#b87a10; --cyan:#0e8ea3; --danger:#c0392b; --ok:#2e8b57; color-scheme: light; }
+/* The DemonX palette (shared with DemonX Design): logo teal accent, slate base, logo copper for warnings. Dark by default, light on request.
+   --canvas is the 3D view's background; --panel2, --line, --muted and --accent-text are worked out from the palette's base colours. */
+:root { --canvas:#0f1519; --bg:#171e22; --panel:#20292e; --panel2:#2a353b; --line:#34424a; --text:#e4ecef; --muted:#8fa2ab; --accent:#1cb8cc; --accent-text:#04181c; --amber:#e8873a; --cyan:#4a9fe0; --danger:#e0503c; --ok:#3fbf7f; color-scheme: dark; }
+:root[data-theme='light'] { --canvas:#eef3f5; --bg:#e3eaee; --panel:#f7fafb; --panel2:#e9eff2; --line:#c5d2d9; --text:#17232a; --muted:#55666f; --accent:#0b8396; --accent-text:#ffffff; --amber:#c4621f; --cyan:#2a72b8; --danger:#c0392b; --ok:#23895a; color-scheme: light; }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 13px system-ui, 'Segoe UI', sans-serif; overflow: hidden; }

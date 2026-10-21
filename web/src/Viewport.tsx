@@ -153,7 +153,7 @@ export function Viewport(props: Props) {
 
     // ---- bodies
     const rebuildBodies = () => {
-      scene.background = new THREE.Color(css('--bg'));
+      scene.background = new THREE.Color(css('--canvas'));
       clear(gBodies);
       const p = P.current;
       const base = new THREE.Color(css('--muted')).lerp(new THREE.Color(0xffffff), 0.25), hi = new THREE.Color(css('--accent'));

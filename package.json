@@ -1,6 +1,6 @@
 {
   "name": "demonx-forge",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "private": true,
   "license": "GPL-3.0-or-later",
   "description": "DemonX Forge: a Fusion-style parametric 3D CAD application that runs locally",
