@@ -9,7 +9,7 @@
 
 ### Prototype 1 — Source pin, branding, and reproducible build
 
-**Status:** implementation in progress; source checks and adapter bundling pass; native build is unverified. Added `prototype/solidcraft` as a submodule pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`, a build-time overlay for DemonX app identity, window icon, and dark/light theme, and a Windows/Linux native build-and-test workflow. No source in the reference checkout was changed. This host has no Rust toolchain or built native executable, so desktop launch and the native test suite have not run locally.
+**Status:** implementation in progress; source checks and adapter bundling pass; native build is unverified. Added `prototype/solidcraft` as a submodule pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`, a build-time overlay for DemonX app identity, window icon, and dark/light theme, and a Windows/Linux native build-and-test workflow. No source in the reference checkout was changed. This host has no Rust toolchain or built native executable, so desktop launch and the native test suite have not run locally. Initial CI stopped before checkout because SolidCraft is private to the runner; it now requires the documented read-only `SOLIDCRAFT_READ_TOKEN` secret.
 
 **Completion:** overlay validation passes, pinned workspace builds and its engine/UI tests pass on Windows and Linux, and a branded native window starts on Windows with a captured screenshot. Attach build logs/artifacts and document dependencies and license notices.
 

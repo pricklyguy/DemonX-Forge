@@ -13,10 +13,10 @@
 | Overlay anchor validation | Pass | `node prototype/apply-overlay.mjs --check prototype/solidcraft` verifies the pinned SHA and expected source anchors. |
 | Overlay application | Pass (isolated source clone) | Applied the overlay to a disposable local clone under the OS temporary directory, not the reference checkout or the checked-in submodule. |
 | Branding/theme static validation | Pass | `node prototype/verify-overlay.mjs <overlay clone>` verified the app title/id, Forge emblem loader, built-in dark/light theme registration, theme token keys, and lockfile dependency. |
-| Native Rust build and engine/UI suite | Unverified locally | `cargo`, `rustc`, and `rustup` are not installed. The branch-only Windows/Linux Actions workflow is added but has not run yet. |
+| Native Rust build and engine/UI suite | Unverified | `cargo`, `rustc`, and `rustup` are not installed locally. Actions run `39852404910` failed before build because the SolidCraft repository is private to the runner; the workflow now uses the required `SOLIDCRAFT_READ_TOKEN` repository secret to fetch the pinned source. |
 | Native Windows startup, GUI scenario, screenshots | Unverified | No built desktop executable or interactive native run is available in this environment. |
-| Three-body export/save/reopen scenario | Implemented as a Windows Actions harness; unverified | `prototype/native-acceptance.mjs` launches the app with isolated settings and a scoped authenticated control channel. It drives browser rename, body selection, context-menu hide/show/isolate, origin-plane and face selection, feature edit, geometry/history assertions, scoped STL, separated three-object 3MF, save/reopen and screenshots. The Windows job has not run yet. |
-| Forge MCP compatibility/security against native GUI | Adapter and real-session checks implemented; runtime unverified | `prototype/mcp-native.ts` reuses the existing Forge MCP schemas/handler and command allowlist, forwards only approved model/query operations through the token-authenticated loopback channel, and scopes its internally generated screenshot path. The Windows harness calls all nine tools, authors the initial sketch/extrude/bodies, verifies GUI state, tests parameter edits, inspection, discovery, measurement, screenshot, undo/redo, forbidden file commands and engine errors. The native MCP workflow has not run yet. |
+| Three-body export/save/reopen scenario | Implemented as a Windows Actions harness; unverified | `prototype/native-acceptance.mjs` launches the app with isolated settings and a scoped authenticated control channel. It drives browser rename, body selection, context-menu hide/show/isolate, origin-plane and face selection, feature edit, geometry/history assertions, scoped STL, separated three-object 3MF, save/reopen and screenshots. The Windows job has not reached this scenario. |
+| Forge MCP compatibility/security against native GUI | Adapter and real-session checks implemented; runtime unverified | `prototype/mcp-native.ts` reuses the existing Forge MCP schemas/handler and command allowlist, forwards only approved model/query operations through the token-authenticated loopback channel, and scopes its internally generated screenshot path. The Windows harness calls all nine tools, authors the initial sketch/extrude/bodies, verifies GUI state, tests parameter edits, inspection, discovery, measurement, screenshot, undo/redo, forbidden file commands and engine errors. The native MCP workflow has not reached this scenario. |
 | Existing Forge React workflow comparison | Partial | The comparative source evidence is in `UX-ARCHITECTURE-DECISION.md`; no new three-body execution or screenshots were produced in this turn. |
 | Existing Forge unit/service baseline | Pass with explicit skips | `npm.cmd test`: server 111 passed, 52 skipped across 11 files; web 68 passed. Engine-dependent server cases skipped because this checkout has no `FORGE_ENGINE` executable. This does not substitute for native prototype or real-engine acceptance. |
 
@@ -33,7 +33,9 @@ submodule; Forge branding remains in Forge-owned assets.
 tests the pinned native workspace on Windows and Linux, runs the Forge MCP contract tests, type-checks
 and bundles the native MCP bridge, launches the app on the Windows runner with an isolated profile,
 executes the real three-body GUI/MCP scenario, and uploads app/CLI binaries, license notices, and
-the screenshot. The run has not yet supplied native build/GUI evidence.
+the screenshot. Initial run `39852404910` failed at private SolidCraft source checkout before
+build. Configure the documented read-only `SOLIDCRAFT_READ_TOKEN` secret before runner validation
+can proceed; no native build/GUI evidence is available yet.
 
 ## Known blockers
 

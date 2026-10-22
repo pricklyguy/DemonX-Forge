@@ -26,7 +26,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: false
+      - name: Require private SolidCraft source access
+        shell: bash
+        env:
+          SOLIDCRAFT_READ_TOKEN: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+        run: |
+          if [ -z "$SOLIDCRAFT_READ_TOKEN" ]; then
+            echo "::error::Configure the Forge repository secret SOLIDCRAFT_READ_TOKEN with read-only Contents access to pricklyguy/DemonX-Solidcraft."
+            exit 1
+          fi
+      - name: Check out the pinned SolidCraft source
+        uses: actions/checkout@v4
+        with:
+          repository: pricklyguy/DemonX-Solidcraft
+          ref: 75261cd79733fe47cf898b54f865e6bfaffa1129
+          token: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+          path: prototype/solidcraft
           submodules: recursive
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22

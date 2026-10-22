@@ -63,6 +63,12 @@ For a local prototype MCP client, start the native application with a fixed loop
 per-port private token file; do not copy the token into client configuration. Keep the port and app
 profile local to this computer. The existing Forge app remains the rollback path.
 
+The native GitHub Actions workflow checks out SolidCraft at the pinned commit from its separate
+private repository. Configure a Forge repository Actions secret named `SOLIDCRAFT_READ_TOKEN` with
+a fine-grained token that has read-only Contents access to `pricklyguy/DemonX-Solidcraft`; the
+workflow intentionally does not reuse or store that token in the prototype. Without the secret,
+CI stops at source checkout and supplies no build or GUI acceptance evidence.
+
 ## Validation status
 
 Source-level checks can run with `node prototype/apply-overlay.mjs --check prototype/solidcraft`.
