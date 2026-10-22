@@ -220,7 +220,10 @@ export function sizeBoxes(tool: Tool | null, pending: Vec2[], cursor: Vec2): Siz
     case 'slot': {
       if (!b) return polar(a);
       const w = lineDist(a, b, cursor), n = sideOf(a, b, cursor), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      return [{ label: 'Width', at: [m[0] + (n[0] * w) , m[1] + (n[1] * w)], value: 2 * w }];
+      // Keep the editable field beyond the slot outline so it does not cover
+      // the pointer used to set the width or the canvas pick beneath it.
+      const labelOffset = w + 12;
+      return [{ label: 'Width', at: [m[0] + (n[0] * labelOffset), m[1] + (n[1] * labelOffset)], value: 2 * w }];
     }
   }
 }

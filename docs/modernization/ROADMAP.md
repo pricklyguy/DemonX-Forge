@@ -5,11 +5,11 @@
 
 ## Phase 0 — Assessment and baseline contracts
 
-**Status:** complete for the available baseline. The five assessment documents and requirement traceability are drafted; branch safety is recorded; Windows typecheck, build, unit/service tests and package-script portability checks were run. The toolchain was updated to supported Vite 8 / Vitest 5 releases and the full npm audit now reports zero vulnerabilities. The engine-dependent tests and real-browser suites could not run because this checkout has no engine binary. Results are recorded in `TEST-PLAN.md`.
+**Status:** complete. The five assessment documents and requirement traceability are drafted; branch safety is recorded; Windows typecheck, build, unit/service tests and package-script portability checks were run. The toolchain was updated to supported Vite 8 / Vitest 5 releases and the full npm audit reported zero vulnerabilities at the checkpoint. The engine and browser checks initially lacked local prerequisites; the pinned engine has since been obtained from the official v0.27.0 release and validated in Phase 1. Results are recorded in `TEST-PLAN.md`.
 
 ## Phase 1 — MCP, service security and adapter contract
 
-**Status:** in progress. The established tool names/schema, namespace and path-capable command boundary now have stronger regression tests. Path commands outside the `file.*` namespace are denied as well. A headless real-engine MCP flow is wired to the Linux package workflow; this environment has no engine binary, so that integration run is pending.
+**Status:** complete on the Windows development host. The established tool names and schemas remain stable; real-engine protocol and browser MCP checks pass, including security refusals and GUI save/reopen of an MCP-authored model. Four skipped server tests are explicitly Linux-only launcher cases; no engine-dependent server tests skipped with `FORGE_ENGINE` set.
 
 **Priority:** critical; all GUI features and any engine upgrade depend on it.
 
@@ -20,15 +20,17 @@
 
 **Completion:** old clients remain compatible; all read/write/error restrictions have automated evidence; one MCP-authored real model can be inspected, measured, undone/redone and saved/reopened through GUI.
 
-**Foundation checkpoint:** unit coverage pins existing tool contracts and command path restrictions; Vite/Vitest maintenance and npm audit are complete. Real-engine MCP acceptance remains open.
+**Completion record (2026-10-22):** `solidcraft-cli 0.19.0` from the official Forge v0.27.0 Windows release, whose tag pins `33fdcdb3a08b2a8d2b52f2eb8bf990dfee6c21f7` as this branch does. The release archive SHA-256 was checked against its published checksum and GitHub asset digest. `FORGE_ENGINE` was set explicitly for the server suite. `e2e/mcp.mjs` verified live GUI sync, inspection, measurement, screenshot, fillet, undo/redo, GUI save/new/open and geometry/history preservation. `e2e/mcp-protocol.mjs` verified the nine established tools, parameter changes, measurement, screenshot bytes, undo/redo, unsafe-path command refusals, and unchanged geometry after refusal. See `TEST-PLAN.md` for complete results and Windows limitations.
 
 ## Phase 2 — Reproducible real-model acceptance corpus
+
+**Status:** in progress. Added a pinned-engine plate workflow that checks analytic bounds/volume, sketch dimension rebuild, a real fillet, undo/redo, and save/reopen. Existing MCP and browser scenarios supply a drilled plate, face-attached sketch, mesh-converted bracket, shell, pattern, and multi-body workflows. Remaining work is to consolidate independent fixtures/tolerances and execute the Linux packaged workflow.
 
 - Build a small set of independent parametric parts (drilled plate, shelled bracket, multi-body assembly component, sketch on a non-origin face) with known dimensions and expected volumes/topology.
 - Exercise sketch/profile selection, feature creation, timeline edit, parameter recompute, save/reopen, undo/redo and exported geometry for each part.
 - Record tolerances and distinguish exact analytic checks from tessellation/topology approximations.
 
-**Completion:** Linux automated engine/browser workflow passes and artifacts have independent structural/measurement checks; Windows manual check sheet is ready and owner run is recorded separately.
+**Completion:** Linux automated engine/browser workflow passes and artifacts have independent structural/measurement checks; Windows manual check sheet is ready and owner run is recorded separately. Windows local evidence does not substitute for Linux package execution or owner-run packaged Windows acceptance.
 
 ## Phase 3 — Selection, sketch and viewport reliability
 

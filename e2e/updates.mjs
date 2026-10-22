@@ -24,7 +24,8 @@ const fakeUrl = `http://127.0.0.1:${fake.address().port}/releases`;
 
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-e2e-upd-'));
 const PORT = 8121, URL = `http://127.0.0.1:${PORT}/`;
-const server = spawn('npx', ['tsx', 'src/index.ts'], { cwd: path.resolve('server'), env: { ...process.env, FORGE_PORT: String(PORT), FORGE_DATA: data, FORGE_UPDATE_URL: fakeUrl }, stdio: 'ignore' });
+const tsx = path.resolve('node_modules/tsx/dist/cli.mjs');
+const server = spawn(process.execPath, [tsx, 'src/index.ts'], { cwd: path.resolve('server'), env: { ...process.env, FORGE_PORT: String(PORT), FORGE_DATA: data, FORGE_UPDATE_URL: fakeUrl }, stdio: 'ignore' });
 for (let i = 0; i < 60; i++) { try { await fetch(`${URL}api/update`); break; } catch { await settle(500); } }
 
 const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });

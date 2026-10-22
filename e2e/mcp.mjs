@@ -6,6 +6,7 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 const URL = process.env.FORGE_URL || 'http://127.0.0.1:8120/';
 let failed = 0;
@@ -13,7 +14,8 @@ const check = (ok, what, extra = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} $
 const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
 
 // the bridge, started the way an AI client starts it: a program that talks on standard input and output
-const child = spawn('npx', ['tsx', 'src/mcp.ts'], { cwd: 'server', env: { ...process.env, FORGE_URL: URL }, stdio: ['pipe', 'pipe', 'inherit'] });
+const tsx = fileURLToPath(new globalThis.URL('../node_modules/tsx/dist/cli.mjs', import.meta.url));
+const child = spawn(process.execPath, [tsx, 'src/mcp.ts'], { cwd: 'server', env: { ...process.env, FORGE_URL: URL }, stdio: ['pipe', 'pipe', 'inherit'] });
 const waiting = new Map(); let nextId = 1;
 createInterface({ input: child.stdout }).on('line', (l) => { try { const m = JSON.parse(l); waiting.get(m.id)?.(m); } catch { check(false, 'every line the bridge prints is JSON', l.slice(0, 80)); } });
 const rpc = (method, params) => new Promise((res) => { const id = nextId++; waiting.set(id, res); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'); });
@@ -24,6 +26,20 @@ const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftsha
 const p = await b.newPage({ viewport: { width: 1440, height: 860 } });
 p.on('pageerror', (e) => { console.log('PAGE ERROR', e.message); failed++; });
 try {
+  await p.addInitScript(() => {
+    window.__forgeSavedBytes = null; window.__forgeOpenBytes = null;
+    window.showSaveFilePicker = async (options) => ({
+      name: 'MCP.forge',
+      createWritable: async () => { const chunks = []; return {
+        write: async (part) => chunks.push(part),
+        close: async () => { window.__forgeSavedBytes = Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())); },
+      }; },
+    });
+    window.showOpenFilePicker = async () => [{
+      name: 'MCP.forge',
+      getFile: async () => new File([Uint8Array.from(window.__forgeOpenBytes ?? [])], 'MCP.forge'),
+    }];
+  });
   await p.goto(URL);
   await p.getByTestId('demo').waitFor({ timeout: 30000 });
 
@@ -55,6 +71,24 @@ try {
   check(!filleted.isError && json(filleted).timeline.length > full.timeline.length, 'a fillet through the bridge adds a step', filleted.isError ? filleted.content[0].text : '');
   const undone = json(await tool('forge_undo'));
   check(undone.timeline.length === full.timeline.length, 'forge_undo takes it back');
+  const redone = json(await tool('forge_redo'));
+  check(redone.timeline.length === json(filleted).timeline.length, 'forge_redo restores the MCP fillet');
+
+  // Save the MCP-authored history through the GUI, clear the document and reopen that file.
+  await p.keyboard.press('Control+s');
+  await p.waitForFunction(() => Array.isArray(window.__forgeSavedBytes) && window.__forgeSavedBytes.length > 100, null, { timeout: 15000 });
+  const saved = await p.evaluate(() => window.__forgeSavedBytes);
+  const beforeOpen = json(await tool('forge_measure', { body: full.bodies[0].name }));
+  await p.getByTestId('file-menu').click();
+  await p.getByTestId('context-menu').getByRole('button', { name: 'New', exact: true }).click();
+  await p.waitForFunction(async () => (await (await fetch('/api/state')).json()).timeline.length === 0, null, { timeout: 15000 });
+  await p.evaluate((bytes) => { window.__forgeOpenBytes = bytes; }, saved);
+  await p.keyboard.press('Control+o');
+  await p.waitForFunction(async () => (await (await fetch('/api/state')).json()).timeline.some((step) => step.type === 'Fillet'), null, { timeout: 20000 });
+  const reopened = json(await tool('forge_get_design', { detail: 'full' }));
+  const afterOpen = json(await tool('forge_measure', { body: full.bodies[0].name }));
+  check(reopened.bodies.length === 1 && reopened.timeline.some((step) => /fillet/i.test(`${step.name} ${step.type}`)), 'the GUI reopens the MCP-authored model with its fillet history', JSON.stringify(reopened.timeline));
+  check(Math.abs(afterOpen.bodies[0].volume_mm3 - beforeOpen.bodies[0].volume_mm3) < 1e-6, 'save/reopen preserves the MCP-authored geometry');
 
   // what must not be possible
   const refused = await tool('forge_run_commands', { steps: [{ command: 'file.open', params: { path: '/etc/passwd' } }] });
@@ -62,7 +96,7 @@ try {
   const unknown = await rpc('tools/call', { name: 'forge_open_file', arguments: {} });
   check(!!unknown.error, 'a tool that does not exist is an error');
   const bad = await tool('forge_run_commands', { steps: [{ command: 'solid.extrude', params: { sketch: 'Nope', distance: 5 } }] });
-  check(bad.isError && json(await tool('forge_get_design')).timeline.length === full.timeline.length, 'a command the engine refuses is returned as an error and changes nothing');
+  check(bad.isError && json(await tool('forge_get_design')).timeline.length === reopened.timeline.length, 'a command the engine refuses is returned as an error and changes nothing');
 } finally {
   child.stdin.end(); await b.close(); child.kill();
 }
