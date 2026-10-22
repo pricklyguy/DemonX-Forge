@@ -4,9 +4,10 @@ DemonX Forge has an MCP server. MCP (the Model Context Protocol) is the standard
 Claude, OpenAI's Codex or any other MCP client can look at the design you have open in Forge, add sketches and features, take a picture to check
 its work, and undo. You watch it happen in the Forge window (it refreshes by itself within a couple of seconds), and Ctrl+Z takes any of it back.
 
-**Not tested with the real programs yet.** This was checked with a script that speaks the protocol and with a real browser and the real engine
-(see `e2e/mcp.mjs`), not yet with Claude Desktop, Claude Code or Codex themselves. The steps below are what their documentation describes; menus and
-file names move, so if a step looks different, check the client's own MCP page. Tell me what you find and I will fix this page.
+**Client setup has not been checked with Claude Desktop, Claude Code or Codex.** Automated protocol and browser/engine regression scripts are in
+`e2e/mcp-protocol.mjs` and `e2e/mcp.mjs`; the modernization assessment did not run either against a real engine because no engine binary was
+available. The Linux package workflow runs the headless protocol suite when that workflow is run. The steps below follow each client's documented
+configuration; menus and file names can move, so check the client's own MCP page if a step looks different.
 
 ## How it works, and what it will not do
 
