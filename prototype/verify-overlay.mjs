@@ -8,6 +8,7 @@ const prefs = read('crates/ui-egui/src/prefs.rs');
 const io = read('crates/io/src/legacy_dir.rs');
 const lock = read('Cargo.lock');
 const themeSource = read('crates/ui-egui/src/theme_files.rs');
+const toolbar = read('crates/ui-egui/src/toolbar.rs');
 const keys = new Set([...themeSource.matchAll(/\b(?:one|many): \[([\s\S]*?)\]/g)].flatMap(([, block]) => [...block.matchAll(/\b[a-z][a-z0-9_]*\b/g)].map(([name]) => name)));
 
 function requireMatch(value, pattern, label) {
@@ -17,6 +18,9 @@ function requireMatch(value, pattern, label) {
 requireMatch(main, /\.with_title\("DemonX Forge"\)/, 'window title');
 requireMatch(main, /demonx-forge-icon\.png/, 'Forge-owned window icon');
 requireMatch(main, /fn forge_icon\(\)/, 'Forge icon loader');
+requireMatch(toolbar, /"DemonX Forge"/, 'app bar wordmark');
+requireMatch(toolbar, /demonx-forge-brand-mark/, 'Forge-owned app bar mark');
+requireMatch(toolbar, /else \{ 144\.0 \}/, 'app bar spacing for full Forge wordmark');
 requireMatch(prefs, /theme: String = "demonx-forge-dark"/, 'DemonX dark default');
 requireMatch(themeSource, /\("demonx-forge-dark", include_str!/, 'DemonX dark theme registration');
 requireMatch(themeSource, /\("demonx-forge-light", include_str!/, 'DemonX light theme registration');

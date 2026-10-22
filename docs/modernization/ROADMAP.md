@@ -116,6 +116,11 @@ The React-focused Phases 2–8 below are retained as the verified incumbent-app 
 
 ## Phase 7 — GUI familiar-workflow and platform audit
 
+**Prototype checkpoint (2026-10-22):** The pinned native SolidCraft prototype built with the Windows
+MSVC toolchain, launched with a saved three-body document, and passed the local GUI/MCP acceptance
+scenario. This is evidence for Option B feasibility; it does not complete this phase's installed
+package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESULTS.md`.
+
 - Validate tool discoverability at supported window widths, ribbon/context menus, keyboard and mouse conventions, dialogs/previews and high-contrast dark/light themes.
 - Test Windows packaged install/update/rollback and Linux packaged startup/update behavior. Confirm browser startup and local-only service behavior.
 

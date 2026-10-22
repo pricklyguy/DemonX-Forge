@@ -13,11 +13,12 @@
 | Overlay anchor validation | Pass | `node prototype/apply-overlay.mjs --check prototype/solidcraft` verifies the pinned SHA and expected source anchors. |
 | Overlay application | Pass (isolated source clone) | Applied the overlay to a disposable local clone under the OS temporary directory, not the reference checkout or the checked-in submodule. |
 | Branding/theme static validation | Pass | `node prototype/verify-overlay.mjs <overlay clone>` verified the app title/id, Forge emblem loader, built-in dark/light theme registration, theme token keys, and lockfile dependency. |
-| Native Rust build and engine/UI suite | Unverified | `cargo`, `rustc`, and `rustup` are not installed locally. Actions run `39852404910` failed before build because the SolidCraft repository is private to the runner; the workflow now uses the required `SOLIDCRAFT_READ_TOKEN` repository secret to fetch the pinned source. |
-| Native Windows startup, GUI scenario, screenshots | Unverified | No built desktop executable or interactive native run is available in this environment. |
-| Three-body export/save/reopen scenario | Implemented as a Windows Actions harness; unverified | `prototype/native-acceptance.mjs` launches the app with isolated settings and a scoped authenticated control channel. It drives browser rename, body selection, context-menu hide/show/isolate, origin-plane and face selection, feature edit, geometry/history assertions, scoped STL, separated three-object 3MF, save/reopen and screenshots. The Windows job has not reached this scenario. |
-| Forge MCP compatibility/security against native GUI | Adapter and real-session checks implemented; runtime unverified | `prototype/mcp-native.ts` reuses the existing Forge MCP schemas/handler and command allowlist, forwards only approved model/query operations through the token-authenticated loopback channel, and scopes its internally generated screenshot path. The Windows harness calls all nine tools, authors the initial sketch/extrude/bodies, verifies GUI state, tests parameter edits, inspection, discovery, measurement, screenshot, undo/redo, forbidden file commands and engine errors. The native MCP workflow has not reached this scenario. |
-| Existing Forge React workflow comparison | Partial | The comparative source evidence is in `UX-ARCHITECTURE-DECISION.md`; no new three-body execution or screenshots were produced in this turn. |
+| Native Windows toolchain | Pass | Rust/Cargo 1.99.1 stable MSVC target; MSVC `cl.exe`/`link.exe` 14.44.35207 and Windows SDK 10.0.26100.0 headers/resource compiler verified through `VsDevCmd.bat`. |
+| Native Rust build | Pass | `cargo build --release --locked -p solidcraft -p solidcraft-cli` built the pinned source on Windows. The crate cache needed network access; after it was available the release build completed. One unused upstream brand-mark warning remains because the overlay replaces that mark. |
+| Native Windows startup and screenshot | Pass | The actual release executable launched in normal DX12 mode under the Windows GUI session with title `DemonX Forge`. The screenshot is in the acceptance artifact directory. Interactive launch uses the same binary and a copied sample document. |
+| Three-body export/save/reopen scenario | Pass | `prototype/native-acceptance.mjs` drove three independently named bodies, selection, hide/show/isolate, origin-plane sketch, face-attached sketch, extrusion redefine, face selection, fillet, save/reopen, one-body STL, all-body STL and a three-object 3MF. The reopened document retained names and eight history features. Latest run result is recorded below. |
+| Forge MCP compatibility/security against native GUI | Pass | `prototype/mcp-native.ts` reused Forge's nine tools and existing command/query allowlists through the token-authenticated loopback channel. The native run checked discovery, MCP-authored geometry visible in the GUI, inspection, measurement, screenshot, parameter change and undo/redo, error reporting, refused `file.save`, invalid token and scoped-path traversal. |
+| Existing Forge React workflow comparison | Partial | Source comparison remains in `UX-ARCHITECTURE-DECISION.md`. The actual three-body workflow has been executed on the native prototype; a same-run instrumented React comparison was not part of this local acceptance. |
 | Existing Forge unit/service baseline | Pass with explicit skips | `npm.cmd test`: server 111 passed, 52 skipped across 11 files; web 68 passed. Engine-dependent server cases skipped because this checkout has no `FORGE_ENGINE` executable. This does not substitute for native prototype or real-engine acceptance. |
 
 ## Prototype design
@@ -33,20 +34,46 @@ submodule; Forge branding remains in Forge-owned assets.
 tests the pinned native workspace on Windows and Linux, runs the Forge MCP contract tests, type-checks
 and bundles the native MCP bridge, launches the app on the Windows runner with an isolated profile,
 executes the real three-body GUI/MCP scenario, and uploads app/CLI binaries, license notices, and
-the screenshot. Initial run `39852404910` failed at private SolidCraft source checkout before
-build. Configure the documented read-only `SOLIDCRAFT_READ_TOKEN` secret before runner validation
-can proceed; no native build/GUI evidence is available yet.
+the screenshot. The private checkout token is still needed for CI; local Windows native build and
+acceptance no longer depend on it.
 
 ## Known blockers
 
-- Install/provision Rust 1.95+ on the local Windows host or use the branch Actions workflow to get
-  actual native build/test evidence. GitHub-hosted Windows startup may not present frames in all
-  environments, so capture limitations explicitly and use the dedicated Windows desktop smoke path
-  where required.
-- Run and debug the Forge MCP bridge against the active native session. Confirm all nine existing
-  tool names and contracts, command/path restrictions, screenshot transport and error reporting.
-- Run and debug the scripted three-body real-engine scenario, including face selection/face sketch,
-  feature edit, scoped STL, separated multi-body export, native save/reopen, and GUI synchronization.
+- Linux packaged build and interactive startup remain unverified locally. The branch Actions
+  workflow needs the read-only `SOLIDCRAFT_READ_TOKEN` to check out its private pinned source.
 - The current app title, native app-data identity, window icon and palette are the initial brand
   overlay. Other upstream-facing strings, package metadata and screenshots still require review
   before this can be called a professional DemonX product experience.
+
+## Windows native run (2026-10-22)
+
+The source was cloned to a disposable directory under `%TEMP%` at the exact pinned commit, then the
+idempotent Forge overlay was applied there. The original SolidCraft checkout stayed on `main` at the
+pinned clean revision. Release outputs and acceptance files are outside both repositories.
+
+```text
+Toolchain: rustc 1.99.1 stable-x86_64-pc-windows-msvc
+MSVC:      cl.exe/link.exe 14.44.35207 (Hostx64/x64)
+Windows SDK: 10.0.26100.0 (headers and rc.exe)
+Build:     cargo build --release --locked -p solidcraft -p solidcraft-cli — passed
+Acceptance: node prototype/native-acceptance.mjs <release executable> — passed
+```
+
+The final branded build was recompiled after adjusting the app-bar spacing. The successful acceptance
+JSON was:
+
+```json
+{"status":"passed","root":"%TEMP%\\demonx-forge-native-acceptance-Qwkr0R","screenshot":"demonx-forge-three-body.png","bodies":["Plate","Part B","Part C"],"historyFeatures":8,"threeMfObjects":3,"stlBytes":19684,"allBodiesStlBytes":20884,"forgeMcpTools":9,"mcpScreenshot":true}
+```
+
+The GUI was then left open as PID `35116` with title `DemonX Forge`, showing the copied sample at
+`%TEMP%\DemonX-Forge-Interactive-20261022\three-body.solidcraft`; settings and data are isolated
+under the same temporary profile directory. The built executable is under
+`%TEMP%\DemonX-Forge-NativePrototype-f63196bf3769419d991d6e3cad0e0518\target\release\solidcraft.exe`.
+To relaunch the sample, run the executable with that `.solidcraft` file as its argument. The app
+remains available for interactive testing until it is closed.
+
+The scenario exercised GUI-origin and face sketch picking, extrusion redefine,
+fillet undo/redo, browser context actions, independent face selection, save/reopen, MCP parameter
+undo/redo, invalid-token refusal, path-scope refusal, and unsafe MCP file-command refusal. This is
+local Windows prototype evidence; it does not establish Linux packaging or owner usability approval.

@@ -191,6 +191,14 @@ async function main() {
   assert(!changeParameter.isError, `Forge MCP could not change a parameter: ${changeParameter.content?.[0]?.text}`);
   const parameterDesign = await mcpTool('forge_get_design');
   assert(JSON.parse(parameterDesign.content[0].text).parameters.some((parameter) => parameter.name === 'McpSpan' && parameter.value === 7), 'Forge MCP parameter change did not reach the native document');
+  await mcpTool('forge_set_parameter', { name: 'McpSpan', value: 8 });
+  await mcpTool('forge_undo');
+  const parameterUndone = await mcpTool('forge_get_design');
+  assert(JSON.parse(parameterUndone.content[0].text).parameters.some((parameter) => parameter.name === 'McpSpan' && parameter.value === 7), 'MCP undo did not restore the prior parameter value');
+  await mcpTool('forge_redo');
+  const parameterRedone = await mcpTool('forge_get_design');
+  assert(JSON.parse(parameterRedone.content[0].text).parameters.some((parameter) => parameter.name === 'McpSpan' && parameter.value === 8), 'MCP redo did not restore the changed parameter value');
+  await mcpTool('forge_set_parameter', { name: 'McpSpan', value: 7 });
   const listedCommands = await mcpTool('forge_list_commands', { filter: 'fillet' });
   assert(JSON.parse(listedCommands.content[0].text).some((command) => command.id === 'solid.fillet'), 'Forge MCP did not discover the native fillet command');
   const deniedFile = await mcpTool('forge_run_commands', { steps: [{ command: 'file.save', params: { path: join(root, 'must-not-be-written.solidcraft') } }] });
@@ -206,21 +214,52 @@ async function main() {
   const originPlanePoint = await call(port, 'ui.at', { plane: 'YZ' });
   assert(Array.isArray(originPlanePoint) && originPlanePoint.length === 2, 'YZ origin plane is not available for viewport picking');
   await call(port, 'ui.click', { x: originPlanePoint[0], y: originPlanePoint[1] });
-  const originSketch = await call(port, 'engine.execute', { command: 'document.inspect' });
-  assert(originSketch.active_sketch !== null, 'clicking the viewport YZ origin plane did not start a sketch');
+  let originSketch;
+  const sketchDeadline = Date.now() + 5000;
+  while (Date.now() < sketchDeadline) {
+    originSketch = await call(port, 'engine.execute', { command: 'document.inspect' });
+    if (originSketch.active_sketch != null) break;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  if (originSketch?.active_sketch == null) {
+    const selection = await call(port, 'ui.selection');
+    const screenshot = join(root, 'origin-plane-debug.png');
+    await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
+    throw new Error(`clicking the viewport YZ origin plane did not start a sketch; screen point=${JSON.stringify(originPlanePoint)}, selection=${JSON.stringify(selection)}, screenshot=${screenshot}`);
+  }
   await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [0, 0], p1: [4, 4] } });
   await call(port, 'engine.execute', { command: 'sketch.finish' });
 
-  await call(port, 'engine.execute', { command: 'sketch.create', params: { plane: { face: top.point, body: 'Plate' }, name: 'Face Sketch' } });
+  await call(port, 'ui.view', { view: 'fit' });
+  await call(port, 'ui.start', { command: 'sketch.create' });
+  const sketchFacePoint = await call(port, 'ui.at', { world: top.point });
+  await call(port, 'ui.click', { x: sketchFacePoint[0], y: sketchFacePoint[1] });
+  let faceSketch;
+  const faceSketchDeadline = Date.now() + 5000;
+  while (Date.now() < faceSketchDeadline) {
+    faceSketch = await call(port, 'engine.execute', { command: 'document.inspect' });
+    if (faceSketch.active_sketch != null) break;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  assert(faceSketch?.active_sketch != null, `viewport face picking did not start a sketch on Plate; face point=${JSON.stringify(sketchFacePoint)}, selection=${JSON.stringify(await call(port, 'ui.selection'))}`);
   await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [-2, -2], p1: [2, 2] } });
   await call(port, 'engine.execute', { command: 'sketch.finish' });
-  await call(port, 'engine.execute', { command: 'solid.extrude', params: { sketch: 'Face Sketch', distance: 2, operation: 'join', targets: ['Plate'], name: 'Face Boss' } });
-  await call(port, 'engine.execute', { command: 'timeline.redefine', params: { feature: 'Face Boss', command: 'solid.extrude', params: { sketch: 'Face Sketch', distance: 3, operation: 'join', targets: ['Plate'], name: 'Face Boss' } } });
+  const faceSketchDocument = await call(port, 'engine.execute', { command: 'document.inspect' });
+  const faceSketchName = faceSketchDocument.sketches.find((sketch) => sketch.id === faceSketch.active_sketch)?.name;
+  assert(faceSketchName, 'the face-attached sketch was not preserved in the document');
+  await call(port, 'engine.execute', { command: 'solid.extrude', params: { sketch: faceSketchName, distance: 2, operation: 'join', targets: ['Plate'], name: 'Face Boss' } });
+  await call(port, 'engine.execute', { command: 'timeline.redefine', params: { feature: 'Face Boss', command: 'solid.extrude', params: { sketch: faceSketchName, distance: 3, operation: 'join', targets: ['Plate'], name: 'Face Boss' } } });
 
   const edgeReply = await call(port, 'engine.execute', { command: 'model.edges', params: { body: 'Plate' } });
   const edge = [...edgeReply.edges].sort((a, b) => b.length - a.length)[0];
   assert(edge?.mid?.length === 3, 'Plate has no selectable edges');
   await call(port, 'engine.execute', { command: 'solid.fillet', params: { body: 'Plate', edges: [edge.mid], radius: 0.5, name: 'Edge Round' } });
+  await mcpTool('forge_undo');
+  const undoneFillet = await call(port, 'engine.execute', { command: 'document.inspect' });
+  assert(!undoneFillet.timeline.some((feature) => feature.name === 'Edge Round'), 'MCP undo did not remove the last fillet feature');
+  await mcpTool('forge_redo');
+  const redoneFillet = await call(port, 'engine.execute', { command: 'document.inspect' });
+  assert(redoneFillet.timeline.some((feature) => feature.name === 'Edge Round'), 'MCP redo did not restore the fillet feature');
 
   await call(port, 'ui.view', { view: 'fit' });
 
@@ -232,15 +271,26 @@ async function main() {
     const item = await browserRow(name);
     assert(item, `native UI did not publish a selectable ${name} browser row`);
     await call(port, 'ui.menu', { x: item.x, y: item.y, target: { type: 'body', name } });
-    return call(port, 'ui.menu');
+    let menu = await call(port, 'ui.menu');
+    const deadline = Date.now() + 3000;
+    while (!menu.items?.length && Date.now() < deadline) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+      menu = await call(port, 'ui.menu');
+    }
+    return menu;
   }
 
   const handles = await call(port, 'ui.handles', { prefix: 'row:Plate' });
   const plateRow = handles.find((h) => h.name === 'row:Plate');
   if (plateRow) {
     await call(port, 'ui.click', { x: plateRow.x, y: plateRow.y });
-    const selection = await call(port, 'ui.selection');
-    assert(JSON.stringify(selection).includes('Plate'), 'clicking the browser row did not select Plate');
+    let selection = await call(port, 'ui.selection');
+    const selectionDeadline = Date.now() + 3000;
+    while (!JSON.stringify(selection).includes('Plate') && Date.now() < selectionDeadline) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+      selection = await call(port, 'ui.selection');
+    }
+    assert(JSON.stringify(selection).includes('Plate'), `clicking the browser row did not select Plate: ${JSON.stringify(selection)}`);
   } else {
     throw new Error('native UI did not publish a selectable Plate browser row');
   }
@@ -256,7 +306,13 @@ async function main() {
 
   const partBRow = await browserRow('Part B');
   await call(port, 'ui.click', { x: partBRow.x, y: partBRow.y });
-  assert(JSON.stringify(await call(port, 'ui.selection')).includes('Part B'), 'clicking Part B did not select it independently');
+  let partBSelection = await call(port, 'ui.selection');
+  const partBSelectionDeadline = Date.now() + 3000;
+  while (!JSON.stringify(partBSelection).includes('Part B') && Date.now() < partBSelectionDeadline) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    partBSelection = await call(port, 'ui.selection');
+  }
+  assert(JSON.stringify(partBSelection).includes('Part B'), `clicking Part B did not select it independently: ${JSON.stringify(partBSelection)}`);
 
   let menu = await bodyMenu('Part B');
   const hide = menu.items?.find((item) => item.id === 'ui.hide' || item.label === 'Show/Hide');
@@ -278,10 +334,21 @@ async function main() {
   assert(['Plate', 'Part C'].every((name) => isolated.visibility.hidden_bodies.includes(name)), 'Isolate did not hide the other bodies');
   await call(port, 'ui.menu', { close: true });
   await call(port, 'engine.execute', { command: 'browser.visibility', params: { items: ['Plate', 'Part B', 'Part C'], visible: true } });
-  const facePoint = await call(port, 'ui.at', { world: top.point });
+  // Use an unsketched body for this independent face-picking check; Plate's sketch profile can
+  // legitimately take priority over a face where their screen-space regions overlap.
+  const selectableFaces = await call(port, 'engine.execute', { command: 'model.faces', params: { body: 'Part B' } });
+  const selectableFace = selectableFaces.faces.find((face) => face.plane_normal?.[2] > 0.9);
+  assert(selectableFace?.point?.length === 3, 'Part B has no selectable top face');
+  await call(port, 'ui.view', { view: 'top' });
+  const facePoint = await call(port, 'ui.at', { world: selectableFace.point });
   await call(port, 'ui.click', { x: facePoint[0], y: facePoint[1] });
-  const selectedFace = await call(port, 'ui.selection');
-  assert(JSON.stringify(selectedFace).toLowerCase().includes('face'), 'viewport click did not select a face');
+  let selectedFace = await call(port, 'ui.selection');
+  const faceSelectionDeadline = Date.now() + 3000;
+  while (!JSON.stringify(selectedFace).toLowerCase().includes('face') && Date.now() < faceSelectionDeadline) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    selectedFace = await call(port, 'ui.selection');
+  }
+  assert(JSON.stringify(selectedFace).toLowerCase().includes('face'), `viewport click did not select a face at ${JSON.stringify(facePoint)}: ${JSON.stringify(selectedFace)}`);
 
   const inspection = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
   assert(['Plate', 'Part B', 'Part C'].every((name) => inspection.bodies.some((body) => body.name === name)), 'three named bodies are not present in the live document');
@@ -295,12 +362,6 @@ async function main() {
   const mcpScreenshot = await mcpTool('forge_screenshot', { view: 'fit', width: 600, height: 400 });
   assert(mcpScreenshot.content[0]?.type === 'image' && mcpScreenshot.content[0]?.mimeType === 'image/png', 'Forge MCP screenshot did not return a PNG image');
 
-  await mcpTool('forge_undo');
-  const undone = await call(port, 'engine.execute', { command: 'document.inspect' });
-  assert(!undone.timeline.some((feature) => feature.name === 'Edge Round'), 'Undo did not remove the last fillet feature');
-  await mcpTool('forge_redo');
-  const redone = await call(port, 'engine.execute', { command: 'document.inspect' });
-  assert(redone.timeline.some((feature) => feature.name === 'Edge Round'), 'Redo did not restore the fillet feature');
   const saved = join(root, 'three-body.solidcraft');
   await call(port, 'engine.execute', { command: 'file.save', params: { path: saved } }, token, [root]);
   await call(port, 'engine.execute', { command: 'doc.open', params: { path: saved } }, token, [root]);
@@ -318,6 +379,12 @@ async function main() {
   assert(statSync(allStl).size > statSync(stl).size, 'body-scoped STL export did not exclude the other bodies');
   assert(parse3mfObjects(threeMf) === 3, 'multi-body 3MF did not preserve three separate mesh objects');
 
+  // Capture the clean three-body state before the intentional out-of-scope save refusal adds a
+  // security toast to the application window.
+  const screenshot = join(root, 'demonx-forge-three-body.png');
+  const shot = await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
+  assert(!shot.hidden && statSync(screenshot).size > 1000, 'native application screenshot was not captured');
+
   let escaped = false;
   try {
     await call(port, 'engine.execute', { command: 'file.save', params: { path: join(tmpdir(), 'demonx-forge-outside.solidcraft') } }, token, [root]);
@@ -326,9 +393,6 @@ async function main() {
   }
   assert(escaped, 'control channel wrote a design outside its explicit allow_paths scope');
 
-  const screenshot = join(root, 'demonx-forge-three-body.png');
-  const shot = await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
-  assert(!shot.hidden && statSync(screenshot).size > 1000, 'native application screenshot was not captured');
   await call(port, 'ui.window', { action: 'close' });
   process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, mcpScreenshot: true })}\n`);
 }
