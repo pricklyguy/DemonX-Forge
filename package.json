@@ -19,7 +19,7 @@
     "package:linux": "node scripts/build-package.mjs --platform linux"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.12.0"
   },
   "devDependencies": {
     "playwright": "1.56.1",

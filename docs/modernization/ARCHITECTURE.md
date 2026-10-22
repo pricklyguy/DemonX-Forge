@@ -26,7 +26,7 @@ This recommendation preserves existing application work. It does not require own
 
 ## Build and test runtime
 
-Forge's web build and tests use Vite 8.3.5 and Vitest 5.0.5, with the React 6 plugin. The root package declares Node 20.19.0 or newer, matching Vite 8's documented runtime floor; CI already uses Node 22. This updates development tooling only and leaves the Forge service and engine process architecture unchanged. Windows validation passed for the current toolchain, while Linux CI and package validation remain required.
+Forge's web build and tests use Vite 8.3.5 and Vitest 5.0.5, with the React 6 plugin. The root package declares Node 22.12.0 or newer, matching Vitest 5's runtime requirement; Vite 8's requirement is Node 20.19.0 or newer. CI already uses Node 22. This updates development tooling only and leaves the Forge service and engine process architecture unchanged. Windows validation passed for the current toolchain, while Linux CI and package validation remain required.
 
 ## Options considered
 

@@ -91,7 +91,7 @@ Environment: Windows sandbox, Node v24.19.0 / npm 11.17.0. The initial dependenc
 
 ## Toolchain maintenance checkpoint (2026-10-22)
 
-Updated web build/test tooling from Vite 5 / Vitest 2 to Vite 8.3.5 / Vitest 5.0.5, updated `@vitejs/plugin-react` to 6.1.2, and raised the package's Node minimum to 20.19.0. This follows the official Vite 8 and Vitest 5 runtime requirements; no application runtime or engine dependencies changed. The `package-lock.json` was regenerated.
+Updated web build/test tooling from Vite 5 / Vitest 2 to Vite 8.3.5 / Vitest 5.0.5, updated `@vitejs/plugin-react` to 6.1.2, and raised the package's Node minimum to 22.12.0. This satisfies both tools' runtime requirements; no application runtime or engine dependencies changed. The `package-lock.json` was regenerated.
 
 - `npm install --ignore-scripts`: passed; 37 packages added, 77 removed; npm reported zero vulnerabilities.
 - `npm audit --json`: passed, zero vulnerabilities (12 production, 117 development packages in audit metadata).
