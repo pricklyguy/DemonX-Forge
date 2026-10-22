@@ -149,7 +149,7 @@ by the included GNU GPL-3.0-or-later license.
 
 $forgeCommit = (& git -C $Repo rev-parse HEAD).Trim()
 $forgeCommitTime = (& git -C $Repo show -s --format=%cI $forgeCommit).Trim()
-$cargoVersion = [regex]::Match((Get-Content (Join-Path $BuildSource 'Cargo.toml' -Raw)), '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
+$cargoVersion = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $BuildSource 'Cargo.toml')), '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
 $releaseId = "${cargoVersion}-forge-$($forgeCommit.Substring(0,12))-engine-$($Pinned.Substring(0,12))"
 $manifest = [ordered]@{
   product = 'DemonX Forge'

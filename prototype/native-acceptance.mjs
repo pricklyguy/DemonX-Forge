@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { inflateRawSync } from 'node:zlib';
 import { buildNativeMcp } from './build-mcp-native.mjs';
@@ -163,6 +163,10 @@ async function main() {
     WGPU_BACKEND: 'dx12',
     WGPU_DX12_COMPILER: 'fxc',
   };
+  if (process.platform === 'win32') {
+    const [domain, user] = execFileSync('whoami', { encoding: 'utf8' }).trim().split('\\');
+    if (user) { env.USERDOMAIN = domain; env.USERNAME = user; }
+  }
   delete env.SOLIDCRAFT_CONTROL_DIR;
   const app = appProcess = spawn(exe, ['--safe-mode', '--control', String(port)], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
   let stderr = '';
