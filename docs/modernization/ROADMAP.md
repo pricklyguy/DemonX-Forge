@@ -9,7 +9,7 @@
 
 ## Phase 1 — MCP, service security and adapter contract
 
-**Status:** in progress. The established tool names/schema, namespace and file-operation boundary now have stronger regression tests. Real-engine/browser MCP execution remains pending an engine binary.
+**Status:** in progress. The established tool names/schema, namespace and path-capable command boundary now have stronger regression tests. Path commands outside the `file.*` namespace are denied as well. Real-engine/browser MCP execution remains pending an engine binary.
 
 **Priority:** critical; all GUI features and any engine upgrade depend on it.
 

@@ -96,4 +96,5 @@ Updated web build/test tooling from Vite 5 / Vitest 2 to Vite 8.3.5 / Vitest 5.0
 - `npm test`: passed, 111 server tests and 68 web tests; 51 server tests remain skipped for unavailable real-engine cases and Linux-only tests.
 - `npm run typecheck`: passed for server and web.
 - `npm run build`: passed with Vite 8.3.5. The main JS bundle is 873.78 kB minified (239.23 kB gzip), above the 500 kB advisory threshold.
+- MCP command-boundary regression coverage now includes path-taking commands outside `file.*`: parameter import/export, timeline script export, and linked component file reads.
 - Not run: real-engine, browser E2E, or packaged app workflows; the engine binary remains unavailable.

@@ -6,7 +6,12 @@ describe('model command boundary', () => {
     for (const id of ['sketch.create', 'solid.extrude', 'mesh.convert', 'parameters.change', 'timeline.inspect', 'model.select', 'edit.apply']) {
       expect(isAllowedCommand(id)).toBe(true);
     }
-    for (const id of ['file.open', 'file.export', 'filesystem.delete', 'document.save', 'sketch.export_dxf', 'sketch.insert_dxf', 'sketch.insert_svg', 'sketch.text', 'sketch.edit_text']) {
+    for (const id of [
+      'file.open', 'file.export', 'filesystem.delete', 'document.save',
+      'sketch.export_dxf', 'sketch.insert_dxf', 'sketch.insert_svg', 'sketch.text', 'sketch.edit_text',
+      'parameters.export', 'parameters.import', 'timeline.export_script',
+      'component.insert_design', 'component.update_links', 'component.relink',
+    ]) {
       expect(isAllowedCommand(id)).toBe(false);
       expect(() => checkStep({ command: id, params: { path: 'C:/private/design.step' } })).toThrow(BadRequest);
     }

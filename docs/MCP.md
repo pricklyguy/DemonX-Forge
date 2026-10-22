@@ -16,7 +16,8 @@ file names move, so if a step looks different, check the client's own MCP page. 
 - It can: read the design, list the modelling commands, run modelling commands (sketch, extrude, fillet, hole, patterns, Mesh to Solid ...), measure,
   take a screenshot, change a parameter, undo and redo.
 - It **cannot** open, save, export, import or delete files, and cannot start a new design: those are not offered, and the Forge server refuses file
-  commands, including engine sketch import/export commands and text commands that may read a font by path. Use the checked Forge file routes instead.
+  commands, including engine sketch import/export and text commands that may read a font by path, parameter import/export, timeline script export,
+  and linked component commands that read design files. Use the checked Forge file routes instead.
   **Save your work yourself** (File > Save): Forge keeps the design in memory and an AI edit is not saved
   until you save.
 - Everything stays on this computer. What the AI sends to its own company (Anthropic, OpenAI) is whatever it reads from the design, for example
