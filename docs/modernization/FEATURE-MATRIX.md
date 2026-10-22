@@ -23,6 +23,7 @@
 | Screenshot/undo/redo/parameters | Present through Forge MCP; unit tests cover routes | Present through MCP/CLI/control channel | Same open design, errors actionable, undo exactly one logical operation; **integration test required** |
 | Responsiveness/precision | Three.js display meshes; engine process and 3MF geometry transfer | Rust engine and custom tessellation; large geometry/cache/performance work | Maintain mm/Z-up, error bounds, low-latency selection and command response; **benchmark baseline missing** |
 | Windows/Linux packaging | CI builds Windows ZIP/Linux tarball; docs and launchers present | Desktop builds/packages; web WASM configuration | Installed package workflows on both OSes; **actual OS acceptance pending** |
+| Build and test toolchain | Vite 8.3.5, Vitest 5.0.5 and React plugin 6.1.2; unit, typecheck and build pass on Windows | Rust toolchain; not directly comparable | Supported Node baseline set to 20.19.0; npm audit is clean; **real engine and packaged cross-platform validation pending** |
 
 ## Capability interpretation
 

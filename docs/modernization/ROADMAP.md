@@ -5,7 +5,7 @@
 
 ## Phase 0 — Assessment and baseline contracts
 
-**Status:** complete for the available baseline. The five assessment documents and requirement traceability are drafted; branch safety is recorded; Windows typecheck, build, unit/service tests and package-script portability checks were run. The engine-dependent tests and real-browser suites could not run because this checkout has no engine binary. Results are recorded in `TEST-PLAN.md`.
+**Status:** complete for the available baseline. The five assessment documents and requirement traceability are drafted; branch safety is recorded; Windows typecheck, build, unit/service tests and package-script portability checks were run. The toolchain was updated to supported Vite 8 / Vitest 5 releases and the full npm audit now reports zero vulnerabilities. The engine-dependent tests and real-browser suites could not run because this checkout has no engine binary. Results are recorded in `TEST-PLAN.md`.
 
 ## Phase 1 — MCP, service security and adapter contract
 
@@ -19,6 +19,8 @@
 - Add adapter capability/version diagnostics; unknown commands and parameters must fail or warn clearly, never silently produce a misleading success.
 
 **Completion:** old clients remain compatible; all read/write/error restrictions have automated evidence; one MCP-authored real model can be inspected, measured, undone/redone and saved/reopened through GUI.
+
+**Foundation checkpoint:** unit coverage pins existing tool contracts and command path restrictions; Vite/Vitest maintenance and npm audit are complete. Real-engine MCP acceptance remains open.
 
 ## Phase 2 — Reproducible real-model acceptance corpus
 

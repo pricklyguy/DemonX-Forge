@@ -24,6 +24,10 @@ This recommendation preserves existing application work. It does not require own
 | Commands | Forge HTTP JSON command routes and MCP bridge; command allowlist; browser tools and AI tools share engine commands | `CommandSpec` registry powers UI, CLI/scripts, MCP and control channel | Preserve existing Forge tool names/schemas. Add typed command metadata and structured errors incrementally. |
 | MCP | `server/src/mcp.ts` exposes Forge-namespaced design, command, query, measure, screenshot, parameter, undo and redo tools | `crates/mcp` / CLI expose a broader MCP interface including topology, diagnostics, file tools, joints and more | Forge must not simply proxy the full upstream tool set: retain its own policy and established client contract. |
 
+## Build and test runtime
+
+Forge's web build and tests use Vite 8.3.5 and Vitest 5.0.5, with the React 6 plugin. The root package declares Node 20.19.0 or newer, matching Vite 8's documented runtime floor; CI already uses Node 22. This updates development tooling only and leaves the Forge service and engine process architecture unchanged. Windows validation passed for the current toolchain, while Linux CI and package validation remain required.
+
 ## Options considered
 
 ### 1. Expand the current adapter and selectively use engine capabilities — recommended

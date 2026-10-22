@@ -76,13 +76,24 @@ For each roadmap phase record commit, environment, engine version, exact command
 
 ## Assessment baseline run (2026-10-22)
 
-Environment: Windows sandbox, Node v24.19.0 / npm 11.17.0. The initial dependency restore used `npm install --ignore-scripts --package-lock=false`; then `npm ci --ignore-scripts` completed from the committed lockfile and the final test/typecheck/build run used that install. The tracked lockfile was not changed.
+Environment: Windows sandbox, Node v24.19.0 / npm 11.17.0. The initial dependency restore used `npm install --ignore-scripts --package-lock=false`; then `npm ci --ignore-scripts` completed from the baseline lockfile and the baseline test/typecheck/build run used that install.
 
 - `npm run typecheck`: passed for server and web.
 - `npm run build`: passed. Vite reports the current main JS bundle is 872.22 kB minified (242.44 kB gzip), above its 500 kB advisory threshold.
 - `npm test -w web`: passed, 68 tests.
 - `npm test -w server`: passed, 111 tests; 51 tests skipped. Skips include real-engine cases because `FORGE_ENGINE` and `data/engine/solidcraft-cli(.exe)` are unavailable, and Linux-only launcher tests on Windows.
 - `server/test/updateWindows.test.ts` and `server/test/launcher.test.ts`: passed after removing the Unix-only external `zip` dependency from fixtures and making the path assertion platform-neutral (37 tests).
-- `npm audit --json` reported six development-tool dependency advisories (3 moderate, 1 high, 2 critical); `npm audit --omit=dev --json` reported zero production dependency advisories. No dependency upgrade was made in this assessment phase.
+- `npm audit --json` reported six development-tool dependency advisories (3 moderate, 1 high, 2 critical); `npm audit --omit=dev --json` reported zero production dependency advisories at baseline.
 - `git diff --check`: passed at the time of the baseline check.
 - Not run: real-engine tests, Playwright browser workflows including `e2e/mcp.mjs`, actual MCP client setup, Linux package execution, or Windows packaged application acceptance.
+
+## Toolchain maintenance checkpoint (2026-10-22)
+
+Updated web build/test tooling from Vite 5 / Vitest 2 to Vite 8.3.5 / Vitest 5.0.5, updated `@vitejs/plugin-react` to 6.1.2, and raised the package's Node minimum to 20.19.0. This follows the official Vite 8 and Vitest 5 runtime requirements; no application runtime or engine dependencies changed. The `package-lock.json` was regenerated.
+
+- `npm install --ignore-scripts`: passed; 37 packages added, 77 removed; npm reported zero vulnerabilities.
+- `npm audit --json`: passed, zero vulnerabilities (12 production, 117 development packages in audit metadata).
+- `npm test`: passed, 111 server tests and 68 web tests; 51 server tests remain skipped for unavailable real-engine cases and Linux-only tests.
+- `npm run typecheck`: passed for server and web.
+- `npm run build`: passed with Vite 8.3.5. The main JS bundle is 873.78 kB minified (239.23 kB gzip), above the 500 kB advisory threshold.
+- Not run: real-engine, browser E2E, or packaged app workflows; the engine binary remains unavailable.
