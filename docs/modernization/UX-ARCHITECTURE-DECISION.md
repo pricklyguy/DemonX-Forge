@@ -1,19 +1,19 @@
 # UX Architecture Decision: Forge Frontend or SolidCraft Application Foundation
 
-**Status:** Proposed — owner decision required before architecture implementation  
+**Status:** Option B prototype approved; product cutover still requires owner approval
 **Date:** 2026-10-22  
 **Scope:** Interaction architecture and product foundation for DemonX Forge on `codex/fusion-parity`  
-**Review mode:** Source inspection; no application code changed
+**Review mode:** Source inspection; prototype implementation began after owner approval
 
 ## Recommendation
 
-Proceed with **Option B as the target product foundation**: use the SolidCraft Rust/egui desktop application and its tested browser, selection, context-menu, sketch, and feature-dialog workflows as the starting point for a DemonX Forge desktop experience. Keep Forge's identity and theme, and build a narrow compatibility layer for the existing `.forge` document wrapper and Forge MCP contract.
+Proceed with **Option B as the target product foundation**: use the SolidCraft Rust/egui desktop application and its tested browser, selection, context-menu, sketch, and feature-dialog workflows as the starting point for a DemonX Forge desktop experience. Keep Forge's identity and theme, use SolidCraft's native project format for the prototype, and build a narrow compatibility layer for the Forge MCP contract.
 
 This recommendation is based on the user's direct experience with the running SolidCraft app and the corresponding implementation evidence below. Forge's current UI has useful sketch, viewport, and feature work, but its browser, general selection state, and command editing remain application-specific and uneven. Rebuilding those interaction patterns in React would create a large second UI implementation while the reference already has a more integrated set of workflows and UI tests.
 
-This UX review revises the frontend direction in `docs/modernization/ARCHITECTURE.md`, which recommended retaining React before this usability-focused reassessment. Its recommendations to keep Forge's `.forge` format and MCP security boundary remain constraints on either direction.
+This UX review revises the frontend direction in `docs/modernization/ARCHITECTURE.md`, which recommended retaining React before this usability-focused reassessment. The owner approved a reversible native prototype and explicitly lowered `.forge` compatibility priority. Forge MCP contracts and security remain mandatory constraints.
 
-This is a recommendation, not authorization to replace the frontend. The migration must be staged on `codex/fusion-parity`, retain the current Forge checkout as a rollback point, and keep the React UI available until the native experience passes the scenario and compatibility gates in this document. Do not remove the React product path, change `.forge` incompatibly, or change Forge MCP behavior until the owner approves that migration.
+The owner approved the prototype, not replacement of the existing application. Keep the React UI, server, adapter, and existing projects as rollback until the native experience passes the scenario and compatibility gates in this document. Retain `.forge` files unchanged; opening them in the prototype is optional unless it becomes a specific blocker. Do not change the default Forge product path or MCP behavior until the owner approves cutover.
 
 ## Evidence and confidence
 
@@ -61,17 +61,17 @@ An STL contains triangles, not named bodies or mesh objects. A multi-body export
 
 ## Architecture and migration proposal
 
-1. **Approval gate:** obtain owner approval for Option B before any frontend replacement, native app fork, or project migration. Keep this document proposed until then.
-2. **Reversible native vertical slice:** on `codex/fusion-parity`, bring up the SolidCraft desktop UI in an isolated DemonX Forge app target. Rebrand the window, application IDs, colors, and packaging metadata with Forge-owned identity and icons. Preserve all upstream license and attribution notices for adapted code. Do not edit the read-only SolidCraft checkout.
-3. **Document compatibility:** add a Forge `.forge` importer/exporter that validates the existing outer metadata and reads/writes the existing inner `design.solidcraft` payload. Add fixtures from Forge v0.27.0 and test save/reopen, history, parameters, body names, and recovery. Do not change the format version or silently rewrite documents.
+1. **Approved prototype:** on `codex/fusion-parity`, build an isolated native target from a pinned SolidCraft submodule. Keep Forge and SolidCraft checkouts unchanged; apply the minimal DemonX branding overlay at build time and preserve all notices.
+2. **Native vertical slice:** execute the three-body UX scenario with screenshots, native save/reopen, topology/export assertions, and undo/redo. Do not count the UI/engine source tests alone as product acceptance.
+3. **Project format:** use SolidCraft's native project format during the prototype. Keep old `.forge` files and the existing application as backups; do not spend meaningful effort on migration unless a specific project workflow becomes a release blocker.
 4. **MCP compatibility:** keep Forge's nine-tool contract and checked Node bridge as a compatibility layer. First evaluate SolidCraft's existing `--control PORT` channel: it is bound to loopback, requires a per-launch random token, and accepts per-request `allow_paths`. Adapt the Forge namespace over that authenticated channel so calls affect the active native document. Retain Forge's stricter command allowlist and its checked file routes; do not pass client paths through `forge_run_commands`. Keep Forge's Host/Origin checks on any HTTP-facing compatibility route, and test the existing Forge MCP client suite against the native session before making it the default.
-5. **Acceptance and rollback gate:** pass the three-body scenario below through GUI and MCP where supported, save/reopen it, inspect exported body/object counts, pass MCP security tests, and run Windows/Linux build and packaging checks. Preserve the React release path and known-good Forge engine binary as rollback until these gates pass. Only then propose the product cutover as a separate owner decision.
+5. **Acceptance and rollback gate:** pass the three-body scenario below through GUI and MCP where supported, save/reopen it, inspect exported body/object counts, pass MCP security tests, and run Windows/Linux build and packaging checks. Preserve the React release path and known-good Forge engine binary as rollback until these gates pass. Then present the migration plan and request the separate product cutover decision.
 
 ### Main risks and controls
 
 - **MCP and session split:** a standalone native engine session and a separate Forge MCP server could show different models. SolidCraft already documents an authenticated loopback control channel for the running UI (`docs/control-protocol.md`, `apps/solidcraft/src/control_server.rs`, `crates/mcp/src/backend.rs`); verify it can back every Forge tool, including save/open, errors, and screenshots, before relying on it.
 - **Path access:** upstream file commands can accept paths. Forge's Node bridge currently confines the engine to a temporary directory and streams files through validated routes. Preserve those restrictions at the compatibility boundary and test traversal, non-loopback requests, wrong Host/Origin, and denied file commands.
-- **`.forge` migration:** SolidCraft's `.solidcraft` extension does not imply it can open Forge's ZIP wrapper. Keep the existing wrapper and test the inner payload with the exact engine format version. Retain source files unchanged on failed or newer-format reads.
+- **`.forge` migration:** SolidCraft's `.solidcraft` extension does not imply it can open Forge's ZIP wrapper. The owner has made old project compatibility low priority. Preserve the old app/projects as backups and use native `.solidcraft` files in the prototype; revisit a converter only if required for a specific release workflow.
 - **STL identity:** one STL cannot preserve named body objects. Offer separate files or a multi-object format and explain the choice in the export UI.
 - **Brand and licensing:** SolidCraft's workspace declares MIT OR Apache-2.0 and includes attribution/third-party notices. Preserve applicable notices and audit every adapted dependency, icon, font, illustration, and package asset. Use Forge-owned visual identity and icons.
 - **Platform build:** the Rust UI adds native GPU and platform packaging dependencies. Test actual Windows and Linux builds and installers; source workflows alone are not release evidence.

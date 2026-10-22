@@ -1,0 +1,78 @@
+name: Native DemonX Forge prototype
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/fusion-parity]
+
+permissions:
+  contents: read
+
+jobs:
+  native-build-and-test:
+    name: ${{ matrix.os }} source, engine, and UI tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+            backend: dx12
+          - os: ubuntu-24.04
+            target: linux-x64
+            backend: vulkan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prototype/solidcraft
+      - name: Install Linux viewport test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libasound2-dev mesa-vulkan-drivers libvulkan1 xvfb
+      - name: Verify source pin and overlay anchors
+        run: node prototype/apply-overlay.mjs --check prototype/solidcraft
+      - name: Apply DemonX identity and theme overlay
+        run: node prototype/apply-overlay.mjs prototype/solidcraft
+      - name: Run engine and UI test suite with software GPU required
+        working-directory: prototype/solidcraft
+        env:
+          SOLIDCRAFT_GPU: software
+          SOLIDCRAFT_REQUIRE_GPU: '1'
+          WGPU_BACKEND: ${{ matrix.backend }}
+          WGPU_DX12_COMPILER: fxc
+        run: cargo test --workspace --profile ci --locked
+      - name: Build native app and CLI
+        working-directory: prototype/solidcraft
+        run: cargo build --release --locked -p solidcraft -p solidcraft-cli
+      - name: Verify DemonX branding and theme tokens
+        run: node prototype/verify-overlay.mjs prototype/solidcraft
+      - name: Launch the branded Windows app and run the three-body scenario
+        if: runner.os == 'Windows'
+        run: node prototype/native-acceptance.mjs prototype/solidcraft/target/release/solidcraft.exe
+      - name: Upload native acceptance screenshot
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: demonx-forge-three-body-screenshot
+          path: ${{ runner.temp }}/demonx-forge-native-acceptance-*/demonx-forge-three-body.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demonx-forge-native-${{ matrix.target }}
+          path: |
+            prototype/solidcraft/target/release/solidcraft*
+            prototype/solidcraft/LICENSE-MIT
+            prototype/solidcraft/LICENSE-APACHE
+            prototype/solidcraft/NOTICE
+            prototype/solidcraft/THIRD-PARTY-LICENSES.txt
+          if-no-files-found: error

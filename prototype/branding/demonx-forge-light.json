@@ -1,0 +1,24 @@
+{
+  "format": "solidcraft-theme/1",
+  "name": "DemonX Forge Light",
+  "base": "light",
+  "colors": {
+    "app_bar": "#e3eaee",
+    "toolbar": "#f7fafb",
+    "panel": "#f7fafb",
+    "panel_header": "#e9eff2",
+    "border": "#c5d2d9",
+    "text": "#17232a",
+    "text_dim": "#55666f",
+    "accent": "#0b8396",
+    "accent_soft": "#d0e9ed",
+    "sketch_accent": "#0b8396",
+    "warning": "#c4621f",
+    "error": "#c0392b",
+    "body_selected": "#79c6d0",
+    "sel_face": "#0b8396",
+    "sel_edge": "#c4621f",
+    "origin_plane": "#0b8396",
+    "axis_z": "#0b8396"
+  }
+}

@@ -1,0 +1,50 @@
+# Native prototype validation results
+
+**Date:** 2026-10-22
+**Branch:** `codex/fusion-parity`
+**Pinned SolidCraft source:** `75261cd79733fe47cf898b54f865e6bfaffa1129`
+
+## Current status
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Reference repository remains unchanged | Pass (read-only inspection) | Original checkout was clean at the pinned commit before prototype setup. All prototype metadata and work are under this Forge checkout. |
+| Reproducible source arrangement | Pass (source pin) | `prototype/solidcraft` submodule points to `pricklyguy/DemonX-Solidcraft` and records the exact local reference commit. |
+| Overlay anchor validation | Pass | `node prototype/apply-overlay.mjs --check prototype/solidcraft` verifies the pinned SHA and expected source anchors. |
+| Overlay application | Pass (isolated source clone) | Applied the overlay to a disposable local clone under the OS temporary directory, not the reference checkout or the checked-in submodule. |
+| Branding/theme static validation | Pass | `node prototype/verify-overlay.mjs <overlay clone>` verified the app title/id, Forge emblem loader, built-in dark/light theme registration, theme token keys, and lockfile dependency. |
+| Native Rust build and engine/UI suite | Unverified locally | `cargo`, `rustc`, and `rustup` are not installed. The branch-only Windows/Linux Actions workflow is added but has not run yet. |
+| Native Windows startup, GUI scenario, screenshots | Unverified | No built desktop executable or interactive native run is available in this environment. |
+| Three-body export/save/reopen scenario | Implemented as a Windows Actions harness; unverified | `prototype/native-acceptance.mjs` launches the app with isolated settings and a scoped authenticated control channel. It checks real geometry/history, face-sketch, modify, visibility, selection, export structure, save/reopen and screenshot. The Windows job has not run yet. |
+| Forge MCP compatibility/security against native GUI | Unverified | The authenticated SolidCraft control protocol is the intended backend; the Forge contract adapter and regression tests remain to be implemented. |
+| Existing Forge React workflow comparison | Partial | The comparative source evidence is in `UX-ARCHITECTURE-DECISION.md`; no new three-body execution or screenshots were produced in this turn. |
+| Existing Forge unit/service baseline | Pass with explicit skips | `npm.cmd test`: server 111 passed, 52 skipped across 11 files; web 68 passed. Engine-dependent server cases skipped because this checkout has no `FORGE_ENGINE` executable. This does not substitute for native prototype or real-engine acceptance. |
+
+## Prototype design
+
+The pinned upstream source is kept in a Git submodule. `prototype/apply-overlay.mjs` makes a narrow,
+reviewable build-time overlay for the window title, isolated app-data ID, Forge-owned emblem, and
+DemonX dark/light colors. It refuses a source commit change or an unexpected upstream anchor.
+`prototype/verify-overlay.mjs` checks applied identity/theme dependencies and validates color token
+names against SolidCraft's theme registry. SolidCraft source and license files stay in their own
+submodule; Forge branding remains in Forge-owned assets.
+
+`.github/workflows/native-prototype.yml` is scoped to this branch and manual dispatch. It builds and
+tests the pinned native workspace on Windows and Linux, launches the app on the Windows runner with
+an isolated profile, executes the real three-body scenario, and uploads app/CLI binaries, license
+notices, and the screenshot. A green run still does not pass Forge MCP compatibility/security.
+
+## Known blockers
+
+- Install/provision Rust 1.95+ on the local Windows host or use the branch Actions workflow to get
+  actual native build/test evidence. GitHub-hosted Windows startup may not present frames in all
+  environments, so capture limitations explicitly and use the dedicated Windows desktop smoke path
+  where required.
+- Implement a Forge MCP compatibility bridge to the active app control socket. It must keep the
+  existing nine tool names and Forge's narrower command/path restrictions; SolidCraft's direct MCP
+  server is not a drop-in replacement.
+- Run and debug the scripted three-body real-engine scenario, including face selection/face sketch,
+  feature edit, scoped STL, separated multi-body export, native save/reopen, and GUI synchronization.
+- The current app title, native app-data identity, window icon and palette are the initial brand
+  overlay. Other upstream-facing strings, package metadata and screenshots still require review
+  before this can be called a professional DemonX product experience.

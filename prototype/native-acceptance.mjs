@@ -1,0 +1,260 @@
+import { randomBytes } from 'node:crypto';
+import { mkdtempSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { connect, createServer } from 'node:net';
+import { inflateRawSync } from 'node:zlib';
+
+const exe = resolve(process.argv[2] ?? 'prototype/solidcraft/target/release/solidcraft.exe');
+const root = mkdtempSync(join(tmpdir(), 'demonx-forge-native-acceptance-'));
+const controlDir = join(root, 'control');
+const dataDir = join(root, 'data');
+const appData = join(root, 'roaming');
+const token = randomBytes(32).toString('hex');
+mkdirSync(controlDir, { recursive: true });
+mkdirSync(dataDir, { recursive: true });
+mkdirSync(appData, { recursive: true });
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+async function freeLoopbackPort() {
+  const server = createServer();
+  await new Promise((resolvePromise, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolvePromise));
+  const port = server.address().port;
+  await new Promise((resolvePromise) => server.close(resolvePromise));
+  return port;
+}
+
+let requestId = 0;
+function call(port, method, params = {}, auth = token, allowPaths = []) {
+  return new Promise((resolvePromise, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let buffer = '';
+    const timeout = setTimeout(() => { socket.destroy(); reject(new Error(`${method} timed out`)); }, method === 'engine.batch' ? 360000 : 90000);
+    socket.setEncoding('utf8');
+    const scoped = allowPaths.length ? { ...params, allow_paths: allowPaths } : params;
+    socket.once('connect', () => socket.write(`${JSON.stringify({ id: ++requestId, method, params: scoped, token: auth })}\n`));
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      const end = buffer.indexOf('\n');
+      if (end < 0) return;
+      clearTimeout(timeout);
+      socket.end();
+      try {
+        const reply = JSON.parse(buffer.slice(0, end));
+        if (!reply.ok) reject(new Error(`${method}: ${reply.error ?? 'request refused'}`));
+        else resolvePromise(reply.result);
+      } catch (error) { reject(error); }
+    });
+    socket.once('error', (error) => { clearTimeout(timeout); reject(error); });
+  });
+}
+
+function parse3mfObjects(path) {
+  const zip = readFileSync(path);
+  const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  assert(end >= 0, 'multi-body export is not a ZIP-based 3MF file');
+  const count = zip.readUInt16LE(end + 10);
+  let offset = zip.readUInt32LE(end + 16);
+  for (let i = 0; i < count; i++) {
+    assert(zip.readUInt32LE(offset) === 0x02014b50, 'invalid 3MF central directory');
+    const method = zip.readUInt16LE(offset + 10);
+    const compressed = zip.readUInt32LE(offset + 20);
+    const nameLength = zip.readUInt16LE(offset + 28);
+    const extraLength = zip.readUInt16LE(offset + 30);
+    const commentLength = zip.readUInt16LE(offset + 32);
+    const localOffset = zip.readUInt32LE(offset + 42);
+    const name = zip.toString('utf8', offset + 46, offset + 46 + nameLength);
+    if (name.endsWith('.model')) {
+      const localNameLength = zip.readUInt16LE(localOffset + 26);
+      const localExtraLength = zip.readUInt16LE(localOffset + 28);
+      const start = localOffset + 30 + localNameLength + localExtraLength;
+      const packed = zip.subarray(start, start + compressed);
+      const xml = (method === 8 ? inflateRawSync(packed) : packed).toString('utf8');
+      return [...xml.matchAll(/<object\b/g)].length;
+    }
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  throw new Error('3MF archive has no model XML');
+}
+
+let appProcess;
+let controlPort;
+async function main() {
+  const port = await freeLoopbackPort();
+  controlPort = port;
+  const env = {
+    ...process.env,
+    APPDATA: appData,
+    LOCALAPPDATA: join(root, 'local'),
+    XDG_DATA_HOME: dataDir,
+    SOLIDCRAFT_CONTROL_DIR: controlDir,
+    SOLIDCRAFT_CONTROL_TOKEN: token,
+    SOLIDCRAFT_CRASH_DIR: join(root, 'crashes'),
+    SOLIDCRAFT_SAFE_MODE: '1',
+    WGPU_BACKEND: 'dx12',
+    WGPU_DX12_COMPILER: 'fxc',
+  };
+  const app = appProcess = spawn(exe, ['--safe-mode', '--control', String(port)], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
+  let stderr = '';
+  app.stderr.setEncoding('utf8').on('data', (s) => { stderr += s; });
+  let first;
+  const deadline = Date.now() + 240000;
+  while (!first && Date.now() < deadline && app.exitCode === null) {
+    try { first = await call(port, 'ui.inspect'); } catch { await new Promise((r) => setTimeout(r, 500)); }
+  }
+  assert(first, `native app did not expose its authenticated control channel: ${stderr.slice(-2000)}`);
+  assert(['gpu', 'cpu'].includes(first.renderer), `native viewport did not report a renderer (renderer=${first.renderer ?? 'unknown'})`);
+
+  let denied = false;
+  try { await call(port, 'engine.commands', {}, '00'.repeat(32)); } catch (error) { denied = /unauthorized/i.test(error.message); }
+  assert(denied, 'control channel accepted a request with the wrong token');
+
+  const firstBatch = await call(port, 'engine.batch', { commands: [
+    { command: 'sketch.create', params: { plane: 'XY', name: 'Base Sketch' } },
+    { command: 'sketch.rectangle.two_point', params: { p0: [0, 0], p1: [20, 15] } },
+    { command: 'sketch.finish', params: {} },
+    { command: 'solid.extrude', params: { distance: 8, operation: 'new', name: 'Base Extrude', body_name: 'Plate' } },
+    { command: 'solid.box', params: { length: 8, width: 8, height: 6, corner: [25, 0, 0], operation: 'new_body', name: 'Part B feature', body_name: 'Part B seed' } },
+    { command: 'solid.box', params: { length: 8, width: 8, height: 6, corner: [40, 0, 0], operation: 'new_body', name: 'Part C feature', body_name: 'Part C seed' } },
+  ], rollback: true, timings: true });
+  assert(firstBatch.completed === 6, `initial real-engine batch completed ${firstBatch.completed} steps, expected 6`);
+
+  const faceReply = await call(port, 'engine.execute', { command: 'model.faces', params: { body: 'Plate' } });
+  const top = faceReply.faces.find((face) => face.plane_normal?.[2] > 0.9);
+  assert(top?.point?.length === 3, 'Plate has no selectable top planar face');
+
+  const originPlanePoint = await call(port, 'ui.at', { plane: 'YZ' });
+  assert(Array.isArray(originPlanePoint) && originPlanePoint.length === 2, 'YZ origin plane is not available for viewport picking');
+  await call(port, 'ui.click', { x: originPlanePoint[0], y: originPlanePoint[1] });
+  assert(JSON.stringify(await call(port, 'ui.selection')).includes('YZ'), 'clicking the viewport YZ origin plane did not select it');
+
+  await call(port, 'engine.execute', { command: 'sketch.create', params: { plane: { face: top.point, body: 'Plate' }, name: 'Face Sketch' } });
+  await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [-2, -2], p1: [2, 2] } });
+  await call(port, 'engine.execute', { command: 'sketch.finish' });
+  await call(port, 'engine.execute', { command: 'solid.extrude', params: { sketch: 'Face Sketch', distance: 2, operation: 'join', targets: ['Plate'], name: 'Face Boss' } });
+  await call(port, 'engine.execute', { command: 'timeline.redefine', params: { feature: 'Face Boss', command: 'solid.extrude', params: { sketch: 'Face Sketch', distance: 3, operation: 'join', targets: ['Plate'], name: 'Face Boss' } } });
+
+  const edgeReply = await call(port, 'engine.execute', { command: 'model.edges', params: { body: 'Plate' } });
+  const edge = [...edgeReply.edges].sort((a, b) => b.length - a.length)[0];
+  assert(edge?.mid?.length === 3, 'Plate has no selectable edges');
+  await call(port, 'engine.execute', { command: 'solid.fillet', params: { body: 'Plate', edges: [edge.mid], radius: 0.5, name: 'Edge Round' } });
+
+  await call(port, 'ui.view', { view: 'fit' });
+
+  async function browserRow(name) {
+    const handles = await call(port, 'ui.handles', { prefix: `row:${name}` });
+    return handles.find((h) => h.name === `row:${name}`);
+  }
+  async function bodyMenu(name) {
+    const item = await browserRow(name);
+    assert(item, `native UI did not publish a selectable ${name} browser row`);
+    await call(port, 'ui.menu', { x: item.x, y: item.y, target: { type: 'body', name } });
+    return call(port, 'ui.menu');
+  }
+
+  const handles = await call(port, 'ui.handles', { prefix: 'row:Plate' });
+  const plateRow = handles.find((h) => h.name === 'row:Plate');
+  if (plateRow) {
+    await call(port, 'ui.click', { x: plateRow.x, y: plateRow.y });
+    const selection = await call(port, 'ui.selection');
+    assert(JSON.stringify(selection).includes('Plate'), 'clicking the browser row did not select Plate');
+  } else {
+    throw new Error('native UI did not publish a selectable Plate browser row');
+  }
+
+  for (const [from, to] of [['Part B seed', 'Part B'], ['Part C seed', 'Part C']]) {
+    const menu = await bodyMenu(from);
+    const rename = menu.items?.find((item) => item.id === 'ui.rename' || item.label === 'Rename');
+    assert(rename, `context menu for ${from} did not offer Rename`);
+    await call(port, 'ui.menuPick', { item: rename.id ?? rename.label });
+    await call(port, 'ui.rename', { text: to, commit: true });
+    assert(await browserRow(to), `renaming ${from} in the browser did not create row ${to}`);
+  }
+
+  const partBRow = await browserRow('Part B');
+  await call(port, 'ui.click', { x: partBRow.x, y: partBRow.y });
+  assert(JSON.stringify(await call(port, 'ui.selection')).includes('Part B'), 'clicking Part B did not select it independently');
+
+  let menu = await bodyMenu('Part B');
+  const hide = menu.items?.find((item) => item.id === 'ui.hide' || item.label === 'Show/Hide');
+  assert(hide, 'body context menu did not offer Hide');
+  await call(port, 'ui.menuPick', { item: hide.id });
+  let visibility = (await call(port, 'ui.inspect')).visibility;
+  assert(visibility.hidden_bodies.includes('Part B'), 'context-menu Hide did not hide Part B');
+  menu = await bodyMenu('Part B');
+  const show = menu.items?.find((item) => item.id === 'ui.show' || item.label === 'Show/Hide');
+  assert(show, 'hidden body context menu did not offer Show');
+  await call(port, 'ui.menuPick', { item: show.id });
+  visibility = (await call(port, 'ui.inspect')).visibility;
+  assert(!visibility.hidden_bodies.includes('Part B'), 'context-menu Show did not restore Part B');
+  menu = await bodyMenu('Part B');
+  const isolate = menu.items?.find((item) => item.id === 'ui.isolate' || item.label === 'Isolate');
+  assert(isolate, 'body context menu did not offer Isolate');
+  await call(port, 'ui.menuPick', { item: isolate.id });
+  const isolated = await call(port, 'ui.inspect');
+  assert(['Plate', 'Part C'].every((name) => isolated.visibility.hidden_bodies.includes(name)), 'Isolate did not hide the other bodies');
+  await call(port, 'ui.menu', { close: true });
+  await call(port, 'engine.execute', { command: 'browser.visibility', params: { items: ['Plate', 'Part B', 'Part C'], visible: true } });
+  const facePoint = await call(port, 'ui.at', { world: top.point });
+  await call(port, 'ui.click', { x: facePoint[0], y: facePoint[1] });
+  const selectedFace = await call(port, 'ui.selection');
+  assert(JSON.stringify(selectedFace).toLowerCase().includes('face'), 'viewport click did not select a face');
+
+  const inspection = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
+  assert(['Plate', 'Part B', 'Part C'].every((name) => inspection.bodies.some((body) => body.name === name)), 'three named bodies are not present in the live document');
+  assert(inspection.bodies.find((body) => body.name === 'Plate')?.volume_mm3 > 0, 'Plate has no positive volume');
+  assert(inspection.timeline.some((feature) => feature.name === 'Face Boss') && inspection.timeline.some((feature) => feature.name === 'Edge Round'), 'edited sketch/extrude/fillet features are missing from history');
+
+  await call(port, 'engine.execute', { command: 'edit.undo' });
+  await call(port, 'engine.execute', { command: 'edit.redo' });
+  const saved = join(root, 'three-body.solidcraft');
+  await call(port, 'engine.execute', { command: 'file.save', params: { path: saved } }, token, [root]);
+  await call(port, 'engine.execute', { command: 'doc.open', params: { path: saved } }, token, [root]);
+  const reopened = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
+  assert(['Plate', 'Part B', 'Part C'].every((name) => reopened.bodies.some((body) => body.name === name)), 'save/reopen lost a body name');
+  assert(reopened.timeline.some((feature) => feature.name === 'Face Boss'), 'save/reopen lost feature history');
+
+  const stl = join(root, 'plate-only.stl');
+  const allStl = join(root, 'all-bodies.stl');
+  const threeMf = join(root, 'three-bodies.3mf');
+  await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: stl, format: 'stl', bodies: ['Plate'] } }, token, [root]);
+  await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: allStl, format: 'stl', bodies: ['Plate', 'Part B', 'Part C'] } }, token, [root]);
+  await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: threeMf, format: '3mf', bodies: ['Plate', 'Part B', 'Part C'] } }, token, [root]);
+  assert(statSync(stl).size > 84, 'single-body STL export is empty');
+  assert(statSync(allStl).size > statSync(stl).size, 'body-scoped STL export did not exclude the other bodies');
+  assert(parse3mfObjects(threeMf) === 3, 'multi-body 3MF did not preserve three separate mesh objects');
+
+  let escaped = false;
+  try {
+    await call(port, 'engine.execute', { command: 'file.save', params: { path: join(tmpdir(), 'demonx-forge-outside.solidcraft') } }, token, [root]);
+  } catch (error) {
+    escaped = /allow_paths|outside|scope/i.test(error.message);
+  }
+  assert(escaped, 'control channel wrote a design outside its explicit allow_paths scope');
+
+  const screenshot = join(root, 'demonx-forge-three-body.png');
+  const shot = await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
+  assert(!shot.hidden && statSync(screenshot).size > 1000, 'native application screenshot was not captured');
+  await call(port, 'ui.window', { action: 'close' });
+  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size })}\n`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.stack ?? error}\n`);
+  process.exitCode = 1;
+}).finally(async () => {
+  if (appProcess && appProcess.exitCode === null) {
+    try { await call(controlPort, 'ui.window', { action: 'close' }); } catch {}
+    await Promise.race([
+      new Promise((resolvePromise) => appProcess.once('exit', resolvePromise)),
+      new Promise((resolvePromise) => setTimeout(resolvePromise, 8000)),
+    ]);
+    if (appProcess.exitCode === null) appProcess.kill();
+  }
+  // The app runs only from this harness and uses its isolated temp profile; never touch the user's
+  // SolidCraft or Forge data folders. On a failed assertion, end the test-owned process.
+});

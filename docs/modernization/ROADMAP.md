@@ -1,7 +1,54 @@
 # DemonX Forge modernization roadmap
 
 **Baseline:** Forge v0.27.0, branch `codex/fusion-parity`.
-**Strategy:** retain the current UI/service/adapter boundaries and validate workflows before expanding features. Phases may overlap only where they have no dependency; each phase must leave a rollback point and update this roadmap and feature matrix.
+**Strategy (updated 2026-10-22):** owner approved a reversible Option B native prototype, not a product cutover. The SolidCraft app is the prototype foundation; the existing React app, server, engine adapter, and saved projects remain untouched as rollback. Native usability gates now lead the active work. Forge MCP names and security remain required compatibility gates. Legacy `.forge` migration is low priority; keep the originals and their STL backups unchanged.
+
+## Approved native prototype track
+
+**Cutover status:** not approved. Do not replace the existing application until all native acceptance gates pass and the owner approves the migration plan.
+
+### Prototype 1 — Source pin, branding, and reproducible build
+
+**Status:** implementation in progress; local source checks pass; native build is unverified. Added `prototype/solidcraft` as a submodule pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`, a build-time overlay for DemonX app identity, window icon, and dark/light theme, and a Windows/Linux native build-and-test workflow. No source in the reference checkout was changed. This host has no Rust toolchain or built native executable, so desktop launch and the native test suite have not run locally.
+
+**Completion:** overlay validation passes, pinned workspace builds and its engine/UI tests pass on Windows and Linux, and a branded native window starts on Windows with a captured screenshot. Attach build logs/artifacts and document dependencies and license notices.
+
+### Prototype 2 — Three-body usability acceptance
+
+**Status:** pending real native GUI execution.
+
+- Create three spatially separate bodies and rename them from the browser.
+- Select each independently; verify hide/show/isolate, face and edge selection, and selection persistence across tool changes.
+- Create a sketch on an existing body face and on an origin plane; extrude it and edit the resulting feature in history.
+- Export one body as STL; export several bodies as separate STL files and as 3MF, then verify object/body counts and independent geometry.
+- Save and reopen the native project; verify body names, feature history, parameters, and geometry. Exercise undo/redo around modeling and history edits.
+
+**Completion:** automated real-engine assertions plus a Windows UI/control run, screenshots, and a comparison against the existing Forge workflow are recorded in `PROTOTYPE-RESULTS.md`. The upstream UI test suite by itself does not satisfy this product scenario.
+
+### Prototype 3 — Forge MCP compatibility and security
+
+**Status:** design and implementation pending.
+
+- Keep the existing nine Forge tool names, schemas, units, errors, and response shapes.
+- Route calls to the same active native GUI document through SolidCraft's token-authenticated loopback control channel.
+- Retain Forge's modeling/query allowlists, loopback and Host/Origin checks, and restricted file handling. Never pass client-selected paths through the modeling batch.
+- Demonstrate an MCP-authored sketch/extrude/modify workflow reflected in the GUI, then inspect, measure, screenshot, undo/redo, and save/reopen it.
+- Add MCP compatibility and security regressions before changing the default product route.
+
+**Completion:** existing Forge MCP integration tests pass against the active native session, including forbidden command/path and unauthenticated control refusals.
+
+### Prototype 4 — Packaging and migration recommendation
+
+**Status:** pending.
+
+- Build and launch Windows/Linux packages with Forge-owned identity and isolated app-data paths; preserve SolidCraft license and third-party notices.
+- Document native `.solidcraft` project handling. Do not spend significant work on `.forge` import unless a concrete acceptance blocker appears; preserve the old application, project files, and STL backups.
+- Compare the three-body scenario against the current Forge UI, publish screenshots, verified behaviors, limitations, and rollback steps.
+- Present a migration plan and wait for separate owner approval before replacing the existing application.
+
+**Completion:** platform build/launch and native usability/MCP gates pass, prototype is reversible, and the owner receives a cutover decision package. No merge into `main`.
+
+The React-focused Phases 2–8 below are retained as the verified incumbent-app backlog and regression reference. They are deferred as the primary product path while the approved native prototype gates are active.
 
 ## Phase 0 — Assessment and baseline contracts
 

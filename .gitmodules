@@ -1,0 +1,3 @@
+[submodule "solidcraft-prototype"]
+	url = https://github.com/pricklyguy/DemonX-Solidcraft.git
+	path = prototype/solidcraft
