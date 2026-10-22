@@ -21,7 +21,7 @@ function version(v: string, entries = ['server.mjs']) {
     fs.writeFileSync(path.join(dir, e), `
       import fs from 'node:fs'; import path from 'node:path';
       const home = process.env.FORGE_HOME;
-      fs.appendFileSync(path.join(home, 'ran.log'), ${JSON.stringify(v + ' ' + e)} + ' web=' + path.relative(home, process.env.FORGE_ROOT) + ' launcher=' + process.env.FORGE_LAUNCHER + ' args=' + process.argv.slice(2).join(',') + '\\n');
+      fs.appendFileSync(path.join(home, 'ran.log'), ${JSON.stringify(v + ' ' + e)} + ' web=' + path.relative(home, process.env.FORGE_ROOT).replaceAll('\\\\', '/') + ' launcher=' + process.env.FORGE_LAUNCHER + ' args=' + process.argv.slice(2).join(',') + '\\n');
       const planFile = path.join(home, 'plan-${v}-' + ${JSON.stringify(e)} + '.json');
       const plan = fs.existsSync(planFile) ? JSON.parse(fs.readFileSync(planFile, 'utf8')) : {};
       fs.rmSync(planFile, { force: true });   // a plan is used once

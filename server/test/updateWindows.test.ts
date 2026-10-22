@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { zipSync, type Zippable } from 'fflate';
 import { WindowsUpdater, parseChecksum, trustedDownload, zipName, RESTART_CODE, type WindowsOptions } from '../src/update/windows';
 import type { UpdateRelease } from '../src/update/model';
 
@@ -19,7 +20,7 @@ let exits: number[], busyNow: string | null;
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
 /** A release zip like the build makes it: DemonX-Forge/versions/<version>/{app,engine}/... (plus things outside versions that are never used) */
-function makeZip(version: string, mutate: (root: string) => void = () => {}): Buffer {
+function makeZip(version: string, mutate: (root: string) => void = () => {}, links: Record<string, string> = {}): Buffer {
   const root = fs.mkdtempSync(path.join(tmp, 'zip-'));
   const ver = path.join(root, 'DemonX-Forge', 'versions', version), app = path.join(ver, 'app');
   fs.mkdirSync(path.join(app, 'web', 'dist'), { recursive: true });
@@ -30,9 +31,18 @@ function makeZip(version: string, mutate: (root: string) => void = () => {}): Bu
   fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'demonx-forge', version }));
   fs.writeFileSync(path.join(root, 'DemonX-Forge', 'Start DemonX Forge.bat'), 'never installed by an update');
   mutate(root);
-  const zip = path.join(root, 'out.zip');
-  execFileSync('zip', ['-q', '-r', '-y', zip, 'DemonX-Forge'], { cwd: root });
-  return fs.readFileSync(zip);
+  const entries: Zippable = {};
+  const add = (dir: string, prefix: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name), name = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) add(file, name);
+      else if (entry.isSymbolicLink()) entries[name] = [new TextEncoder().encode(fs.readlinkSync(file)), { os: 3, attrs: 0o120777 << 16 }];
+      else entries[name] = fs.readFileSync(file);
+    }
+  };
+  add(path.join(root, 'DemonX-Forge'), 'DemonX-Forge');
+  for (const [name, target] of Object.entries(links)) entries[name] = [new TextEncoder().encode(target), { os: 3, attrs: 0o120777 << 16 }];
+  return Buffer.from(zipSync(entries, { os: 3 }));
 }
 function publish(version: string, zip = makeZip(version), sum: string | null = `${sha(zip)}  ${zipName(version)}\n`) {
   files.set(`/v${version}/${zipName(version)}`, zip);
@@ -217,11 +227,14 @@ describe('Update now on Windows: a bad download changes nothing', () => {
     await failed(make(), /Checking the new version/, /says 1\.1\.0 but the download is 1\.0\.5/);
   });
 
-  it('a zip with a file missing, or that holds a link', async () => {
+  it('a zip with a file missing', async () => {
     publish('1.1.0', makeZip('1.1.0', (root) => fs.rmSync(path.join(root, 'DemonX-Forge', 'versions', '1.1.0', 'app', 'server.mjs'))));
     await failed(make(), /Checking the new version/, /does not contain app\/server\.mjs/);
-    publish('1.1.0', makeZip('1.1.0', (root) => fs.symlinkSync('/etc', path.join(root, 'DemonX-Forge', 'versions', '1.1.0', 'app', 'link'))));
-    await failed(make(), /Checking the new version/, /contains a link/);
+  });
+
+  it('a zip holding a symlink is rejected during extraction or tree validation', async () => {
+    publish('1.1.0', makeZip('1.1.0', () => {}, { 'DemonX-Forge/versions/1.1.0/app/link': '/etc' }));
+    await failed(make(), /Unpacking|Checking the new version/, /could not unpack|contains a link/);
   });
 
   it('the design staying unsaved until the wait is over: installed, not switched', async () => {
