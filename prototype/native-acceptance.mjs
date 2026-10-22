@@ -8,10 +8,16 @@ import { inflateRawSync } from 'node:zlib';
 import { buildNativeMcp } from './build-mcp-native.mjs';
 
 const exe = resolve(process.argv[2] ?? 'prototype/solidcraft/target/release/solidcraft.exe');
+const packagedMcpAdapter = process.argv[3] ? resolve(process.argv[3]) : null;
 const root = mkdtempSync(join(tmpdir(), 'demonx-forge-native-acceptance-'));
-const controlDir = join(root, 'control');
 const dataDir = join(root, 'data');
 const appData = join(root, 'roaming');
+const localAppData = join(root, 'local');
+const controlDir = process.platform === 'win32'
+  ? join(localAppData, 'DemonX Forge', 'control')
+  : process.platform === 'darwin'
+    ? join(root, 'Library', 'Application Support', 'DemonX Forge', 'control')
+    : join(dataDir, 'demonx-forge', 'control');
 const token = randomBytes(32).toString('hex');
 mkdirSync(controlDir, { recursive: true });
 mkdirSync(dataDir, { recursive: true });
@@ -89,11 +95,14 @@ let mcpRequestId = 0;
 let mcpBuffer = '';
 const mcpPending = new Map();
 
-async function startForgeMcp(port) {
-  const adapter = join(root, 'forge-mcp-native.mjs');
-  await buildNativeMcp(adapter);
+async function startForgeMcp(port, localData) {
+  const adapter = packagedMcpAdapter ?? join(root, 'forge-mcp-native.mjs');
+  if (!packagedMcpAdapter) await buildNativeMcp(adapter);
+  const env = { ...process.env, LOCALAPPDATA: localData, SOLIDCRAFT_CONTROL_PORT: String(port) };
+  delete env.SOLIDCRAFT_CONTROL_DIR;
+  delete env.SOLIDCRAFT_CONTROL_TOKEN;
   mcpProcess = spawn(process.execPath, [adapter], {
-    env: { ...process.env, SOLIDCRAFT_CONTROL_PORT: String(port), SOLIDCRAFT_CONTROL_TOKEN: token, SOLIDCRAFT_CONTROL_DIR: controlDir },
+    env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -146,15 +155,15 @@ async function main() {
   const env = {
     ...process.env,
     APPDATA: appData,
-    LOCALAPPDATA: join(root, 'local'),
+    LOCALAPPDATA: localAppData,
     XDG_DATA_HOME: dataDir,
-    SOLIDCRAFT_CONTROL_DIR: controlDir,
     SOLIDCRAFT_CONTROL_TOKEN: token,
     SOLIDCRAFT_CRASH_DIR: join(root, 'crashes'),
     SOLIDCRAFT_SAFE_MODE: '1',
     WGPU_BACKEND: 'dx12',
     WGPU_DX12_COMPILER: 'fxc',
   };
+  delete env.SOLIDCRAFT_CONTROL_DIR;
   const app = appProcess = spawn(exe, ['--safe-mode', '--control', String(port)], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
   let stderr = '';
   app.stderr.setEncoding('utf8').on('data', (s) => { stderr += s; });
@@ -170,7 +179,7 @@ async function main() {
   try { await call(port, 'engine.commands', {}, '00'.repeat(32)); } catch (error) { denied = /unauthorized/i.test(error.message); }
   assert(denied, 'control channel accepted a request with the wrong token');
 
-  await startForgeMcp(port);
+  await startForgeMcp(port, localAppData);
   const listed = await mcpRequest('tools/list');
   const toolNames = listed.result.tools.map((tool) => tool.name);
   assert(toolNames.length === 9 && toolNames.includes('forge_run_commands') && toolNames.includes('forge_get_design'), 'native adapter changed the established Forge MCP tool contract');

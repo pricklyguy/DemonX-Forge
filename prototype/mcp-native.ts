@@ -15,9 +15,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Set SO
 
 function defaultControlDir() {
   if (process.env.SOLIDCRAFT_CONTROL_DIR) return process.env.SOLIDCRAFT_CONTROL_DIR;
-  if (process.platform === 'win32') return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'SolidCraft', 'control');
-  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'SolidCraft', 'control');
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'solidcraft', 'control');
+  if (process.platform === 'win32') return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'DemonX Forge', 'control');
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'DemonX Forge', 'control');
+  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'demonx-forge', 'control');
 }
 
 const token = process.env.SOLIDCRAFT_CONTROL_TOKEN?.trim()

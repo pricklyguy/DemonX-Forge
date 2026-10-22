@@ -47,14 +47,25 @@ cache tests. See `PROTOTYPE-RESULTS.md` for exact commands and artifact paths.
 
 ### Prototype 4 — Packaging and migration recommendation
 
-**Status:** pending.
+**Status:** Windows installation workflow implemented; installed-app gate in progress. The build recipe emits a pinned branded app/CLI package and the Forge MCP bridge; versioned install and rollback scripts preserve per-user data. Final install-directory launch and acceptance results will be added to `PROTOTYPE-RESULTS.md` after execution.
 
 - Build and launch Windows/Linux packages with Forge-owned identity and isolated app-data paths; preserve SolidCraft license and third-party notices.
+- Keep package and update steps repeatable: stage immutable version folders, switch one active-release pointer atomically, retain the previous release, and keep project/settings/recovery data outside version folders.
 - Document native `.solidcraft` project handling. Do not spend significant work on `.forge` import unless a concrete acceptance blocker appears; preserve the old application, project files, and STL backups.
 - Compare the three-body scenario against the current Forge UI, publish screenshots, verified behaviors, limitations, and rollback steps.
 - Present a migration plan and wait for separate owner approval before replacing the existing application.
 
 **Completion:** platform build/launch and native usability/MCP gates pass, prototype is reversible, and the owner receives a cutover decision package. No merge into `main`.
+
+### Future branding task — `.dxforge` project extension (low priority)
+
+**Status:** deferred until the permanent Windows installation and core CAD usability work are stable. New projects continue to use SolidCraft's native `.solidcraft` format and serialization for now.
+
+- Add `.dxforge` as the preferred Forge save/open extension while retaining read/write compatibility with existing `.solidcraft` projects.
+- Update Save/Save As/Open dialogs, recent files, project icons, Windows and Linux desktop/file associations, and command-line open behavior together.
+- Preserve the current underlying project bytes unless a separate format change is justified by a tested migration and rollback plan.
+
+**Completion:** create/save/open/reopen both extensions, confirm recent-file behavior and native history integrity, and verify install/uninstall associations on Windows and Linux without changing `.solidcraft` projects.
 
 The React-focused Phases 2–8 below are retained as the verified incumbent-app backlog and regression reference. They are deferred as the primary product path while the approved native prototype gates are active.
 

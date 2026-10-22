@@ -28,6 +28,39 @@ used.
 
 ## Build on Windows
 
+For a repeatable package and persistent side-by-side installation, run from this checkout in
+PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+./prototype/package-windows.ps1
+./prototype/install-windows.ps1 -PackageDirectory ./prototype/dist-windows/<release-id>
+```
+
+The build checks the pinned submodule, applies and verifies the Forge overlay in a separate
+working clone under `%TEMP%\DemonXForgeBuild`, then compiles the native app and CLI with
+the stable MSVC toolchain. It bundles the nine-tool MCP compatibility bridge and the SolidCraft,
+third-party, and Forge license notices. Keep the generated package and `build-windows.log` as the
+release checkpoint. The installer retains immutable binaries in `C:\DemonX-Forge-Native\versions`
+and changes `current.txt` atomically. To restore the prior program version, close the app and run:
+
+```powershell
+./prototype/rollback-windows.ps1
+```
+
+The launcher is `C:\DemonX-Forge-Native\DemonX Forge.cmd`; the installer also creates a per-user
+Start menu shortcut. Normal settings live in `%APPDATA%\DemonX Forge\data`; autosave/recovery and the
+private MCP control token live in `%LOCALAPPDATA%\DemonX Forge`. These profile folders are outside
+the versioned program folders and are never replaced by an update or rollback. Back up saved
+`.solidcraft` files separately; the app's recovery folder is for unsaved work, not a project archive.
+The installer does not replace the original Forge app or its associations.
+
+To start MCP support, launch the installed app with `--control 47831` and configure the client to
+run Node 22+ with the installed `forge-mcp-native.mjs` path and `SOLIDCRAFT_CONTROL_PORT=47831`.
+The bridge reads the app's authenticated private token file itself. Do not put tokens in MCP
+configuration. No file-open, file-save, file-import/export, or arbitrary filesystem tools are added.
+See `INSTALL.txt` inside the package for this client configuration.
+
 Install the Rust toolchain required by the pinned workspace (`rust-version` in
 `solidcraft/Cargo.toml`), then from the repository root:
 

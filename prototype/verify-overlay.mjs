@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path';
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, 'solidcraft'));
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const main = read('apps/solidcraft/src/main.rs');
+const recovery = read('crates/engine/src/recovery.rs');
+const home = read('crates/ui-egui/src/home.rs');
 const prefs = read('crates/ui-egui/src/prefs.rs');
 const io = read('crates/io/src/legacy_dir.rs');
 const lock = read('Cargo.lock');
@@ -18,6 +20,11 @@ function requireMatch(value, pattern, label) {
 }
 
 requireMatch(main, /\.with_title\("DemonX Forge"\)/, 'window title');
+requireMatch(main, /eframe::storage_dir\("DemonX Forge"\)/, 'persistent DemonX settings directory');
+requireMatch(main, /keeps its profile independent from SolidCraft/, 'no upstream profile adoption');
+requireMatch(recovery, /LOCALAPPDATA"\)\?\.join\("DemonX Forge"\)/, 'persistent Windows recovery and MCP data directory');
+requireMatch(recovery, /XDG_DATA_HOME[\s\S]*?join\("demonx-forge"\)/, 'persistent Linux recovery and MCP data directory');
+requireMatch(home, /join\("DemonX Forge"\)\.join\("thumbnails"\)/, 'isolated thumbnail cache');
 requireMatch(main, /demonx-forge-icon\.png/, 'Forge-owned window icon');
 requireMatch(main, /fn forge_icon\(\)/, 'Forge icon loader');
 requireMatch(toolbar, /demonx-forge-wordmark/, 'Forge-owned horizontal app bar wordmark');
