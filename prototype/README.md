@@ -14,8 +14,9 @@ separate `DemonX-Solidcraft` path is never edited. This keeps upstream attributi
 with the source and makes the exact engine/UI revision reproducible. DemonX changes live in this
 repository's `branding/`, `apply-overlay.mjs`, and tracked test patch, not in the reference repository.
 
-The overlay adapts the app name/id, Forge-owned window and app-bar marks, DemonX dark/light theme,
-and line drag creation. It applies focused UI regression tests for rectangle, circle and line drag
+The overlay adapts the app name/id, Forge-owned emblem and horizontal wordmark, DemonX dark/light
+theme, a clickable navigation-cube default, and line drag creation. Existing explicit navigator
+preferences remain respected. It applies focused UI regression tests for rectangle, circle and line drag
 creation with live dimensions, focus, cancellation and history. It checks the pinned SHA and source
 anchors. Always apply it to an isolated source clone, not the SolidCraft reference checkout or pinned
 submodule.

@@ -114,3 +114,45 @@ For hands-on review, a second `DemonX Forge` window is running from the rebuilt 
 `26564`, with the three-body sample and an isolated profile under
 `%TEMP%\DemonX-Forge-Interaction-20261022`. The previously open prototype instance was left
 untouched.
+
+## Navigation cube and Forge wordmark UX checkpoint (2026-10-22)
+
+The native app now defaults to SolidCraft's existing clickable, labeled view cube, including its
+face picks, rotation arrows, and Home/fit control. The signed-axis compass remains available as an
+explicit preference. New profiles and reset-to-defaults use the cube; saved navigator preferences
+are preserved. The app bar now renders Forge's existing horizontal wordmark from
+`web/public/forge-wordmark.png`, scaled for compact and full-width layouts. The Forge emblem remains
+the native window icon. No SolidCraft source checkout or Forge `main` was changed.
+
+Validation used a clean source clone pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`:
+
+```text
+node prototype/apply-overlay.mjs <clean clone> — passed
+node prototype/verify-overlay.mjs <clean clone> — passed
+node prototype/apply-overlay.mjs --check <clean clone> — passed (idempotent)
+cargo test --locked --release -p solidcraft-ui-egui --lib — 1,851 passed, 6 ignored, 3 failed
+cargo build --locked --release -p solidcraft — passed
+node prototype/native-acceptance.mjs <release executable> — passed
+```
+
+The three failures were: the static colour-literal guard (fixed afterward by using egui's neutral
+white tint; direct source-count check is now within allowance), plus
+`home::tests::cached_recent_uses_a_separate_png_without_reading_or_changing_design_json` and
+`home::tests::imported_step_picture_is_cached_under_its_source_without_a_save_path`. The two cache
+tests reproduce individually on Windows in upstream `home.rs`, which this overlay does not modify;
+they remain unresolved and the full suite has not been rerun after the neutral-tint adjustment.
+The test build also reports one unused upstream `brand_mark` warning because the Forge wordmark
+replaces that app-bar glyph.
+
+The final release executable launched in DX12 and passed the real GUI/MCP acceptance workflow:
+three separately named bodies, history editing, face/origin-plane sketching, extrude/fillet,
+save/reopen, undo/redo, independent STL and 3MF export, all nine Forge MCP tools, and the existing
+authentication/path/unsafe-file restrictions. Result: 8 history features, 3 separate 3MF objects,
+single-body STL 19,684 bytes, all-body STL 20,884 bytes. Screenshot:
+`%TEMP%\demonx-forge-native-acceptance-Bji1LM\demonx-forge-three-body.png`.
+
+A fresh-profile preview is running as PID `30392` from
+`%TEMP%\DemonX-Forge-NativePrototype-cube-target\release\solidcraft.exe`; its isolated settings
+are under `%TEMP%\DemonX-Forge-Cube-Logo-Preview-20261022`. Fresh-profile launch confirms the cube
+and branded wordmark appear together. Existing prototype processes were not interrupted because
+they held the previous release executable open.

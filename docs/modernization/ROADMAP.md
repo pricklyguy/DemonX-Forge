@@ -13,6 +13,12 @@
 
 **Completion:** overlay validation passes, pinned workspace builds and its engine/UI tests pass on Windows and Linux, and a branded native window starts on Windows with a captured screenshot. Attach build logs/artifacts and document dependencies and license notices.
 
+**UX checkpoint (2026-10-22):** the native navigation cube is now the default for new profiles,
+and the app bar uses Forge's existing horizontal wordmark. Existing saved navigator choices remain
+respected. The Windows release build and native GUI/MCP workflow passed with the updated overlay;
+the upstream UI suite passed 1,851 tests but retained two isolated failures in untouched thumbnail
+cache tests. See `PROTOTYPE-RESULTS.md` for exact commands and artifact paths.
+
 ### Prototype 2 — Three-body usability acceptance
 
 **Status:** passed on the Windows native prototype; Linux package acceptance and broader owner usability remain open.
