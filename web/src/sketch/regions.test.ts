@@ -39,4 +39,11 @@ describe('findRegions', () => {
     const curves = [...rect(0, 0, 10, 10), { ...line('k', [0, 0], [10, 10]), construction: true }, line('open', [20, 0], [30, 0])];
     expect(findRegions(curves, [prof(0, 100, [5, 5])])).toHaveLength(1);
   });
+
+  it('splits a face outline and a strip drawn along one of its edges (lines lying on top of each other)', () => {
+    const curves = [...rect(0, 0, 40, 30), line('s1', [0, 26], [40, 26]), line('s2', [40, 26], [40, 30]), line('s3', [40, 30], [0, 30]), line('s4', [0, 30], [0, 26])];
+    const r = findRegions(curves, [prof(0, 1040, [20, 13]), prof(1, 160, [20, 28])]);
+    const byIndex = Object.fromEntries(r.map((x) => [x.index, area(x.outer)]));
+    expect(r).toHaveLength(2); expect(byIndex[0]).toBeCloseTo(1040, 3); expect(byIndex[1]).toBeCloseTo(160, 3);
+  });
 });

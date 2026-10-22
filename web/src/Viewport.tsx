@@ -141,11 +141,26 @@ export function Viewport(props: Props) {
       ctl?.dispose();
       ctl = new OrbitControls(cam, dom);
       ctl.mouseButtons = { LEFT: -1 as never, MIDDLE: THREE.MOUSE.PAN, RIGHT: -1 as never };
-      ctl.zoomToCursor = true; ctl.enableDamping = false;
+      ctl.zoomToCursor = true; ctl.enableDamping = false; ctl.enableRotate = false; // orbiting is done below, so it can go past the top and bottom views
       if (keep) ctl.target.copy(keep);
       ctl.update();
     };
     makeControls();
+    /** Turn the view around the target. Not stopped at the top or bottom view: the camera's own up direction turns with it. */
+    const orbit = (dx: number, dy: number) => {
+      const off = cam.position.clone().sub(ctl.target);
+      const fwd = off.clone().negate().normalize(), right = new THREE.Vector3().crossVectors(fwd, cam.up).normalize();
+      const yawAxis = new THREE.Vector3(0, 0, cam.up.z >= 0 ? 1 : -1), k = (2 * Math.PI) / Math.max(size.y, 300);
+      const qy = new THREE.Quaternion().setFromAxisAngle(yawAxis, -dx * k), qp = new THREE.Quaternion().setFromAxisAngle(right, -dy * k);
+      const q = qy.multiply(qp); // pitch first, then turn about the vertical
+      off.applyQuaternion(q); const up = cam.up.clone().applyQuaternion(q).normalize();
+      cam.position.copy(ctl.target).add(off); cam.up.copy(up); makeControls();
+    };
+    let spin: { x: number; y: number; id: number } | null = null;
+    dom.addEventListener('pointerdown', (e) => { if (e.button === 1 && e.shiftKey) { spin = { x: e.clientX, y: e.clientY, id: e.pointerId }; try { dom.setPointerCapture(e.pointerId); } catch { /* not capturable */ } e.preventDefault(); } });
+    dom.addEventListener('pointermove', (e) => { if (!spin || e.pointerId !== spin.id) return; orbit(e.clientX - spin.x, e.clientY - spin.y); spin.x = e.clientX; spin.y = e.clientY; });
+    const endSpin = (e: PointerEvent) => { if (spin && e.pointerId === spin.id) { spin = null; try { dom.releasePointerCapture(e.pointerId); } catch { /* already released */ } } };
+    dom.addEventListener('pointerup', endSpin); dom.addEventListener('pointercancel', endSpin);
     const setUp = (up: THREE.Vector3) => { if (cam.up.distanceTo(up) < 1e-9) return; cam.up.copy(up); makeControls(); };
 
     const wpp = () => (2 * cam.position.distanceTo(ctl.target) * Math.tan((cam.fov * Math.PI) / 360)) / Math.max(size.y, 1); // world units per pixel at the target
@@ -731,6 +746,8 @@ export function Viewport(props: Props) {
     };
     loop();
     (window as any).__forge = {
+      orbit,
+      up: () => cam.up.toArray(),
       project: (w: number[]) => { const v = new THREE.Vector3(w[0], w[1], w[2]).project(cam); const r = dom.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; },
       sketchToScreen: (q: Vec2) => { const s = P.current.activeSketch; if (!s) return null; const w = toWorld(planeOf(s), q); return (window as any).__forge.project(w); },
       pointerSnap: () => cursor,

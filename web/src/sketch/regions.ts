@@ -30,7 +30,11 @@ function intersections(a: SketchCurve, b: SketchCurve): Vec2[] {
   const onArc = (c: SketchCurve, p: Vec2) => c.type === 'circle' || (c.type === 'arc' && !!c.center && !!c.start && !!c.end && norm(angOf(c.center, p) - angOf(c.center, c.start)) <= norm(angOf(c.center, c.end) - angOf(c.center, c.start)) + 1e-6);
   const lineLine = (l: SketchCurve, m: SketchCurve) => {
     const [p, r] = [l.start!, [l.end![0] - l.start![0], l.end![1] - l.start![1]] as Vec2], [q, s] = [m.start!, [m.end![0] - m.start![0], m.end![1] - m.start![1]] as Vec2];
-    const den = r[0] * s[1] - r[1] * s[0]; if (Math.abs(den) < 1e-12) return;
+    const den = r[0] * s[1] - r[1] * s[0];
+    if (Math.abs(den) < 1e-12) { // parallel: when they lie on one line, each is split where the other starts and ends (a strip drawn along a face's edge)
+      const len = Math.hypot(r[0], r[1]); if (len < 1e-12 || Math.abs((q[0] - p[0]) * r[1] - (q[1] - p[1]) * r[0]) / len > VTOL) return;
+      out.push(m.start!, m.end!); return;
+    }
     const t = ((q[0] - p[0]) * s[1] - (q[1] - p[1]) * s[0]) / den, u = ((q[0] - p[0]) * r[1] - (q[1] - p[1]) * r[0]) / den;
     if (t >= -EPS && t <= 1 + EPS && u >= -EPS && u <= 1 + EPS) out.push([p[0] + t * r[0], p[1] + t * r[1]]);
   };
@@ -76,7 +80,8 @@ export function findRegions(curves: SketchCurve[], profiles: Profile[]): Region[
       const ts = [0, 1, ...splits.map((s) => ((s[0] - p[0]) * d[0] + (s[1] - p[1]) * d[1]) / L2)].filter((t) => t >= -EPS && t <= 1 + EPS).sort((x, y) => x - y);
       for (let i = 0; i + 1 < ts.length; i++) {
         const a: Vec2 = [p[0] + ts[i]! * d[0], p[1] + ts[i]! * d[1]], b: Vec2 = [p[0] + ts[i + 1]! * d[0], p[1] + ts[i + 1]! * d[1]];
-        const va = vert(a), vb = vert(b); if (va !== vb) edges.push({ a: va, b: vb, pts: [verts[va]!, verts[vb]!] });
+        const va = vert(a), vb = vert(b);
+        if (va !== vb && !edges.some((e) => e.pts.length === 2 && ((e.a === va && e.b === vb) || (e.a === vb && e.b === va)))) edges.push({ a: va, b: vb, pts: [verts[va]!, verts[vb]!] }); // two lines on top of each other are one edge
       }
     } else {
       const ctr = c.center!, r = c.radius!, a0 = c.type === 'circle' ? 0 : angOf(ctr, c.start!), span = c.type === 'circle' ? TAU : norm(angOf(ctr, c.end!) - a0) || TAU;
