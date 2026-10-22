@@ -50,6 +50,8 @@ Run against the packaged Forge server/engine process and preserve existing `forg
 8. Save/reopen through supported Forge GUI routes (MCP cannot gain file tools by proxy); confirm history and measure.
 9. Simulate engine failure/unavailable response; ensure actionable errors and no success-shaped empty result.
 
+`e2e/mcp-protocol.mjs` is the headless packaged integration check for initialize, tool contract, real drilled geometry, measurement, full inspection, discovery, parameter changes, screenshot bytes, undo/redo, unsafe path command refusal and unchanged geometry. The Linux package workflow invokes it against the packaged Node and engine. The existing `e2e/mcp.mjs` additionally verifies the browser reflects MCP-authored geometry.
+
 ## Cross-platform and packaging
 
 ### Linux automation

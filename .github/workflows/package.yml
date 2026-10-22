@@ -162,7 +162,7 @@ jobs:
           cd smoke/DemonX-Forge
           FORGE_PORT=8199 ./start-forge.sh nobrowser > ../run.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8199/api/update > /dev/null && break; sleep 1; done
-          curl -sf -X POST http://127.0.0.1:8199/api/batch -d '{"steps":[{"command":"solid.box","params":{"length":10,"width":10,"height":10,"corner":[0,0,0]}}]}' | grep -q Body1
+          FORGE_URL=http://127.0.0.1:8199 FORGE_NODE="$PWD/node/node" FORGE_MCP="$PWD/versions/$(cat current.txt)/app/mcp.mjs" node ../../e2e/mcp-protocol.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: DemonX-Forge-linux-x64
