@@ -9,17 +9,17 @@
 
 ### Prototype 1 — Source pin, branding, and reproducible build
 
-**Status:** implementation in progress; local source checks pass; native build is unverified. Added `prototype/solidcraft` as a submodule pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`, a build-time overlay for DemonX app identity, window icon, and dark/light theme, and a Windows/Linux native build-and-test workflow. No source in the reference checkout was changed. This host has no Rust toolchain or built native executable, so desktop launch and the native test suite have not run locally.
+**Status:** implementation in progress; source checks and adapter bundling pass; native build is unverified. Added `prototype/solidcraft` as a submodule pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`, a build-time overlay for DemonX app identity, window icon, and dark/light theme, and a Windows/Linux native build-and-test workflow. No source in the reference checkout was changed. This host has no Rust toolchain or built native executable, so desktop launch and the native test suite have not run locally.
 
 **Completion:** overlay validation passes, pinned workspace builds and its engine/UI tests pass on Windows and Linux, and a branded native window starts on Windows with a captured screenshot. Attach build logs/artifacts and document dependencies and license notices.
 
 ### Prototype 2 — Three-body usability acceptance
 
-**Status:** pending real native GUI execution.
+**Status:** acceptance harness implemented; pending real native GUI execution.
 
 - Create three spatially separate bodies and rename them from the browser.
 - Select each independently; verify hide/show/isolate, face and edge selection, and selection persistence across tool changes.
-- Create a sketch on an existing body face and on an origin plane; extrude it and edit the resulting feature in history.
+- Create a sketch on an existing body face; select an origin plane in the viewport; extrude and edit the resulting feature in history. Sketch-on-origin-plane GUI authoring remains a follow-up check.
 - Export one body as STL; export several bodies as separate STL files and as 3MF, then verify object/body counts and independent geometry.
 - Save and reopen the native project; verify body names, feature history, parameters, and geometry. Exercise undo/redo around modeling and history edits.
 
@@ -27,13 +27,15 @@
 
 ### Prototype 3 — Forge MCP compatibility and security
 
-**Status:** design and implementation pending.
+**Status:** implementation in progress; runtime validation pending.
 
 - Keep the existing nine Forge tool names, schemas, units, errors, and response shapes.
 - Route calls to the same active native GUI document through SolidCraft's token-authenticated loopback control channel.
 - Retain Forge's modeling/query allowlists, loopback and Host/Origin checks, and restricted file handling. Never pass client-selected paths through the modeling batch.
 - Demonstrate an MCP-authored sketch/extrude/modify workflow reflected in the GUI, then inspect, measure, screenshot, undo/redo, and save/reopen it.
-- Add MCP compatibility and security regressions before changing the default product route.
+- Keep the adapter isolated from Forge's default product route; add MCP compatibility and security regressions before any migration.
+
+**Implementation checkpoint:** `prototype/mcp-native.ts` reuses `server/src/mcp.ts` and `server/src/commands.ts` instead of defining a second tool contract. The native acceptance harness sends MCP protocol requests into the adapter and then verifies native document/GUI state. Contract and engine-flow checks remain unverified until Windows native CI executes.
 
 **Completion:** existing Forge MCP integration tests pass against the active native session, including forbidden command/path and unauthenticated control refusals.
 

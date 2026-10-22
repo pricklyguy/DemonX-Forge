@@ -38,8 +38,9 @@ The Windows workflow launches the built app with isolated profile directories an
 random control token, then runs `prototype/native-acceptance.mjs`. The scenario exercises a sketch
 and extrude, separate bodies and renaming, face-attached sketch, feature redefine, fillet, browser
 selection and visibility, measurement, undo/redo, save/reopen, body-scoped STL, three-object 3MF,
-authentication refusal, and an application screenshot. The harness never uses or deletes the
-developer's existing app-data folders.
+authentication refusal, and application screenshots. It also invokes modeling through the actual
+Forge MCP tool contract, then checks the native browser/model state. The harness never uses or
+deletes the developer's existing app-data folders.
 
 ## Build on Linux
 
@@ -49,8 +50,18 @@ prototype workflow in `.github/workflows/native-prototype.yml` builds and tests 
 Linux runners and uploads the native executables as branch artifacts.
 
 The application control socket is loopback-only and uses SolidCraft's per-launch random token.
-Forge MCP must be bridged through the current Forge command allowlist and filesystem policy before
-claiming MCP compatibility. The existing Forge app remains the rollback path.
+`prototype/mcp-native.ts` reuses Forge's existing MCP server, nine tool schemas, and command
+allowlist; its transport speaks to the authenticated native control channel. It exposes no project
+open/save/export/import or arbitrary filesystem tool. Its screenshot route creates a private
+temporary folder and passes that exact folder as `allow_paths` to the app. The app reads the token
+from SolidCraft's per-port private token file, so the token is not added to MCP client configuration.
+
+For a local prototype MCP client, start the native application with a fixed loopback control port
+(for example `--control 47831`), run `npm ci` once and build the adapter with
+`node prototype/build-mcp-native.mjs`. Configure the MCP process to run
+`node prototype/dist/mcp-native.mjs` with `SOLIDCRAFT_CONTROL_PORT=47831`. The bridge reads the
+per-port private token file; do not copy the token into client configuration. Keep the port and app
+profile local to this computer. The existing Forge app remains the rollback path.
 
 ## Validation status
 

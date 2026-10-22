@@ -30,6 +30,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install the existing Forge MCP runtime
+        run: npm ci
+      - name: Run the established Forge MCP protocol regression tests
+        run: npm run test --workspace server -- test/mcp.test.ts
+      - name: Type-check the native MCP transport adapter
+        run: node_modules/.bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --skipLibCheck --types node prototype/mcp-native.ts
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

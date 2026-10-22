@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { inflateRawSync } from 'node:zlib';
+import { buildNativeMcp } from './build-mcp-native.mjs';
 
 const exe = resolve(process.argv[2] ?? 'prototype/solidcraft/target/release/solidcraft.exe');
 const root = mkdtempSync(join(tmpdir(), 'demonx-forge-native-acceptance-'));
@@ -82,7 +83,63 @@ function parse3mfObjects(path) {
 }
 
 let appProcess;
+let mcpProcess;
 let controlPort;
+let mcpRequestId = 0;
+let mcpBuffer = '';
+const mcpPending = new Map();
+
+async function startForgeMcp(port) {
+  const adapter = join(root, 'forge-mcp-native.mjs');
+  await buildNativeMcp(adapter);
+  mcpProcess = spawn(process.execPath, [adapter], {
+    env: { ...process.env, SOLIDCRAFT_CONTROL_PORT: String(port), SOLIDCRAFT_CONTROL_TOKEN: token, SOLIDCRAFT_CONTROL_DIR: controlDir },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  let stderr = '';
+  mcpProcess.stderr.setEncoding('utf8').on('data', (s) => { stderr += s; });
+  mcpProcess.stdout.setEncoding('utf8').on('data', (chunk) => {
+    mcpBuffer += chunk;
+    for (;;) {
+      const end = mcpBuffer.indexOf('\n');
+      if (end < 0) break;
+      const line = mcpBuffer.slice(0, end);
+      mcpBuffer = mcpBuffer.slice(end + 1);
+      try {
+        const message = JSON.parse(line);
+        const waiter = mcpPending.get(message.id);
+        if (waiter) { mcpPending.delete(message.id); waiter.resolve(message); }
+      } catch (error) {
+        for (const waiter of mcpPending.values()) waiter.reject(new Error(`MCP bridge emitted invalid JSON: ${line}; ${error}`));
+        mcpPending.clear();
+      }
+    }
+  });
+  mcpProcess.once('exit', (code) => {
+    for (const waiter of mcpPending.values()) waiter.reject(new Error(`MCP bridge exited (${code}): ${stderr.slice(-2000)}`));
+    mcpPending.clear();
+  });
+}
+
+function mcpRequest(method, params = {}, timeoutMs = 90000) {
+  const id = ++mcpRequestId;
+  return new Promise((resolvePromise, reject) => {
+    const timeout = setTimeout(() => { mcpPending.delete(id); reject(new Error(`MCP ${method} timed out`)); }, timeoutMs);
+    mcpPending.set(id, {
+      resolve: (reply) => { clearTimeout(timeout); resolvePromise(reply); },
+      reject: (error) => { clearTimeout(timeout); reject(error); },
+    });
+    mcpProcess.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+  });
+}
+
+async function mcpTool(name, args = {}) {
+  const reply = await mcpRequest('tools/call', { name, arguments: args }, name === 'forge_run_commands' ? 360000 : 90000);
+  assert(!reply.error, `MCP ${name} returned a protocol error: ${reply.error?.message}`);
+  return reply.result;
+}
+
 async function main() {
   const port = await freeLoopbackPort();
   controlPort = port;
@@ -113,24 +170,46 @@ async function main() {
   try { await call(port, 'engine.commands', {}, '00'.repeat(32)); } catch (error) { denied = /unauthorized/i.test(error.message); }
   assert(denied, 'control channel accepted a request with the wrong token');
 
-  const firstBatch = await call(port, 'engine.batch', { commands: [
+  await startForgeMcp(port);
+  const listed = await mcpRequest('tools/list');
+  const toolNames = listed.result.tools.map((tool) => tool.name);
+  assert(toolNames.length === 9 && toolNames.includes('forge_run_commands') && toolNames.includes('forge_get_design'), 'native adapter changed the established Forge MCP tool contract');
+  const firstBatch = await mcpTool('forge_run_commands', { steps: [
     { command: 'sketch.create', params: { plane: 'XY', name: 'Base Sketch' } },
     { command: 'sketch.rectangle.two_point', params: { p0: [0, 0], p1: [20, 15] } },
     { command: 'sketch.finish', params: {} },
     { command: 'solid.extrude', params: { distance: 8, operation: 'new', name: 'Base Extrude', body_name: 'Plate' } },
     { command: 'solid.box', params: { length: 8, width: 8, height: 6, corner: [25, 0, 0], operation: 'new_body', name: 'Part B feature', body_name: 'Part B seed' } },
     { command: 'solid.box', params: { length: 8, width: 8, height: 6, corner: [40, 0, 0], operation: 'new_body', name: 'Part C feature', body_name: 'Part C seed' } },
-  ], rollback: true, timings: true });
-  assert(firstBatch.completed === 6, `initial real-engine batch completed ${firstBatch.completed} steps, expected 6`);
+  ] });
+  assert(!firstBatch.isError, `Forge MCP modeling batch failed: ${firstBatch.content?.[0]?.text}`);
+  const firstDesign = JSON.parse(firstBatch.content[0].text);
+  assert(['Plate', 'Part B seed', 'Part C seed'].every((name) => firstDesign.bodies.some((body) => body.name === name)), 'Forge MCP batch did not update the native design and browser model');
+  const addParameter = await mcpTool('forge_run_commands', { steps: [{ command: 'parameters.add', params: { name: 'McpSpan', expression: 5, unit: 'mm' } }] });
+  assert(!addParameter.isError, `Forge MCP could not add a test parameter: ${addParameter.content?.[0]?.text}`);
+  const changeParameter = await mcpTool('forge_set_parameter', { name: 'McpSpan', value: 7 });
+  assert(!changeParameter.isError, `Forge MCP could not change a parameter: ${changeParameter.content?.[0]?.text}`);
+  const parameterDesign = await mcpTool('forge_get_design');
+  assert(JSON.parse(parameterDesign.content[0].text).parameters.some((parameter) => parameter.name === 'McpSpan' && parameter.value === 7), 'Forge MCP parameter change did not reach the native document');
+  const listedCommands = await mcpTool('forge_list_commands', { filter: 'fillet' });
+  assert(JSON.parse(listedCommands.content[0].text).some((command) => command.id === 'solid.fillet'), 'Forge MCP did not discover the native fillet command');
+  const deniedFile = await mcpTool('forge_run_commands', { steps: [{ command: 'file.save', params: { path: join(root, 'must-not-be-written.solidcraft') } }] });
+  assert(deniedFile.isError && /Command not allowed/.test(deniedFile.content[0].text), 'Forge MCP exposed native project file access');
+  const badCommand = await mcpTool('forge_run_commands', { steps: [{ command: 'solid.not_a_real_feature', params: {} }] });
+  assert(badCommand.isError && /unknown|not found|command/i.test(badCommand.content[0].text), 'Forge MCP did not report a native engine command error');
 
   const faceReply = await call(port, 'engine.execute', { command: 'model.faces', params: { body: 'Plate' } });
   const top = faceReply.faces.find((face) => face.plane_normal?.[2] > 0.9);
   assert(top?.point?.length === 3, 'Plate has no selectable top planar face');
 
+  await call(port, 'ui.start', { command: 'sketch.create' });
   const originPlanePoint = await call(port, 'ui.at', { plane: 'YZ' });
   assert(Array.isArray(originPlanePoint) && originPlanePoint.length === 2, 'YZ origin plane is not available for viewport picking');
   await call(port, 'ui.click', { x: originPlanePoint[0], y: originPlanePoint[1] });
-  assert(JSON.stringify(await call(port, 'ui.selection')).includes('YZ'), 'clicking the viewport YZ origin plane did not select it');
+  const originSketch = await call(port, 'engine.execute', { command: 'document.inspect' });
+  assert(originSketch.active_sketch !== null, 'clicking the viewport YZ origin plane did not start a sketch');
+  await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [0, 0], p1: [4, 4] } });
+  await call(port, 'engine.execute', { command: 'sketch.finish' });
 
   await call(port, 'engine.execute', { command: 'sketch.create', params: { plane: { face: top.point, body: 'Plate' }, name: 'Face Sketch' } });
   await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [-2, -2], p1: [2, 2] } });
@@ -209,8 +288,19 @@ async function main() {
   assert(inspection.bodies.find((body) => body.name === 'Plate')?.volume_mm3 > 0, 'Plate has no positive volume');
   assert(inspection.timeline.some((feature) => feature.name === 'Face Boss') && inspection.timeline.some((feature) => feature.name === 'Edge Round'), 'edited sketch/extrude/fillet features are missing from history');
 
-  await call(port, 'engine.execute', { command: 'edit.undo' });
-  await call(port, 'engine.execute', { command: 'edit.redo' });
+  const measurement = await mcpTool('forge_measure', { body: 'Plate' });
+  assert(!measurement.isError && JSON.parse(measurement.content[0].text).bodies.some((body) => body.name === 'Plate'), 'Forge MCP could not measure the native body');
+  const featureQuery = await mcpTool('forge_query', { command: 'timeline.inspect', params: { feature: 'Face Boss' } });
+  assert(!featureQuery.isError && featureQuery.content[0].text.includes('Face Boss'), 'Forge MCP could not inspect a native history feature');
+  const mcpScreenshot = await mcpTool('forge_screenshot', { view: 'fit', width: 600, height: 400 });
+  assert(mcpScreenshot.content[0]?.type === 'image' && mcpScreenshot.content[0]?.mimeType === 'image/png', 'Forge MCP screenshot did not return a PNG image');
+
+  await mcpTool('forge_undo');
+  const undone = await call(port, 'engine.execute', { command: 'document.inspect' });
+  assert(!undone.timeline.some((feature) => feature.name === 'Edge Round'), 'Undo did not remove the last fillet feature');
+  await mcpTool('forge_redo');
+  const redone = await call(port, 'engine.execute', { command: 'document.inspect' });
+  assert(redone.timeline.some((feature) => feature.name === 'Edge Round'), 'Redo did not restore the fillet feature');
   const saved = join(root, 'three-body.solidcraft');
   await call(port, 'engine.execute', { command: 'file.save', params: { path: saved } }, token, [root]);
   await call(port, 'engine.execute', { command: 'doc.open', params: { path: saved } }, token, [root]);
@@ -240,13 +330,21 @@ async function main() {
   const shot = await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
   assert(!shot.hidden && statSync(screenshot).size > 1000, 'native application screenshot was not captured');
   await call(port, 'ui.window', { action: 'close' });
-  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, mcpScreenshot: true })}\n`);
 }
 
 main().catch((error) => {
   process.stderr.write(`${error.stack ?? error}\n`);
   process.exitCode = 1;
 }).finally(async () => {
+  if (mcpProcess && mcpProcess.exitCode === null) {
+    mcpProcess.stdin.end();
+    await Promise.race([
+      new Promise((resolvePromise) => mcpProcess.once('exit', resolvePromise)),
+      new Promise((resolvePromise) => setTimeout(resolvePromise, 3000)),
+    ]);
+    if (mcpProcess.exitCode === null) mcpProcess.kill();
+  }
   if (appProcess && appProcess.exitCode === null) {
     try { await call(controlPort, 'ui.window', { action: 'close' }); } catch {}
     await Promise.race([
