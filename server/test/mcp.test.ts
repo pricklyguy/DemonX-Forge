@@ -37,6 +37,24 @@ describe('the MCP bridge', () => {
     expect(((await b.handle({ jsonrpc: '2.0', id: 5, method: 'nope' })) as any).error.code).toBe(-32601);
   });
 
+  it('keeps the established tool names and their client-facing argument contracts', () => {
+    expect(TOOLS.map((t) => t.name)).toEqual([
+      'forge_get_design', 'forge_list_commands', 'forge_run_commands', 'forge_query',
+      'forge_measure', 'forge_screenshot', 'forge_set_parameter', 'forge_undo', 'forge_redo',
+    ]);
+    const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t.inputSchema]));
+    expect(byName.forge_run_commands).toMatchObject({
+      required: ['steps'], properties: { steps: { type: 'array', minItems: 1, maxItems: 200 } },
+    });
+    expect(byName.forge_query).toMatchObject({
+      required: ['command'], properties: { command: { enum: ['timeline.inspect', 'timeline.dependents', 'component.list'] } },
+    });
+    expect(byName.forge_screenshot).toMatchObject({
+      properties: { width: { minimum: 100, maximum: 2000 }, height: { minimum: 100, maximum: 2000 } },
+    });
+    expect(byName.forge_set_parameter).toMatchObject({ required: ['name', 'value'] });
+  });
+
   it('reads the design without the triangle lists, and lists faces and edges only when asked', async () => {
     const { f } = fake({ '/api/state': state });
     const b = createBridge({ base: 'http://forge.test', fetch: f });
@@ -86,6 +104,15 @@ describe('the MCP bridge', () => {
 
   it('never offers a way to open, save, export or delete files', () => {
     for (const t of TOOLS) expect(t.name).not.toMatch(/open|save|export|import|file|delete|new/);
+  });
+
+  it('keeps MCP file access behind the Forge server policy', async () => {
+    const { f, calls } = fake({ '/api/batch': { status: 400, body: { error: 'Command not allowed: file.open' } } });
+    const b = createBridge({ base: 'http://forge.test', fetch: f });
+    const r: any = await b.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'forge_run_commands', arguments: { steps: [{ command: 'file.open', params: { path: 'C:/private/design.step' } }] } } });
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toBe('Command not allowed: file.open');
+    expect(calls.map((c) => c.path)).toEqual(['/api/batch']);
   });
 });
 
