@@ -76,14 +76,13 @@ For each roadmap phase record commit, environment, engine version, exact command
 
 ## Assessment baseline run (2026-10-22)
 
-Environment: Windows sandbox, Node v24.19.0 / npm 11.17.0. The dependency install used `npm install --ignore-scripts --package-lock=false`; the tracked lockfile was not changed.
+Environment: Windows sandbox, Node v24.19.0 / npm 11.17.0. The initial dependency restore used `npm install --ignore-scripts --package-lock=false`; then `npm ci --ignore-scripts` completed from the committed lockfile and the final test/typecheck/build run used that install. The tracked lockfile was not changed.
 
 - `npm run typecheck`: passed for server and web.
 - `npm run build`: passed. Vite reports the current main JS bundle is 872.22 kB minified (242.44 kB gzip), above its 500 kB advisory threshold.
 - `npm test -w web`: passed, 68 tests.
 - `npm test -w server`: passed, 111 tests; 51 tests skipped. Skips include real-engine cases because `FORGE_ENGINE` and `data/engine/solidcraft-cli(.exe)` are unavailable, and Linux-only launcher tests on Windows.
 - `server/test/updateWindows.test.ts` and `server/test/launcher.test.ts`: passed after removing the Unix-only external `zip` dependency from fixtures and making the path assertion platform-neutral (37 tests).
-- A `npm ci --ignore-scripts --dry-run` dependency-plan check exited successfully; it reported nine package-version reconciliation changes from the lockfile. No tracked lockfile changes resulted.
-- `npm audit --json` could not reach the npm advisory endpoint in this environment; the install summary reported six advisories but did not provide package-level details. No audit fix was run.
+- `npm audit --json` reported six development-tool dependency advisories (3 moderate, 1 high, 2 critical); `npm audit --omit=dev --json` reported zero production dependency advisories. No dependency upgrade was made in this assessment phase.
 - `git diff --check`: passed at the time of the baseline check.
 - Not run: real-engine tests, Playwright browser workflows including `e2e/mcp.mjs`, actual MCP client setup, Linux package execution, or Windows packaged application acceptance.
