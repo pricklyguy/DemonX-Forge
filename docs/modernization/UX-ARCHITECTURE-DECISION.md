@@ -1,6 +1,6 @@
 # UX Architecture Decision: Forge Frontend or SolidCraft Application Foundation
 
-**Status:** Option B prototype approved; product cutover still requires owner approval
+**Status:** Native SolidCraft foundation approved as primary direction; distribution cutover follows native platform and MCP gates
 **Date:** 2026-10-22  
 **Scope:** Interaction architecture and product foundation for DemonX Forge on `codex/fusion-parity`  
 **Review mode:** Source inspection; prototype implementation began after owner approval
@@ -13,7 +13,7 @@ This recommendation is based on the user's direct experience with the running So
 
 This UX review revises the frontend direction in `docs/modernization/ARCHITECTURE.md`, which recommended retaining React before this usability-focused reassessment. The owner approved a reversible native prototype and explicitly lowered `.forge` compatibility priority. Forge MCP contracts and security remain mandatory constraints.
 
-The owner approved the prototype, not replacement of the existing application. Keep the React UI, server, adapter, and existing projects as rollback until the native experience passes the scenario and compatibility gates in this document. Retain `.forge` files unchanged; opening them in the prototype is optional unless it becomes a specific blocker. Do not change the default Forge product path or MCP behavior until the owner approves cutover.
+**Owner direction update (2026-10-22):** the native SolidCraft-based application is approved as Forge's primary product direction. Continue adapting its existing UI; do not rebuild these interactions in React. Retain the current Forge UI/server/projects as a rollback through migration. Use native `.solidcraft` projects; `.forge` conversion stays low priority. The packaged product cutover still follows Windows/Linux, real-model, and MCP security acceptance; do not perform a wholesale replacement before those gates are recorded.
 
 ## Evidence and confidence
 

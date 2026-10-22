@@ -17,6 +17,7 @@ A Fusion-style parametric 3D CAD application, local only, in the DemonX look. No
 - **2026-10-18, owner: Z is up** (the owner uses Z-up in Fusion too; the engine is Z-up). The TOP view looks down Z. No Y-up option is planned.
 - **2026-10-18: our file is `.forge`: a zip holding `forge.json` (format `demonx-forge`, version, app version, engine, time) and `design.solidcraft` (the engine's own design container, which keeps the whole history).** Why: the container is the most faithful round trip the engine has, and our header makes the file ours and checkable (strict reader: a foreign, damaged or newer file is refused with the reason and nothing changes). If the engine is ever replaced, the version field is where a converter hooks in. Exports are STEP, STL (binary), 3MF, OBJ and a sketch as DXF (millimetres).
 - **2026-10-18: work on `main` for the first commits** (empty repository), branches and PRs after that.
+- **2026-10-22, owner: the SolidCraft-based native application is Forge's primary product direction.** Preserve and adapt its polished selection, browser, sketch and modeling workflows; do not rebuild the legacy React interface for feature parity. Keep the current Forge implementation and `.forge` projects as rollback during the phased native transition. Native `.solidcraft` is the preferred working format; legacy conversion remains low priority. See `docs/modernization/UX-ARCHITECTURE-DECISION.md` and `ROADMAP.md`.
 
 ## Engine hand-over and the Windows package
 

@@ -1,21 +1,21 @@
 # DemonX Forge modernization roadmap
 
 **Baseline:** Forge v0.27.0, branch `codex/fusion-parity`.
-**Strategy (updated 2026-10-22):** owner approved a reversible Option B native prototype, not a product cutover. The SolidCraft app is the prototype foundation; the existing React app, server, engine adapter, and saved projects remain untouched as rollback. Native usability gates now lead the active work. Forge MCP names and security remain required compatibility gates. Legacy `.forge` migration is low priority; keep the originals and their STL backups unchanged.
+**Strategy (updated 2026-10-22):** the owner approved the SolidCraft-based native application as Forge's primary product direction. Keep the existing React app/server and saved projects as a rollback during the phased transition; do not spend effort rebuilding its interaction architecture. Native usability gates lead active work. Forge MCP names and security remain required compatibility gates. Native `.solidcraft` is preferred; legacy `.forge` migration is low priority.
 
 ## Approved native prototype track
 
-**Cutover status:** not approved. Do not replace the existing application until all native acceptance gates pass and the owner approves the migration plan.
+**Transition status:** native direction approved; packaged cutover remains gated on Windows/Linux, real-model usability, MCP compatibility/security, and a documented rollback checkpoint.
 
 ### Prototype 1 — Source pin, branding, and reproducible build
 
-**Status:** implementation in progress; source checks and adapter bundling pass; native build is unverified. Added `prototype/solidcraft` as a submodule pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`, a build-time overlay for DemonX app identity, window icon, and dark/light theme, and a Windows/Linux native build-and-test workflow. No source in the reference checkout was changed. This host has no Rust toolchain or built native executable, so desktop launch and the native test suite have not run locally. Initial CI stopped before checkout because SolidCraft is private to the runner; it now requires the documented read-only `SOLIDCRAFT_READ_TOKEN` secret.
+**Status:** Windows implementation and launch verified; Linux build/package remains pending. The pinned `prototype/solidcraft` source (`75261cd79733fe47cf898b54f865e6bfaffa1129`) is built from an isolated clone with a branding overlay. Local MSVC build, actual native startup, regression suite, and real-model GUI/MCP acceptance are recorded in `PROTOTYPE-RESULTS.md`. The branch workflow still needs `SOLIDCRAFT_READ_TOKEN` for CI checkout.
 
 **Completion:** overlay validation passes, pinned workspace builds and its engine/UI tests pass on Windows and Linux, and a branded native window starts on Windows with a captured screenshot. Attach build logs/artifacts and document dependencies and license notices.
 
 ### Prototype 2 — Three-body usability acceptance
 
-**Status:** acceptance harness implemented; pending real native GUI execution.
+**Status:** passed on the Windows native prototype; Linux package acceptance and broader owner usability remain open.
 
 - Create three spatially separate bodies and rename them from the browser.
 - Select each independently; verify hide/show/isolate, face and edge selection, and selection persistence across tool changes.
@@ -27,7 +27,7 @@
 
 ### Prototype 3 — Forge MCP compatibility and security
 
-**Status:** implementation in progress; runtime validation pending.
+**Status:** passed against the Windows native GUI with all nine established Forge tools and security restrictions exercised. Linux packaged execution remains pending.
 
 - Keep the existing nine Forge tool names, schemas, units, errors, and response shapes.
 - Route calls to the same active native GUI document through SolidCraft's token-authenticated loopback control channel.
@@ -82,6 +82,13 @@ The React-focused Phases 2–8 below are retained as the verified incumbent-app 
 **Completion:** Linux automated engine/browser workflow passes and artifacts have independent structural/measurement checks; Windows manual check sheet is ready and owner run is recorded separately. Windows local evidence does not substitute for Linux package execution or owner-run packaged Windows acceptance.
 
 ## Phase 3 — Selection, sketch and viewport reliability
+
+**Native interaction checkpoint (2026-10-22):** added viewport drag-to-create for fresh line tools;
+rectangle and circle drag were already supported. Automated egui pointer-event tests verify exact
+rectangle width/height, circle diameter, line length/angle, live-field focus and Tab navigation,
+Escape cancellation, and rectangle undo/redo. The existing dimension/snap, click-click, selection
+drag and edit tests also pass on the pinned Windows build. See `PROTOTYPE-RESULTS.md`. This closes
+the reported sketch-creation interaction gap, not the broader selection/camera reliability phase.
 
 - Verify face-attached sketch creation, profiles on existing bodies, overlap selection, face/edge/body hit-testing, inference and rubber-band semantics.
 - Verify orbit continuity, snapping, camera orientation, selection after feature creation and return from sketch to model.

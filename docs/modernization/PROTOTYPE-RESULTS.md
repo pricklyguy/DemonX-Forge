@@ -77,3 +77,40 @@ The scenario exercised GUI-origin and face sketch picking, extrusion redefine,
 fillet undo/redo, browser context actions, independent face selection, save/reopen, MCP parameter
 undo/redo, invalid-token refusal, path-scope refusal, and unsafe MCP file-command refusal. This is
 local Windows prototype evidence; it does not establish Linux packaging or owner usability approval.
+
+## Sketch drag and live dimension validation (2026-10-22)
+
+The existing native UI already supported drag creation for fixed two-point shapes, inline values,
+Tab/Shift+Tab navigation, Enter, Escape, parametric dimensions, snapping, and click-click drawing.
+The new mouse-event regression tests found line drawing was omitted from the two-point drag route:
+the line command is a continuing polyline (`Kind::Draw(0)`) rather than a fixed two-point tool. The
+Forge overlay now treats a fresh line tool as a drag start, while retaining short-movement and
+click-click behavior and keeping the line tool available for the next segment.
+
+On the isolated Windows source clone pinned to `75261cd79733fe47cf898b54f865e6bfaffa1129`:
+
+```text
+cargo test --locked -p solidcraft-ui-egui --lib sketch_dims::tests::mouse_drag_ -- --nocapture — 3 passed
+cargo test --locked -p solidcraft-ui-egui --lib sketch_dims::tests:: — 16 passed
+cargo test --locked -p solidcraft-ui-egui --lib sketch_moving_click_tests:: — 2 passed
+cargo test --locked -p solidcraft-ui-egui --lib sketch_drag_ui_tests:: — 9 passed
+cargo build --locked --release -p solidcraft -p solidcraft-cli — passed
+node prototype/native-acceptance.mjs <isolated release executable> — passed
+```
+
+The GUI harness injects real egui pointer press/move/release events and keyboard text/key events.
+It verifies typed rectangle width/height and circle diameter, line length/angle, live field focus
+and Tab navigation during a held drag, cancellation without geometry/history changes, and one-step
+rectangle undo/redo. The existing suites also recheck pointer snapping, short-movement/click-click
+creation, selected-geometry dragging, and editing existing geometry. Aggregate: 27 passed, 0 failed.
+
+The rebuilt executable passed the full native GUI/MCP scenario again. Result: bodies `Plate`, `Part
+B`, `Part C`; eight history features; three separate 3MF objects; single-body STL 19,684 bytes;
+all-body STL 20,884 bytes; nine Forge MCP tools. Screenshot: `%TEMP%\demonx-forge-native-acceptance-Tc0F1a\demonx-forge-three-body.png`.
+The Rust test build reports one existing unused `brand_mark` warning because the Forge overlay uses
+its own brand mark. Linux remains unverified locally.
+
+For hands-on review, a second `DemonX Forge` window is running from the rebuilt executable at PID
+`26564`, with the three-body sample and an isolated profile under
+`%TEMP%\DemonX-Forge-Interaction-20261022`. The previously open prototype instance was left
+untouched.

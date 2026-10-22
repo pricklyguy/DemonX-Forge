@@ -60,6 +60,26 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
 }
 
+const interactionTestPatch = join(here, 'patches/sketch-live-input-ui-tests.patch');
+const interactionTests = join(source, 'crates/ui-egui/src/sketch_dims_tests.rs');
+const interactionTestMarker = 'mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape';
+const hasInteractionTests = readFileSync(interactionTests, 'utf8').includes(interactionTestMarker);
+if (checkOnly) {
+  if (!hasInteractionTests) execFileSync('git', ['-C', source, 'apply', '--check', interactionTestPatch]);
+} else if (!hasInteractionTests) {
+  execFileSync('git', ['-C', source, 'apply', interactionTestPatch]);
+}
+
+const lineDragPatch = join(here, 'patches/sketch-line-drag.patch');
+const viewport = join(source, 'crates/ui-egui/src/viewport.rs');
+const lineDragMarker = '|| t.cmd == "sketch.line") && t.pts.is_empty()';
+const hasLineDrag = readFileSync(viewport, 'utf8').includes(lineDragMarker);
+if (checkOnly) {
+  if (!hasLineDrag) execFileSync('git', ['-C', source, 'apply', '--check', lineDragPatch]);
+} else if (!hasLineDrag) {
+  execFileSync('git', ['-C', source, 'apply', lineDragPatch]);
+}
+
 if (!checkOnly) {
   const themes = join(source, 'assets/styles/ui/themes');
   cpSync(join(here, 'branding/demonx-forge-dark.json'), join(themes, 'demonx-forge-dark.json'));

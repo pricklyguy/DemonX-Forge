@@ -1,0 +1,107 @@
+--- a/crates/ui-egui/src/sketch_dims_tests.rs
++++ b/crates/ui-egui/src/sketch_dims_tests.rs
+@@ -367,0 +368,104 @@
++
++/// Exercise the ordinary viewport press/drag/release route while inline dimensions own focus.
++fn mouse_draw(command: &str, start: [f64; 2], end: [f64; 2]) -> (Harness, egui::Pos2) {
++    use egui::Event;
++    let mut h = Harness::new();
++    h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
++    h.app.cam.distance = 120.0;
++    h.settle();
++    h.step(&json!({"start":command})).unwrap();
++    let [ax, ay] = h.at(&json!({"sketch":start})).unwrap();
++    let [bx, by] = h.at(&json!({"sketch":end})).unwrap();
++    let (a, b) = (egui::pos2(ax as f32, ay as f32), egui::pos2(bx as f32, by as f32));
++    h.app.synthetic.push(Event::PointerMoved(a));
++    h.app.synthetic.push(Event::PointerButton { pos:a, button:egui::PointerButton::Primary, pressed:true, modifiers:Default::default() });
++    for step in 1..=8 {
++        h.app.synthetic.push(Event::PointerMoved(a + (b - a) * (step as f32 / 8.0)));
++    }
++    crate::test_support::play(&mut h);
++    assert!(h.app.viewport.draw_drag.is_some(), "the sketch tool owns the active pointer drag");
++    assert_eq!(h.app.tool.as_ref().unwrap().pts.len(), 1, "only the press point is placed before release");
++    assert_eq!(h.ctx.memory(|memory| memory.focused()), Some(egui::Id::new(("sc_dim", 0))), "the first live dimension takes focus during the drag");
++    (h, b)
++}
++
++fn mouse_draw_release(h: &mut Harness, end: egui::Pos2) {
++    use egui::Event;
++    h.app.synthetic.push(Event::PointerMoved(end));
++    h.app.synthetic.push(Event::PointerButton { pos:end, button:egui::PointerButton::Primary, pressed:false, modifiers:Default::default() });
++    crate::test_support::play(h);
++}
++
++#[test]
++fn mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape() {
++    let (mut h, end) = mouse_draw("sketch.rectangle.two_point", [0.0, 0.0], [30.0, 15.0]);
++    // The pointer remains down while the live fields are edited; Tab stays in the tool.
++    type_value(&mut h, "24");
++    tab(&mut h, false);
++    assert_focus(&h, 1);
++    type_value(&mut h, "12");
++    let undo = h.app.session.undo.len();
++    mouse_draw_release(&mut h, end);
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    let profiles = solidcraft_engine::sketch::find_drawn_profiles(&sketch);
++    assert_eq!(profiles.len(), 1);
++    assert!((profiles[0].area - 288.0).abs() < 1e-6, "typed width × height must determine the profile area");
++    assert_eq!(h.app.session.undo.len(), undo + 1, "the mouse gesture and dimensions form one undo step");
++    h.app.run("edit.undo", json!({})).unwrap();
++    assert!(h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.curves.is_empty());
++    h.app.run("edit.redo", json!({})).unwrap();
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    let profiles = solidcraft_engine::sketch::find_drawn_profiles(&sketch);
++    assert!((profiles[0].area - 288.0).abs() < 1e-6);
++}
++
++#[test]
++fn mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool() {
++    let (mut h, end) = mouse_draw("sketch.circle.center", [0.0, 0.0], [18.0, 6.0]);
++    type_value(&mut h, "12 mm");
++    mouse_draw_release(&mut h, end);
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    let profiles = solidcraft_engine::sketch::find_drawn_profiles(&sketch);
++    assert_eq!(profiles.len(), 1);
++    assert!((profiles[0].area - std::f64::consts::PI * 36.0).abs() < 1e-6, "the live diameter controls the drawn circle");
++}
++
++#[test]
++fn mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw() {
++    use solidcraft_engine::sketch::CurveKind;
++    let (mut h, end) = mouse_draw("sketch.line", [0.0, 0.0], [24.0, 12.0]);
++    type_value(&mut h, "20");
++    tab(&mut h, false);
++    assert_focus(&h, 1);
++    type_value(&mut h, "30 deg");
++    mouse_draw_release(&mut h, end);
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    let (a, b) = sketch.curves.iter().find_map(|curve| match curve.kind { CurveKind::Line { a, b } => Some((a, b)), _ => None }).unwrap();
++    let line = sketch.point(b).unwrap() - sketch.point(a).unwrap();
++    assert!((line.len() - 20.0).abs() < 1e-6);
++    assert!((line.angle() - 30f64.to_radians()).abs() < 1e-6);
++
++    let before_cancel = h.app.session.doc.to_json();
++    let undo = h.app.session.undo.len();
++    h.step(&json!({"start":"sketch.rectangle.two_point"})).unwrap();
++    let start = h.at(&json!({"sketch":[40.0,0.0]})).unwrap();
++    let next = h.at(&json!({"sketch":[60.0,10.0]})).unwrap();
++    let (start, next) = (egui::pos2(start[0] as f32, start[1] as f32), egui::pos2(next[0] as f32, next[1] as f32));
++    use egui::Event;
++    h.app.synthetic.push(Event::PointerMoved(start));
++    h.app.synthetic.push(Event::PointerButton { pos:start, button:egui::PointerButton::Primary, pressed:true, modifiers:Default::default() });
++    for step in 1..=8 { h.app.synthetic.push(Event::PointerMoved(start + (next - start) * (step as f32 / 8.0))); }
++    crate::test_support::play(&mut h);
++    assert!(h.app.viewport.draw_drag.is_some());
++    h.step(&json!({"key":"A","cmd":true})).unwrap();
++    h.step(&json!({"text":"7"})).unwrap();
++    h.step(&json!({"key":"Escape"})).unwrap();
++    h.app.synthetic.push(Event::PointerMoved(next));
++    h.app.synthetic.push(Event::PointerButton { pos:next, button:egui::PointerButton::Primary, pressed:false, modifiers:Default::default() });
++    crate::test_support::play(&mut h);
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    assert_eq!(sketch.curves.len(), 1, "Escape must not leave a partial shape");
++    assert_eq!(h.app.session.doc.to_json(), before_cancel, "cancel preserves the existing sketch exactly");
++    assert_eq!(h.app.session.undo.len(), undo, "cancelling an in-progress drag changes no history");
++    assert!(h.app.tool.as_ref().is_some_and(|tool| tool.pts.is_empty()), "Escape clears staged geometry before the tool is reused");
++}

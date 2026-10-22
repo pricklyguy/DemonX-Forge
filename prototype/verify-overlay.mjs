@@ -9,6 +9,8 @@ const io = read('crates/io/src/legacy_dir.rs');
 const lock = read('Cargo.lock');
 const themeSource = read('crates/ui-egui/src/theme_files.rs');
 const toolbar = read('crates/ui-egui/src/toolbar.rs');
+const sketchDimensionTests = read('crates/ui-egui/src/sketch_dims_tests.rs');
+const viewport = read('crates/ui-egui/src/viewport.rs');
 const keys = new Set([...themeSource.matchAll(/\b(?:one|many): \[([\s\S]*?)\]/g)].flatMap(([, block]) => [...block.matchAll(/\b[a-z][a-z0-9_]*\b/g)].map(([name]) => name)));
 
 function requireMatch(value, pattern, label) {
@@ -21,6 +23,10 @@ requireMatch(main, /fn forge_icon\(\)/, 'Forge icon loader');
 requireMatch(toolbar, /"DemonX Forge"/, 'app bar wordmark');
 requireMatch(toolbar, /demonx-forge-brand-mark/, 'Forge-owned app bar mark');
 requireMatch(toolbar, /else \{ 144\.0 \}/, 'app bar spacing for full Forge wordmark');
+requireMatch(sketchDimensionTests, /mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape/, 'mouse gesture/live dimension regression test');
+requireMatch(sketchDimensionTests, /mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool/, 'mouse circle diameter regression test');
+requireMatch(sketchDimensionTests, /mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw/, 'mouse line angle and cancellation regression test');
+requireMatch(viewport, /\|\| t\.cmd == "sketch\.line"\) && t\.pts\.is_empty\(\)/, 'line press/drag/release gesture');
 requireMatch(prefs, /theme: String = "demonx-forge-dark"/, 'DemonX dark default');
 requireMatch(themeSource, /\("demonx-forge-dark", include_str!/, 'DemonX dark theme registration');
 requireMatch(themeSource, /\("demonx-forge-light", include_str!/, 'DemonX light theme registration');
