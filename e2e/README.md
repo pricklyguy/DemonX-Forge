@@ -26,6 +26,8 @@ Each script says in its header how to run it. They need the real engine, a built
 | `measure.mjs` | The INSPECT and INSERT tabs and the Measure tool (needs a fresh server) |
 | `dimensions2.mjs` | Angle and point-to-point dimensions with the Dimension tool (needs a fresh server) |
 | `dimensions.mjs` | The sizes on an open sketch (measured and driving), the Dimensions check box, double-click to change a size in place, Esc, Ctrl+Z (needs a fresh server) |
+| `attach.mjs` | a sketch on a face the engine will not attach to opens on the same plane, unattached (the refusal is simulated; needs a fresh server) |
+| `snap.mjs` | the face under the pointer lights up when choosing a sketch plane; Extrude and Press Pull reach another face's height by clicking it (needs a fresh server) |
 | `strip.mjs` | a strip sketched along a face's edge (lines on top of the face outline): two shapes, clicking the strip, extruding it; orbiting past the top view (needs a fresh server) |
 | `usability.mjs` | E on a body face (Press Pull), the compact Move / Copy dialog (typing, step buttons, arrows, Copy, undo), the ribbon in a 1000 px window, the right-click Modify section, snap hints (end, middle, crossing, alignment) and the rubber band (needs a fresh server) |
 | `updates.mjs` | The update check and window: the header badge, the available version and notes, Check now, Skip this version / Stop skipping, the check boxes kept in settings.json (starts its own server on port 8121 with a stand-in release list; Update now itself is covered by the unit tests) |

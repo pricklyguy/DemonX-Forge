@@ -62,6 +62,8 @@ interface Props {
   /** Points drawn as small crosses (the points being measured), joined by a line when there are two. */
   markers?: Vec3[];
   onFacePick(p: FacePick | null): void;
+  /** Extrude and Press Pull: a click on another face sets the distance that reaches it. */
+  onFaceSnap?(p: FacePick): void;
   onPlanePick(p: PlanePick): void;
   /** `pt` is snapped for drawing tools and exact for picking tools; `tol` is about 9 screen pixels in sketch units. */
   onSketchClick(pt: Vec2, tol: number, additive: boolean): void;
@@ -176,9 +178,10 @@ export function Viewport(props: Props) {
     const clear = (g: THREE.Group) => { for (const c of [...g.children]) { g.remove(c); c.traverse((o: any) => { o.geometry?.dispose?.(); if (o.material?.isLineMaterial) lineMats.delete(o.material); o.material?.dispose?.(); }); } };
 
     // ---- bodies
+    let lit: { body: string; face: number } | null = null; // the face lit while a sketch plane is being chosen
     const rebuildBodies = () => {
       scene.background = new THREE.Color(css('--canvas'));
-      clear(gBodies);
+      clear(gBodies); lit = null;
       const p = P.current;
       const base = new THREE.Color(css('--muted')).lerp(new THREE.Color(0xffffff), 0.25), hi = new THREE.Color(css('--accent'));
       for (const b of p.bodies) {
@@ -578,6 +581,18 @@ export function Viewport(props: Props) {
       return null;
     };
 
+    /** Colour one face of the bodies as picked (for the sketch plane choice), or none. */
+    const lightFace = (f: { body: string; face: number } | null) => {
+      if (f?.body === lit?.body && f?.face === lit?.face) return;
+      lit = f;
+      const hi = new THREE.Color(css('--accent')), base = new THREE.Color(css('--muted')).lerp(new THREE.Color(0xffffff), 0.25);
+      for (const o of gBodies.children) {
+        const b = o.userData.body as Body | undefined, col = ((o as THREE.Mesh).geometry as THREE.BufferGeometry).getAttribute('color'); if (!b || !col) continue;
+        for (let t = 0; t < b.faceIds.length; t++) { const c = f && f.body === b.name && f.face === b.faceIds[t] ? hi : base; for (let k = 0; k < 3; k++) col.setXYZ(t * 3 + k, c.r, c.g, c.b); }
+        col.needsUpdate = true;
+      }
+    };
+
     let down: [number, number] | null = null;
     let drawFrom: Vec2 | null = null; // where a drag with a drawing tool began
     let band: { from: Vec2; at: [number, number]; el: HTMLDivElement | null } | null = null; // the rubber band of a drag over empty space
@@ -638,8 +653,11 @@ export function Viewport(props: Props) {
       } else if (p.mode === 'pickPlane') {
         setRay(e);
         const hit = ray.intersectObjects(planeMeshes, false)[0];
+        const face = planarFaceHit(), bodyDist = ray.intersectObjects(gBodies.children, false)[0]?.distance ?? Infinity;
+        const onFace = face && bodyDist <= (hit?.distance ?? Infinity) ? face : null; // a flat face is what a click would pick: light it up like a plane
+        lightFace(onFace ? { body: onFace.body, face: onFace.index } : null);
         planeMeshes.forEach((m) => {
-          const active = m === hit?.object;
+          const active = !onFace && m === hit?.object;
           (m.material as THREE.MeshBasicMaterial).opacity = active ? 0.28 : 0.07;
           (m.children[0] as THREE.LineSegments).scale.setScalar(active ? 1.015 : 1);
         });
@@ -649,6 +667,7 @@ export function Viewport(props: Props) {
       }
     });
     dom.addEventListener('pointerleave', () => { cursor = null; P.current.onCursor(null); if (P.current.mode === 'sketch') rebuildPreview();
+      if (P.current.mode === 'pickPlane') lightFace(null);
       if (P.current.mode === 'pickPlane') planeMeshes.forEach((m) => {
         (m.material as THREE.MeshBasicMaterial).opacity = 0.07;
         m.children[0]!.scale.setScalar(1);
@@ -690,6 +709,7 @@ export function Viewport(props: Props) {
         setRay(e);
         const hit = ray.intersectObjects(gSketch.children.filter((o) => o.userData.extrude), false)[0];
         if (hit) { const s = p.sketches.find((x) => x.id === hit.object.userData.sketch); if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) p.onProfilePick(s.id, hit.object.userData.index, pt, e.shiftKey || e.ctrlKey || e.metaKey); } }
+        else { const fh = ray.intersectObjects(gBodies.children, false)[0], fb = fh && (fh.object.userData.body as Body | undefined); if (fh && fb && fh.faceIndex != null) p.onFaceSnap?.({ body: fb.name, face: fb.faceIds[fh.faceIndex] ?? 0, point: fh.point.toArray() as Vec3 }); } // no shape here: a face to reach
       } else {
         if (p.mode === 'model' && p.measuring) { const it = measurePick(e); if (it) p.onMeasurePick?.(it); return; }
         if (p.mode === 'model') { const eh = pickEdge(e); if (eh) { p.onEdgePick(eh, e.shiftKey || e.ctrlKey || e.metaKey); return; } } // an edge under the pointer is picked before the face behind it
@@ -701,6 +721,7 @@ export function Viewport(props: Props) {
           if (s) { const pt = rayToSketch(planeOf(s), [ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z], [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z]); if (pt) { p.onProfilePick(s.id, ph.object.userData.index, pt, e.shiftKey || e.ctrlKey || e.metaKey); return; } }
         }
         const b = hit && (hit.object.userData.body as Body | undefined);
+        if (e.altKey && p.mode === 'modify' && hit && b && hit.faceIndex != null) { p.onFaceSnap?.({ body: b.name, face: b.faceIds[hit.faceIndex] ?? 0, point: hit.point.toArray() as Vec3 }); return; } // Alt + click: reach this face
         if (hit && b && hit.faceIndex != null) p.onFacePick({ body: b.name, face: b.faceIds[hit.faceIndex] ?? 0, point: hit.point.toArray() as Vec3 });
         else p.onFacePick(null);
       }
@@ -747,6 +768,7 @@ export function Viewport(props: Props) {
     loop();
     (window as any).__forge = {
       orbit,
+      litFace: () => lit,
       up: () => cam.up.toArray(),
       project: (w: number[]) => { const v = new THREE.Vector3(w[0], w[1], w[2]).project(cam); const r = dom.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; },
       sketchToScreen: (q: Vec2) => { const s = P.current.activeSketch; if (!s) return null; const w = toWorld(planeOf(s), q); return (window as any).__forge.project(w); },
@@ -766,7 +788,7 @@ export function Viewport(props: Props) {
   }, []);
 
   const p = props;
-  useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.selectedBodies, p.showEdges, p.theme]);
+  useEffect(() => { S.current?.rebuild('bodies'); (S.current as any)?.fitOnce?.(); }, [p.bodies, p.hiddenBodies, p.selectedFaces, p.selectedBodies, p.showEdges, p.theme, p.mode === 'pickPlane']);
   useEffect(() => { S.current?.rebuild('sketches'); }, [p.sketches, p.hiddenSketches, p.mode, p.tool, p.showProfiles, p.selectedProfiles, p.theme, p.showDims]);
   useEffect(() => { S.current?.rebuild('planes'); }, [p.mode, p.showOrigin, p.bodies, p.theme]);
   useEffect(() => { S.current?.rebuild('preview'); }, [p.pending, p.tool, p.mode, p.activeSketch, p.pickMode, p.highlight, p.showPoints, p.extraPreview, p.sizes?.join('|')]);

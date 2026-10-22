@@ -481,10 +481,26 @@ export function App() {
     else if (mode === 'modify') await cancelModify();
     chooseTool(null); setMode('pickPlane'); setError('');
   };
+  /** A sketch plane for a flat face as an ordinary plane (its origin is where the world origin projects onto it), for a face the engine cannot keep an attachment to. */
+  const faceFrame = (body: string, index: number) => {
+    const f = snap.bodies.find((b) => b.name === body)?.faces.find((q) => q.index === index); if (!f?.planeNormal) return null;
+    const len = Math.hypot(...f.planeNormal), u = f.planeNormal.map((v) => v / len) as Vec3;
+    const d = f.point[0] * u[0] + f.point[1] * u[1] + f.point[2] * u[2];
+    let x: Vec3 = Math.abs(u[2]) > 0.9 ? [1, 0, 0] : [u[1], -u[0], 0]; // along the face, horizontal when the face is upright
+    const xl = Math.hypot(...x); x = x.map((v) => v / xl) as Vec3;
+    const y: Vec3 = [u[1] * x[2] - u[2] * x[1], u[2] * x[0] - u[0] * x[2], u[0] * x[1] - u[1] * x[0]];
+    return { origin: u.map((v) => +(v * d).toFixed(6)), x_dir: x.map((v) => +v.toFixed(6)), y_dir: y.map((v) => +v.toFixed(6)) };
+  };
   const planePicked = (p: PlanePick) => {
     const params = 'plane' in p ? { plane: p.plane } : { plane: { face: p.face.map((v) => +v.toFixed(3)), body: p.body, index: p.index } };
     setMode('model'); // the engine's reply (an open sketch) moves us into the sketch
-    void run(() => api.batch([{ command: 'sketch.create', params }]));
+    void run(async () => {
+      try { return await api.batch([{ command: 'sketch.create', params }]); } catch (e) {
+        const frame = 'face' in p && /keep an attachment/i.test((e as Error).message) ? faceFrame(p.body, p.index) : null;
+        if (!frame) throw e;
+        return api.batch([{ command: 'sketch.create', params: { plane: frame } }]); // an unattached sketch on the same plane: it will not follow the face if the model is edited later
+      }
+    });
   };
   const finishSketch = async (): Promise<Snapshot | null> => { chooseTool(null); return run(() => api.batch([{ command: 'sketch.finish', params: {} }])); };
 
@@ -817,6 +833,16 @@ export function App() {
       if (cur.some((e) => e.body === ref.body && e.index === ref.index)) return cur.filter((e) => !(e.body === ref.body && e.index === ref.index));
       return [...cur.filter((e) => e.body === ref.body), ref]; // one body at a time
     });
+  };
+  /** Extrude and Press Pull: clicking another flat face (Alt + click in Press Pull) sets the distance so the face being moved ends up level with it. */
+  const faceSnap = (f: FacePick) => {
+    const h = dragHandle; if (!h) { setError('Pick the shape or face to move first, then click the face to reach'); return; }
+    const face = (modBase?.bodies ?? snap.bodies).find((b) => b.name === f.body)?.faces.find((q) => q.index === f.face);
+    if (!face?.planeNormal) { setError('That face is not flat: click a flat face to reach'); return; }
+    const l2 = h.dir[0] * h.dir[0] + h.dir[1] * h.dir[1] + h.dir[2] * h.dir[2], nl = Math.hypot(...face.planeNormal);
+    if (Math.abs(dot3(face.planeNormal as Vec3, h.dir)) / (nl * Math.sqrt(l2)) < 0.999) { setError('That face is not parallel to the one being moved'); return; }
+    const x = dot3(sub3(face.point as Vec3, h.origin), h.dir) / l2;
+    h.onChange(x); setError('');
   };
   const facePicked = (f: FacePick | null) => {
     if (!f) return;
@@ -1201,7 +1227,7 @@ export function App() {
           selectedFaces={mode === 'modify' ? facesSel : measure ? measure.flatMap((m) => (m.kind === 'face' ? [{ body: m.body, face: m.face }] : [])) : sel ? [sel] : []} pickFaces={mode === 'modify' && (FACE_TOOLS.includes(modTool) || BODY_TOOLS.includes(modTool))} selectedBodies={mode === 'modify' ? bodiesSel : []} selectedProfiles={profiles}
           handle={dragHandle} handles={moveHandles} edgeSets={edgeSets} edgeHighlight={measure ? measure.flatMap((m) => (m.kind === 'edge' ? [{ body: m.body, index: m.index }] : [])) : edgesSel} measuring={measure !== null} onMeasurePick={(it) => setMeasure((cur) => (!cur || cur.length >= 2 ? [it] : [...cur, it]))} markers={measure?.flatMap((m) => (m.kind === 'point' ? [m.at] : []))} onEdgePick={edgePicked} onFacePick={mode === 'modify' ? facePicked : (f) => { setSel(f); setProfiles([]); setEdgesSel([]); }} onEntityDrag={entityDrag} onContextAt={(x, y) => setViewMenu({ x, y })} onSketchDrag={sketchDrag} onSketchBox={sketchBox} sizes={sizes} onSizeTyped={(i, text) => setSizes((cur) => { const n = [...cur]; n[i] = text; return n; })} onSizeSubmit={submitTyped} extraPreview={offsetPick ? offsetOutline : undefined} fillSketches={fillSketches} onPlanePick={planePicked} onSketchClick={sketchClick} onSketchRightClick={endChain}
           pickMode={mode !== 'sketch' ? null : !tool ? 'curve' : isDraw(tool) ? null : PICK_MODE[tool]} highlight={[...selected, ...picks.map((q) => q.id), ...(offsetPick ? [offsetPick] : [])]} showPoints={mode === 'sketch' && !!tool && !isDraw(tool) && PICK_MODE[tool] !== 'curve'}
-          onProfilePick={profilePicked} onCursor={setCursor} apiRef={viewApi} />
+          onProfilePick={profilePicked} onFaceSnap={faceSnap} onCursor={setCursor} apiRef={viewApi} />
 
         <ViewCube api={viewApi} onHome={() => viewApi.current?.setView('home')} />
 
@@ -1265,7 +1291,7 @@ export function App() {
             </>}
             {extKind !== 'rib' && extKind !== 'emboss' && <label className="drow"><span>Operation</span>
               <select aria-label="Operation" value={ext.operation} onChange={(e) => setExt({ ...ext, operation: e.target.value as ExtrudeForm['operation'] })}><option value="new">New Body</option><option value="join">Join</option><option value="cut">Cut</option><option value="intersect">Intersect</option></select></label>}
-            <div className="dnote">{extKind === 'pipe' ? 'A round pipe along the path (lines and arcs joined end to end). Leave Wall empty for a solid rod, or give a wall thickness for a hollow pipe.' : extKind === 'emboss' ? 'Raises the profile off the face it was sketched on (Emboss) or cuts it in (Deboss). Sketch the shape on the face first (Create Sketch on a flat face).' : extKind === 'rib' ? 'The rib is a wall grown from the line, joined to the body. Thickness is across the wall; Depth empty fills up to the next face. Flip grows it to the other side.' : extKind === 'loft' ? 'Click one profile in each sketch, in the order the solid should pass through them (click again to remove one). At least two.' : extKind === 'sweep' ? 'The profile is carried along the path sketch (lines and arcs, joined end to end). The profile should be square to the start of the path.' : extKind === 'revolve' ? 'The profile turns about the axis; it must not cross it. Angle is in degrees (360 is a full turn).' : ext.operation === 'cut' ? 'Cut goes into the body. A negative distance flips the direction.' : 'A negative distance flips the direction.'}</div>
+            <div className="dnote">{extKind === 'pipe' ? 'A round pipe along the path (lines and arcs joined end to end). Leave Wall empty for a solid rod, or give a wall thickness for a hollow pipe.' : extKind === 'emboss' ? 'Raises the profile off the face it was sketched on (Emboss) or cuts it in (Deboss). Sketch the shape on the face first (Create Sketch on a flat face).' : extKind === 'rib' ? 'The rib is a wall grown from the line, joined to the body. Thickness is across the wall; Depth empty fills up to the next face. Flip grows it to the other side.' : extKind === 'loft' ? 'Click one profile in each sketch, in the order the solid should pass through them (click again to remove one). At least two.' : extKind === 'sweep' ? 'The profile is carried along the path sketch (lines and arcs, joined end to end). The profile should be square to the start of the path.' : extKind === 'revolve' ? 'The profile turns about the axis; it must not cross it. Angle is in degrees (360 is a full turn).' : ext.operation === 'cut' ? 'Cut goes into the body. A negative distance flips the direction.' : extKind === 'extrude' ? 'A negative distance flips the direction. Click a flat face to reach its height.' : 'A negative distance flips the direction.'}</div>
             <div className="dbtns"><button onClick={() => void cancelExtrude()}>Cancel</button><button className="primary" data-testid="extrude-ok" onClick={() => void okExtrude()}>OK</button></div>
           </div>
         )}
@@ -1292,7 +1318,7 @@ export function App() {
             {modTool === 'draft' && !valueEdit && <label className="drow"><span>Neutral</span><select aria-label="Neutral plane" value={bf.neutral} onChange={(e) => setBf({ ...bf, neutral: e.target.value as BodyForm['neutral'] })}><option value="bottom">Bottom of the body</option><option value="top">Top of the body</option><option value="XY">XY plane (z = 0)</option><option value="XZ">XZ plane (y = 0)</option><option value="YZ">YZ plane (x = 0)</option></select></label>}
             {modTool !== 'thread' && <label className="drow"><span>{VALUE_LABEL[modTool]}</span>
               <input aria-label={VALUE_LABEL[modTool]} data-main type="text" value={modValue} onChange={(e) => setModValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void okModify(); }} /></label>}
-            <div className="dnote">{valueEdit ? 'Only the number can be changed here; the step keeps the edges or faces it was made on. To change those, delete the step and make it again.' : modTool === 'hole' ? (holeEdit ? 'Change the numbers; the hole follows. Leave Depth empty to go right through.' : 'The hole is drilled into the body at the position, straight in from the face. Leave Depth empty to go right through.') : modTool === 'thread' ? 'A cosmetic thread marks the size on the hole without changing the shape (it shows in the timeline). Tick Modeled to cut the real thread profile (slower).' : modTool === 'draft' ? 'Tilts the picked walls by the angle about the neutral plane, which keeps its size. A positive angle narrows the part away from the neutral plane (a mould that pulls up from it); a negative one widens it.' : modTool === 'offsetface' ? 'Moves the picked flat faces along their normals: a positive distance grows the body, a negative one shrinks it.' : modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div></>}
+            <div className="dnote">{valueEdit ? 'Only the number can be changed here; the step keeps the edges or faces it was made on. To change those, delete the step and make it again.' : modTool === 'hole' ? (holeEdit ? 'Change the numbers; the hole follows. Leave Depth empty to go right through.' : 'The hole is drilled into the body at the position, straight in from the face. Leave Depth empty to go right through.') : modTool === 'thread' ? 'A cosmetic thread marks the size on the hole without changing the shape (it shows in the timeline). Tick Modeled to cut the real thread profile (slower).' : modTool === 'draft' ? 'Tilts the picked walls by the angle about the neutral plane, which keeps its size. A positive angle narrows the part away from the neutral plane (a mould that pulls up from it); a negative one widens it.' : modTool === 'offsetface' ? 'Moves the picked flat faces along their normals: a positive distance grows the body, a negative one shrinks it.' : modTool === 'shell' ? 'Hollows the body inward, leaving the clicked faces open. Click a picked face again to deselect it.' : modTool === 'presspull' ? 'A positive distance pulls the face out (adds material); a negative one pushes it in (removes material). Click another face to change the pick, or Alt + click a face to pull this one level with it.' : <>{modTool === 'fillet' ? 'A fillet follows the edges that continue smoothly from the one you pick (a rounded corner carries on round the whole outline).' : 'A chamfer follows the edges that continue smoothly from the one you pick.'} Click a picked edge again to deselect it.</>}</div></>}
             <div className="dbtns"><button onClick={() => void cancelModify()}>Cancel</button><button className="primary" data-testid="modify-ok" onClick={() => void okModify()}>OK</button></div>
           </div>
         )}
