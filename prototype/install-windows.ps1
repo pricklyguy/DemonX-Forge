@@ -3,7 +3,8 @@
 param(
   [Parameter(Mandatory = $true)][string] $PackageDirectory,
   [string] $InstallRoot = 'C:\DemonX-Forge-Native',
-  [switch] $SkipShortcut
+  [switch] $SkipShortcut,
+  [switch] $SkipAssociations
 )
 $ErrorActionPreference = 'Stop'
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
@@ -18,8 +19,9 @@ foreach ($name in $manifest.files.PSObject.Properties.Name) {
   $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $manifest.files.$name) { throw "Package integrity check failed: $name" }
 }
-foreach ($required in 'solidcraft.exe', 'solidcraft-cli.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe', 'DemonX Forge.ico', 'LICENSE-GPL-3.0-or-later', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt') {
-  if ($required -notin @($manifest.files.PSObject.Properties.Name)) { throw "Package is missing required file: $required" }
+foreach ($required in 'solidcraft.exe', 'solidcraft-cli.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe', 'forge-update-windows.ps1', 'DemonX Forge.ico', 'LICENSE-GPL-3.0-or-later', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt') {
+  $manifestName = $required.Replace('\', '/')
+  if ($manifestName -notin @($manifest.files.PSObject.Properties.Name)) { throw "Package is missing required file: $required" }
 }
 
 $root = [IO.Path]::GetFullPath($InstallRoot)
@@ -70,11 +72,15 @@ if (-not (Test-Path -LiteralPath $stableNode)) {
   if ($nodeLicense) { Copy-Item -LiteralPath $nodeLicense.FullName -Destination (Join-Path $runtimeRoot $nodeLicense.Name) }
 }
 $stableMcpExe = Join-Path $root 'forge-mcp.exe'
-if (-not (Test-Path -LiteralPath $stableMcpExe)) {
-  $mcpStage = Join-Path $root ('.forge-mcp-' + [guid]::NewGuid().ToString('N') + '.tmp.exe')
-  Copy-Item -LiteralPath (Join-Path $package 'forge-mcp.exe') -Destination $mcpStage
-  Move-Item -LiteralPath $mcpStage -Destination $stableMcpExe
-}
+$mcpStage = Join-Path $root ('.forge-mcp-' + [guid]::NewGuid().ToString('N') + '.tmp.exe')
+Copy-Item -LiteralPath (Join-Path $package 'forge-mcp.exe') -Destination $mcpStage
+if (Test-Path -LiteralPath $stableMcpExe) {
+  # Replace the stable launcher atomically on upgrades so the version-independent MCP
+  # entry point receives compatibility/security fixes with the native application.
+  $mcpBackup = Join-Path $root 'forge-mcp.exe.previous'
+  try { [IO.File]::Replace($mcpStage, $stableMcpExe, $mcpBackup, $true) }
+  catch { Remove-Item -LiteralPath $mcpStage -Force -ErrorAction SilentlyContinue; throw "Could not atomically update the stable Forge MCP launcher: $_" }
+} else { [IO.File]::Move($mcpStage, $stableMcpExe) }
 $mcpCmd = @'
 @echo off
 setlocal
@@ -114,32 +120,34 @@ if (-not $SkipShortcut) {
   $shortcut.Save()
 }
 
-# Register Forge projects for the current Windows user. Preserve any existing default handler
-# for .solidcraft; Forge is offered as an Open With choice for those files.
-$forgeProgId = 'DemonXForge.dxforge'
-$openCommand = '"' + (Join-Path $root 'DemonX Forge.cmd') + '" "%1"'
-$iconCommand = '"' + (Join-Path $final 'DemonX Forge.ico') + '",0'
-$forgeClass = "HKCU:\Software\Classes\$forgeProgId"
-New-Item -Path $forgeClass -Force | Out-Null
-Set-Item -Path $forgeClass -Value 'DemonX Forge Project'
-New-Item -Path (Join-Path $forgeClass 'DefaultIcon') -Force | Out-Null
-Set-Item -Path (Join-Path $forgeClass 'DefaultIcon') -Value $iconCommand
-New-Item -Path (Join-Path $forgeClass 'shell\open\command') -Force | Out-Null
-Set-Item -Path (Join-Path $forgeClass 'shell\open\command') -Value $openCommand
-$dxforgeClass = 'HKCU:\Software\Classes\.dxforge'
-New-Item -Path $dxforgeClass -Force | Out-Null
-Set-Item -Path $dxforgeClass -Value $forgeProgId
-New-Item -Path (Join-Path $dxforgeClass 'OpenWithProgids') -Force | Out-Null
-New-ItemProperty -Path (Join-Path $dxforgeClass 'OpenWithProgids') -Name $forgeProgId -Value '' -PropertyType String -Force | Out-Null
-foreach ($compatibleExtension in '.solidcraft', '.solvecraft') {
-  $compatibilityKey = "HKCU:\Software\Classes\$compatibleExtension"
-  New-Item -Path $compatibilityKey -Force | Out-Null
-  New-Item -Path (Join-Path $compatibilityKey 'OpenWithProgids') -Force | Out-Null
-  New-ItemProperty -Path (Join-Path $compatibilityKey 'OpenWithProgids') -Name $forgeProgId -Value '' -PropertyType String -Force | Out-Null
+if (-not $SkipAssociations) {
+  # Register Forge projects for the current Windows user. Preserve any existing default handler
+  # for .solidcraft; Forge is offered as an Open With choice for those files.
+  $forgeProgId = 'DemonXForge.dxforge'
+  $openCommand = '"' + (Join-Path $root 'DemonX Forge.cmd') + '" "%1"'
+  $iconCommand = '"' + (Join-Path $final 'DemonX Forge.ico') + '",0'
+  $forgeClass = "HKCU:\Software\Classes\$forgeProgId"
+  New-Item -Path $forgeClass -Force | Out-Null
+  Set-Item -Path $forgeClass -Value 'DemonX Forge Project'
+  New-Item -Path (Join-Path $forgeClass 'DefaultIcon') -Force | Out-Null
+  Set-Item -Path (Join-Path $forgeClass 'DefaultIcon') -Value $iconCommand
+  New-Item -Path (Join-Path $forgeClass 'shell\open\command') -Force | Out-Null
+  Set-Item -Path (Join-Path $forgeClass 'shell\open\command') -Value $openCommand
+  $dxforgeClass = 'HKCU:\Software\Classes\.dxforge'
+  New-Item -Path $dxforgeClass -Force | Out-Null
+  Set-Item -Path $dxforgeClass -Value $forgeProgId
+  New-Item -Path (Join-Path $dxforgeClass 'OpenWithProgids') -Force | Out-Null
+  New-ItemProperty -Path (Join-Path $dxforgeClass 'OpenWithProgids') -Name $forgeProgId -Value '' -PropertyType String -Force | Out-Null
+  foreach ($compatibleExtension in '.solidcraft', '.solvecraft') {
+    $compatibilityKey = "HKCU:\Software\Classes\$compatibleExtension"
+    New-Item -Path $compatibilityKey -Force | Out-Null
+    New-Item -Path (Join-Path $compatibilityKey 'OpenWithProgids') -Force | Out-Null
+    New-ItemProperty -Path (Join-Path $compatibilityKey 'OpenWithProgids') -Name $forgeProgId -Value '' -PropertyType String -Force | Out-Null
+  }
 }
 
 Write-Host "Installed DemonX Forge $($manifest.version) in $root"
 Write-Host "Launch: $root\DemonX Forge.cmd (or Start menu: DemonX Forge)"
-Write-Host 'Windows opens .dxforge projects with Forge; .solidcraft and .solvecraft remain available through Open With.'
+if (-not $SkipAssociations) { Write-Host 'Windows opens .dxforge projects with Forge; .solidcraft and .solvecraft remain available through Open With.' }
 Write-Host 'Projects and settings use persistent per-user paths: %APPDATA%\DemonX Forge and %LOCALAPPDATA%\DemonX Forge.'
 Write-Host "Previous release retained: $(Join-Path $root 'previous.txt') (if this was an upgrade)."

@@ -287,14 +287,16 @@ and preserve parametric history; verify MCP tools and security refusals remain u
 ### Native release preparation — 2026-10-23
 
 - [x] Keep the installed versioned application folders immutable and preserve the current working release as rollback.
-- [x] Build the pinned Windows release app and native MCP stdio launcher; run real native acceptance against the newly built executable: three named bodies, feature/history edits, save/reopen, individual and multi-body exports, undo/redo, all nine MCP tools, and filesystem scope refusal.
-- [ ] Package and install the stable Windows MCP entry point (`forge-mcp.exe` and `forge-mcp.cmd`) with the pinned bundled Node runtime; verify restart discovery, multiple-instance refusal, and security contracts through installed clients. Package step is blocked by restricted outbound access to the official Node distribution.
-- [x] Keep MCP discovery loopback-only and token-authenticated; existing single-session native acceptance still passes.
-- [ ] Exercise restart discovery and multiple-instance refusal end-to-end; the bridge now refuses ambiguous sessions and permits an explicit `FORGE_NATIVE_PORT` choice.
-- [ ] Build a dedicated native updater against a native-only release channel. Do not use the inherited SolidCraft in-place executable swap or the existing React `v0.27.0` release channel.
-- [ ] Require trusted remote package provenance; stage immutable package folders; protect user data; defer while a document is dirty; atomically switch pointers; verify startup and roll back on failure.
-- [x] Visually inspect the taller Forge title bar and wordmark in the 1600×1000 dark-mode real-native acceptance screenshot.
-- [ ] Verify high DPI, maximize/restore, small-window, and light-mode title-bar combinations.
-- [ ] Run installed-app acceptance and preserve the prior package. Native release stays preview until Linux build/package acceptance also passes.
+- [x] Build a fresh Windows package using the cached official Node 24.19.0 archive and its unchanged pinned SHA-256; install it into `C:\DemonX-Forge-Native` and retain the prior app version in `previous.txt`.
+- [x] Run the full installed-path acceptance using root `forge-mcp.exe`: all nine tools, active design read, modeling, save/reopen, exports, undo/redo, wrong-token rejection, scoped filesystem refusal, restart discovery, multiple-instance ambiguity refusal, recovery, and screenshots.
+- [x] Test installer upgrade on a disposable root: atomically replace stable MCP launcher and retain both its prior binary and prior application pointer.
+- [x] Keep MCP discovery loopback-only and token-authenticated. Root launchers and user scripts/settings remain outside immutable version directories.
+- [x] Implement native-only `native-v*` release selection, pinned minisign verification gate, package digest/manifest checks, safe staged extraction, immutable versions, atomic current/previous pointers, authenticated startup health, and rollback.
+- [x] Test locally generated updater packages: successful pointer switch and MCP reconnection, wrong-digest refusal with unchanged pointers, and startup-health failure with pointer rollback and failed-version retention.
+- [ ] Provide a protected release signing key and validate a signed release from the in-app discovery/download/install flow. Public updates remain disabled in packages without the configured key; local helper tests do not prove remote provenance.
+- [ ] Verify dirty-document update deferral in a live GUI session, including documents becoming dirty during download.
+- [x] Capture light/dark, 720×560 narrow, 1280×800, app UI scale 125%, and maximized/restored title-bar layouts.
+- [ ] Verify Windows OS-level DPI scaling (the 125% app UI control is not equivalent).
+- [ ] Build and exercise the native Linux package/update path. Keep Linux as a preview-release blocker, not a blocker for continued Windows development.
 
 Current detail: [`RELEASE-PREP.md`](RELEASE-PREP.md).

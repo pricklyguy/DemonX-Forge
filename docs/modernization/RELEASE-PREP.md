@@ -1,13 +1,13 @@
 # Native release preparation status
 
 **Branch:** `codex/fusion-parity`  
-**Status:** Windows MCP launcher and header work in progress; native update installation and release acceptance remain blocked.
+**Status:** Windows native build, persistent install acceptance, stable MCP launcher, and local staged-update/rollback scenarios passed. Public native updates and preview release remain blocked on release signing/provenance setup and Linux package validation.
 
-## MCP launcher design
+## Stable MCP entry point
 
-Windows packages include a private Node runtime, a small native `forge-mcp.exe` stdio launcher, and a shell-friendly `forge-mcp.cmd` wrapper. The launcher stays at `C:\DemonX-Forge-Native`; its JS entry point resolves `current.txt` at request startup and loads the current version's already-built Forge bridge. MCP clients therefore do not need a versioned path, Node on `PATH`, a port, or a copied authentication token. The bridge still enumerates only the per-user `%LOCALAPPDATA%\DemonX Forge\control\<port>.token` files, connects only to `127.0.0.1`, and authenticates with the random token. It skips stale listeners and clears its cached endpoint after connection loss, allowing the next distinct request to rediscover a restarted app.
+Windows packages contain a private Node runtime, native `forge-mcp.exe`, and `forge-mcp.cmd`. The stable launcher lives at the install root and resolves the current version's bridge through `current.txt`; it does not require Node on `PATH`, a version-specific client path, a configured port, or a copied token. The bridge discovers only per-user control token files, connects only to loopback, and authenticates with the session token. It retries discovery after stale sessions and rejects ambiguous multiple-instance discovery unless an explicit supported session choice is provided.
 
-The native `.exe` is the recommended stdio command because Windows MCP clients differ in their handling of batch files. The `.cmd` exists for shells and clients that support batch launch. Client configuration examples:
+Recommended client configuration:
 
 ```json
 {
@@ -19,33 +19,57 @@ The native `.exe` is the recommended stdio command because Windows MCP clients d
 }
 ```
 
-If a client requires an explicit shell for batch files, configure `C:\Windows\System32\cmd.exe` with args `/d`, `/c`, and `C:\DemonX-Forge-Native\forge-mcp.cmd`. Keep authentication tokens and control ports out of client configuration.
+The batch wrapper is available for clients that require a shell. Do not put control ports or authentication tokens in the MCP client config.
 
-## Update findings and safety boundary
+## Update architecture and security
 
-The SolidCraft source contains a mature update dialog, but its installer swaps the running executable in place. Forge's installed layout is an immutable version directory selected by an atomic `current.txt` pointer, with application data stored outside those version folders. Reusing the SolidCraft replacement path could mutate the rollback version and bypass Forge's package manifest. Existing Forge GitHub releases are the old React application (latest observed: `v0.27.0`), so they are not valid update candidates for the native product.
+The native updater lists Forge repository releases and accepts only the native `native-v*` tag channel; it does not resolve GitHub's generic `latest` release, which may be the old React app. It selects the highest valid native semantic version. The updater UI is disabled in managed packages that do not embed a configured minisign public key.
 
-The overlay points release metadata at the DemonX Forge repository and suppresses the inherited updater for the managed native installation. This prevents accidentally offering SolidCraft or React releases and prevents unsafe in-place replacement. The check also means the requested in-app installation experience is **not implemented yet**.
+For enabled managed builds, native update metadata and package signatures are checked against the compile-time pinned minisign public key before download/use. The helper then checks the expected package SHA-256 again, rejects unsafe archive paths, links, excessive extraction, and incomplete or hash-mismatched manifest contents. It stages into a new immutable version directory, preserves `previous.txt`, atomically switches `current.txt`, starts the candidate, and checks its authenticated loopback control channel. Failed startup terminates the candidate and restores both pointers. User data and the stable root MCP launchers are outside the version directory and are not replaced. The application checks all open documents for dirty state before starting an update; the existing close flow also prompts if a document becomes dirty while an update is in progress. Automatic installation is not enabled.
 
-Before enabling native updates, the release pipeline must publish a distinct native channel (separate version/tag scheme from React and SolidCraft), package format and asset names, trusted digest or signing provenance, and release notes. The updater must validate repository, channel, version and archive digest; extract to a new immutable version folder; validate the package manifest; preserve the last-good pointer; refuse while a document is dirty (or while the application is running until a native dirty-state handshake exists); switch pointers atomically; and verify startup before finalizing. Failed startup must restore the old pointer. No automatic install should occur.
+No release signing key was available for this checkpoint. The tested package was built without a public update key, so it correctly suppresses public update checks and installation. Do not publish a native release or claim remotely verified update acceptance until the owner supplies the long-lived signing key/public key arrangement, a signed test release is verified through the in-app download path, and a dedicated native release workflow is exercised. Existing React Forge and upstream SolidCraft releases are not native update sources.
 
-The current package's local manifest hashes protect the copy/install path from accidental corruption, but they are not a signature over a remotely downloaded release. Do not represent them as release provenance.
+## Reproducible Windows package
 
-## Branding work
+`prototype/package-windows.ps1` builds the pinned SolidCraft engine and overlays Forge branding/bridge code. The build retains the pinned official Node 24.19.0 archive SHA-256:
 
-The Forge wordmark remains the existing Forge-owned asset. The application bar reservation increases from 34 to 42 logical points, with a modestly larger wordmark. Existing caption controls retain their full bar-height hit targets; the layout, menus, tabs and toolbar are unchanged. Tests and Windows visual checks are still required at normal and high DPI, restored/maximized sizes, narrow widths, and both themes before calling this accepted.
+`57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73`
 
-## Release blockers
+The archive was obtained from the local temporary build cache and verified against that checksum; checksum verification was not relaxed. The isolated source checkout used SolidCraft commit `75261cd79733fe47cf898b54f865e6bfaffa1129`. The successful package was produced under `%TEMP%\DemonXForgeBuild\source-75261cd79733fe47cf898b54f865e6bfaffa1129\prototype\dist-windows\release-prep-20261023-9\0.19.0-forge-1161ec567bc9-engine-75261cd79733`. It is now installed at `C:\DemonX-Forge-Native`. `current.txt` selects `0.19.0-forge-1161ec567bc9-engine-75261cd79733`; `previous.txt` still selects the present rollback release `0.19.0-forge-437c4651a50b-engine-75261cd79733`. The root contains stable `forge-mcp.exe`, `forge-mcp.cmd`, and bundled `runtime\node.exe`.
 
-- Build and install a package containing the new bundled runtime and stable launcher, then test all nine MCP tools and security refusals through `forge-mcp.exe` after app launch and restart.
-- Finish native-only updater channel, signing/provenance, staged install, unsaved-state guard, startup health check, rollback, and GUI acceptance.
-- Run the Windows title-bar matrix and installed-app modeling regression scenario.
-- Linux native package and update behavior remain unverified; native distribution remains preview until that acceptance passes.
+## Verification record — 2026-10-23
 
-## Windows validation — 2026-10-23
+### Native app and MCP
 
-- The pinned MSVC release build completed for `solidcraft.exe`, both CLI binaries, and the native `forge-mcp.exe` launcher (358,400 bytes). The isolated build checkout was at SolidCraft commit `75261cd79733fe47cf898b54f865e6bfaffa1129`.
-- The native acceptance harness passed against that newly built executable: three named bodies, 8 history features, fillet/edit/undo/redo, `.dxforge` save/reopen, individual and all-body STL, separate 3MF objects (3), all nine MCP tools, screenshot, and rejection of a save outside the scoped `allow_paths` directory.
-- A 1600×1000 dark-mode screenshot confirmed the larger Forge wordmark/header and preserved modeling layout. High DPI, maximize/restore, narrow-window, and light-mode visual checks were not run.
-- The optional Python SDK test path was not enabled in this run (`pythonSdkVerified: false`); it passed in the earlier scripting acceptance documented in `SCRIPTING-TEST-RESULTS.md`.
-- The complete package/install leg did not finish. Fetching pinned Node 24.19.0 from `nodejs.org` was denied by the shell network sandbox. The build recipe pins the official archive SHA-256 (`57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73`) and fails closed when it cannot obtain and verify the runtime. The stable launcher has therefore not been installed or tested through Codex/Claude stdio clients in this checkpoint.
+- Fresh MSVC release build and package succeeded, including `solidcraft.exe`, CLI tools, bundled Node 24.19.0, `forge-mcp.exe`, and `.cmd` wrapper.
+- Full acceptance ran against the persistent version's `solidcraft.exe` and root-level `C:\\DemonX-Forge-Native\\forge-mcp.exe`, using disposable app-data folders so no user documents or settings were opened. Three independent bodies and eight history features passed sketch/extrude/fillet and history edit, undo/redo, `.dxforge` save/reopen, individual and all-body STL, and three separate 3MF objects.
+- The installed launcher exposed all nine tools (`forge_get_design`, `forge_list_commands`, `forge_run_commands`, `forge_query`, `forge_measure`, `forge_screenshot`, `forge_set_parameter`, `forge_undo`, `forge_redo`) and read the active design.
+- MCP acceptance covered authentication failure, invalid command/error reporting, save outside scoped `allow_paths` refusal, restart discovery, multiple-instance ambiguity refusal/recovery, and screenshots.
+
+### Update scenarios
+
+- A locally generated update archive was installed into a unique temporary version directory. The helper verified the supplied expected SHA-256, manifest contents and package file set; `current.txt` switched to the new immutable version and `previous.txt` retained the original.
+- After that update, the stable MCP launcher still exposed all nine tools. Hashes for root `forge-mcp.exe` and bundled Node remained identical; scripts/settings sentinel data outside version folders remained present.
+- A wrong archive digest was refused without changing pointers.
+- A test candidate with valid archive/hash metadata but an intentionally unhealthy process failed the authenticated startup health check; the helper restored `current.txt` and `previous.txt`, retained the failed version for diagnosis, and reported rollback. This is local helper-level acceptance, not a signed remote in-app release test.
+- Focused native channel tests passed: React-only release lists are rejected and the highest valid `native-v*` release is selected (2 passed, 0 failed; 1,866 filtered out). The test target emitted one existing upstream `brand_mark` dead-code warning.
+
+### Header and responsive checks
+
+The acceptance harness captured dark/light themes at 1280×800, a narrow 720×560 layout, Forge UI scale at 125%, and maximized/restored layouts. Window controls remained accessible. At 720×560 the tab strip compresses and truncates secondary tab labels. These checks exercised app-level scale/layout behavior; Windows OS-level DPI was not changed or independently verified. This run's screenshots are under `%TEMP%\demonx-forge-native-acceptance-VlORkP`.
+
+### Tooling checks
+
+- PowerShell parser accepted all prototype `.ps1` scripts. An installer upgrade test also verified atomic stable-launcher replacement, preservation of the old launcher as `.previous`, and retention of the old version in `previous.txt`.
+- `node --check` passed for overlay, smoke harness, acceptance harness, and verifier JavaScript.
+- `git diff --check` passed (Git emits environment-specific warnings about an unreadable global ignore file and LF-to-CRLF normalization).
+
+## Remaining blockers
+
+- Provide and protect a stable minisign release key; configure its public verification key in release builds.
+- Create a native-only GitHub release/package workflow and signed test release; verify the complete updater path from UI release discovery through download, staged install, startup health, rollback, and MCP reconnection.
+- Verify dirty-document update deferral in the live UI, including a document becoming dirty during download. The guard is implemented across open documents and the close flow, but not interactively exercised in this checkpoint.
+- Verify actual Windows system DPI scaling, beyond the app's 125% UI scale control.
+- Build and test a Linux native package/update path. Linux remains unverified and blocks a native preview release.
+
+The previous installed working release remains available as the user's rollback version. No merge to `main` was performed.

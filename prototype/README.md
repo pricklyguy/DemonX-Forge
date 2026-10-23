@@ -48,6 +48,14 @@ and changes `current.txt` atomically. To restore the prior program version, clos
 ./prototype/rollback-windows.ps1
 ```
 
+The package bundles Node.js 24.19.0 from the official Windows x64 archive. The recipe verifies
+SHA-256 `57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73` before extraction.
+If the build host cannot reach `nodejs.org`, place the unmodified official
+`node-v24.19.0-win-x64.zip` at
+`%TEMP%\DemonXForgeBuild\runtime\node-v24.19.0-win-x64.zip`; the same checksum check remains
+mandatory and the build fails closed on any mismatch. The verified archive cache was used for
+the Windows release-prep build on 2026-10-23.
+
 The launcher is `C:\DemonX-Forge-Native\DemonX Forge.cmd`; the installer also creates a per-user
 Start menu shortcut. Normal settings live in `%APPDATA%\DemonX Forge\data`; autosave/recovery and the
 private MCP control token live in `%LOCALAPPDATA%\DemonX Forge`. These profile folders are outside
@@ -62,6 +70,12 @@ shell-friendly `forge-mcp.cmd` is also installed. The bridge still reads only Fo
 per-user control token files and keeps the existing nine-tool contracts, filesystem scopes, and
 unsafe-command refusals. It does not add arbitrary file or script execution tools. See
 `docs/modernization/RELEASE-PREP.md` for the client configuration and updater status.
+
+Native updates use only the `native-v*` tags from DemonX Forge releases. The update UI remains
+disabled unless the package was built with the trusted `DEMONX_FORGE_UPDATE_PUBLIC_KEY`; do not
+publish packages or enable public update checks until the matching private key is protected and a
+signed native release has passed the updater acceptance flow. Local success and rollback tests use
+synthetic packages and do not establish public-release provenance.
 
 Install the Rust toolchain required by the pinned workspace (`rust-version` in
 `solidcraft/Cargo.toml`), then from the repository root:

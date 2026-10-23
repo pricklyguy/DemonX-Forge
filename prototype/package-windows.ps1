@@ -37,6 +37,8 @@ if (-not (Test-Path $VsDevCmdPath)) { throw "Visual Studio MSVC environment scri
 
 $sourceHead = (& git -C $Submodule rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceHead -ne $Pinned) { throw "SolidCraft submodule must be at pinned commit $Pinned (found $sourceHead)." }
+$cargoVersion = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $Submodule 'Cargo.toml')), '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
+if (-not $cargoVersion) { throw 'Could not determine the native engine version from Cargo.toml.' }
 $shouldPrepareBuildClone = -not $BuildSource
 if ($shouldPrepareBuildClone) { $BuildSource = $isolatedBuildSource }
 if ($shouldPrepareBuildClone -and -not (Test-Path $BuildSource)) {
@@ -67,6 +69,9 @@ $targetDir = if ($BuildTargetDirectory) { [IO.Path]::GetFullPath($BuildTargetDir
 $releaseDir = Join-Path $targetDir 'release'
 $cmdFile = Join-Path $env:TEMP "demonx-forge-build-$([guid]::NewGuid().ToString('N')).cmd"
 $logFile = Join-Path $output 'build-windows.log'
+$stdoutFile = "$logFile.stdout"
+$stderrFile = "$logFile.stderr"
+$updatePublicKeyAssignment = if ([string]::IsNullOrWhiteSpace($env:DEMONX_FORGE_UPDATE_PUBLIC_KEY)) { '' } else { "set DEMONX_FORGE_UPDATE_PUBLIC_KEY=$($env:DEMONX_FORGE_UPDATE_PUBLIC_KEY)" }
 $script = @"
 @echo off
 call "$VsDevCmdPath" -arch=amd64 -host_arch=amd64
@@ -74,6 +79,8 @@ if errorlevel 1 exit /b %errorlevel%
 set PATH=$cargoBin;%PATH%
 set CARGO_TARGET_DIR=$targetDir
 set CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=-C target-feature=+crt-static
+set SOLIDCRAFT_VERSION=$cargoVersion
+$updatePublicKeyAssignment
 cd /d "$BuildSource"
 rustc -vV | findstr /c:"host: x86_64-pc-windows-msvc" >nul
 if errorlevel 1 (echo This package recipe requires the x86_64-pc-windows-msvc host toolchain. & exit /b 1)
@@ -85,8 +92,15 @@ exit /b %errorlevel%
 Set-Content -Path $cmdFile -Value $script -Encoding ascii
 try {
   Write-Host '==> Build native app and CLI with MSVC'
-  & cmd.exe /d /c $cmdFile *> $logFile
-  if ($LASTEXITCODE -ne 0) { Get-Content $logFile -Tail 100; throw "Cargo build failed with exit code $LASTEXITCODE. Full log: $logFile" }
+  # Start-Process keeps PowerShell 7 from treating ordinary Cargo/rustc warnings on stderr as
+  # terminating errors under $ErrorActionPreference = Stop. Preserve both streams and trust only
+  # the child process exit code.
+  $buildProcess = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') `
+    -ArgumentList @('/d', '/c', "`"$cmdFile`"") -Wait -PassThru -NoNewWindow `
+    -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+  if (Test-Path -LiteralPath $stdoutFile) { Get-Content -LiteralPath $stdoutFile | Set-Content -LiteralPath $logFile -Encoding utf8 }
+  if (Test-Path -LiteralPath $stderrFile) { Get-Content -LiteralPath $stderrFile | Add-Content -LiteralPath $logFile -Encoding utf8 }
+  if ($buildProcess.ExitCode -ne 0) { Get-Content -LiteralPath $logFile -Tail 100; throw "Cargo build failed with exit code $($buildProcess.ExitCode). Full log: $logFile" }
 } finally { Remove-Item -LiteralPath $cmdFile -ErrorAction SilentlyContinue }
 
 function Get-PeHeader([string] $Path) {
@@ -95,6 +109,7 @@ function Get-PeHeader([string] $Path) {
   return @{ Machine = [BitConverter]::ToUInt16($bytes, $pe + 4); Subsystem = [BitConverter]::ToUInt16($bytes, $pe + 0x5C) }
 }
 foreach ($file in 'solidcraft.exe', 'solidcraft-cli.exe', 'solvecraft-cli.exe') {
+  Write-Host "==> Stage $file"
   $binary = Join-Path $releaseDir $file
   if (-not (Test-Path $binary)) { throw "Cargo did not produce expected package file: $file" }
   $header = Get-PeHeader $binary
@@ -108,6 +123,7 @@ if ($mcpHeader.Machine -ne 0x8664 -or $mcpHeader.Subsystem -ne 3) { throw 'forge
 foreach ($file in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt', 'README.md') { Copy-Item -LiteralPath (Join-Path $BuildSource $file) -Destination $stage }
 Copy-Item -LiteralPath (Join-Path $Repo 'LICENSE') -Destination (Join-Path $stage 'LICENSE-GPL-3.0-or-later')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'branding\demonx-forge-wordmark.png') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'forge-update-windows.ps1') -Destination (Join-Path $stage 'forge-update-windows.ps1')
 # MCP is a local stdio child process. Bundle a pinned official Node runtime rather than copying
 # whichever machine-wide Node happens to be installed on the build host.
 $nodeVersion = '24.19.0'
@@ -116,6 +132,7 @@ $nodeSha256 = '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'
 $nodeCache = Join-Path $env:TEMP "DemonXForgeBuild\runtime\$nodeArchiveName"
 New-Item -ItemType Directory -Force -Path (Split-Path $nodeCache) | Out-Null
 if (-not (Test-Path -LiteralPath $nodeCache)) {
+  Write-Host "==> Download pinned Node.js $nodeVersion archive"
   Invoke-WebRequest -Uri "https://nodejs.org/dist/v$nodeVersion/$nodeArchiveName" -OutFile $nodeCache
 }
 $downloadHash = (Get-FileHash -LiteralPath $nodeCache -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -135,6 +152,7 @@ Invoke-Checked 'Bundle the existing nine-tool Forge MCP compatibility bridge' {
   finally { Pop-Location }
 }
 
+Write-Host '==> Generate DemonX Forge application icon'
 Add-Type -AssemblyName System.Drawing
 $sourceIcon = [System.Drawing.Image]::FromFile((Join-Path $Repo 'web\public\forge-mark.png'))
 $iconBitmap = New-Object System.Drawing.Bitmap 64, 64
@@ -180,8 +198,8 @@ by the included GNU GPL-3.0-or-later license.
 
 $forgeCommit = (& git -C $Repo rev-parse HEAD).Trim()
 $forgeCommitTime = (& git -C $Repo show -s --format=%cI $forgeCommit).Trim()
-$cargoVersion = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $BuildSource 'Cargo.toml')), '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
 $releaseId = "${cargoVersion}-forge-$($forgeCommit.Substring(0,12))-engine-$($Pinned.Substring(0,12))"
+Write-Host '==> Hash package files and write manifest'
 $manifest = [ordered]@{
   product = 'DemonX Forge'
   version = $cargoVersion
@@ -193,12 +211,16 @@ $manifest = [ordered]@{
   files = @{}
 }
 foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse) {
-  $relative = [IO.Path]::GetRelativePath($stage, $file.FullName).Replace('\', '/')
+  $stagePrefix = [IO.Path]::GetFullPath($stage).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+  $fullFile = [IO.Path]::GetFullPath($file.FullName)
+  if (-not $fullFile.StartsWith($stagePrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Package file escaped staging directory: $fullFile" }
+  $relative = $fullFile.Substring($stagePrefix.Length).Replace('\', '/')
   if ($relative -ne 'manifest.json') { $manifest.files[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding utf8
 $package = Join-Path $output $releaseId
 if (Test-Path $package) { throw "Package already exists; preserve it and choose another output folder: $package" }
+Write-Host '==> Compress native package archive'
 Move-Item -LiteralPath $stage -Destination $package
 $zip = "$package.zip"
 Compress-Archive -Path (Join-Path $package '*') -DestinationPath $zip

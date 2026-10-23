@@ -13,6 +13,8 @@ const themeSource = read('crates/ui-egui/src/theme_files.rs');
 const toolbar = read('crates/ui-egui/src/toolbar.rs');
 const sketchDimensionTests = read('crates/ui-egui/src/sketch_dims_tests.rs');
 const viewport = read('crates/ui-egui/src/viewport.rs');
+const updater = read('crates/ui-egui/src/update.rs');
+const updaterInstall = read('crates/ui-egui/src/update/install.rs');
 const keys = new Set([...themeSource.matchAll(/\b(?:one|many): \[([\s\S]*?)\]/g)].flatMap(([, block]) => [...block.matchAll(/\b[a-z][a-z0-9_]*\b/g)].map(([name]) => name)));
 
 function requireMatch(value, pattern, label) {
@@ -33,8 +35,11 @@ if ([...main.matchAll(/let mut forge_control = false;/g)].length !== 1) throw ne
 requireMatch(toolbar, /demonx-forge-wordmark/, 'Forge-owned horizontal app bar wordmark');
 requireMatch(toolbar, /else \{ 172\.0 \}/, 'app bar spacing for full Forge wordmark');
 requireMatch(toolbar, /APP_BAR_HEIGHT: f32 = 42\.0/, 'taller Forge title bar');
-requireMatch(read('crates/ui-egui/src/update.rs'), /api\.github\.com\/repos\/pricklyguy\/DemonX-Forge\/releases\/latest/, 'updater does not query upstream SolidCraft releases');
-requireMatch(read('crates/ui-egui/src/update.rs'), /DEMONX_FORGE_NATIVE_MANAGED/, 'unsafe inherited in-place updater disabled for managed Forge installs');
+requireMatch(updater, /api\.github\.com\/repos\/pricklyguy\/DemonX-Forge\/releases\?per_page=100/, 'native-only Forge release listing');
+requireMatch(updater, /tag\.starts_with\("native-v"\)/, 'native Forge updater channel filtering');
+requireMatch(updater, /documents::any_dirty\(app\)/, 'dirty protection across every open document');
+requireMatch(updaterInstall, /Method::ForgeImmutable/, 'immutable version-directory updater');
+requireMatch(updaterInstall, /option_env!\("DEMONX_FORGE_UPDATE_PUBLIC_KEY"\)/, 'pinned native release-signing key');
 requireMatch(sketchDimensionTests, /mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape/, 'mouse gesture/live dimension regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool/, 'mouse circle diameter regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw/, 'mouse line angle and cancellation regression test');

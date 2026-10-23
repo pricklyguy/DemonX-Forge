@@ -95,7 +95,8 @@ async function startForgeMcp(localData) {
   delete env.FORGE_NATIVE_PORT;
   delete env.SOLIDCRAFT_CONTROL_DIR;
   delete env.SOLIDCRAFT_CONTROL_TOKEN;
-  mcpProcess = spawn(process.execPath, [adapter], {
+  const stableLauncher = packagedMcpAdapter?.toLowerCase().endsWith('.exe') ?? false;
+  mcpProcess = spawn(stableLauncher ? adapter : process.execPath, stableLauncher ? [] : [adapter], {
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
@@ -671,8 +672,89 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     largeModelResults.screenshot = largeScreenshot;
   }
 
-  await call(port, 'ui.window', { action: 'close' });
-  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, pythonSdkVerified, pythonSdkSingleUndo, largeModel: largeModelResults, mcpScreenshot: true })}\n`);
+  const titlebarScreenshots = [];
+  for (const [theme, scale, width, height] of [['dark', 1.0, 1280, 800], ['light', 1.0, 1280, 800], ['dark', 1.25, 720, 560]]) {
+    await call(controlPort, 'ui.prefs', { theme, ui_scale: scale });
+    await call(controlPort, 'ui.resize', { width, height });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+    const titlebarShot = join(root, `titlebar-${theme}-${scale}-${width}x${height}.png`);
+    await call(controlPort, 'ui.screenshot', { path: titlebarShot }, token, [root]);
+    titlebarScreenshots.push(titlebarShot);
+  }
+  await call(controlPort, 'ui.prefs', { theme: 'dark', ui_scale: 1.0 });
+  await call(controlPort, 'ui.window', { action: 'maximize' });
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+  const maximizedScreenshot = join(root, 'titlebar-maximized.png');
+  await call(controlPort, 'ui.screenshot', { path: maximizedScreenshot }, token, [root]);
+  await call(controlPort, 'ui.window', { action: 'restore' });
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+  const restoredScreenshot = join(root, 'titlebar-restored.png');
+  await call(controlPort, 'ui.screenshot', { path: restoredScreenshot }, token, [root]);
+
+  // Keep the installed stable bridge alive across an application restart. Its stale endpoint must
+  // be discarded and rediscovered using the private token files.
+  const initialPorts = new Set(readdirSync(controlDir).filter((name) => /^\d+\.token$/.test(name)).map((name) => Number(name.slice(0, -6))));
+  await call(controlPort, 'ui.window', { action: 'close' });
+  if (appProcess && appProcess.exitCode === null) await Promise.race([new Promise((resolvePromise) => appProcess.once('exit', resolvePromise)), new Promise((resolvePromise) => setTimeout(resolvePromise, 8000))]);
+  assert(appProcess?.exitCode !== null, 'native app did not close before restart acceptance');
+  appProcess = spawn(exe, ['--safe-mode', '--forge-mcp'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
+  appProcess.stderr.on('data', () => {});
+  let restarted;
+  const restartDeadline = Date.now() + 240000;
+  while (!restarted && Date.now() < restartDeadline && appProcess.exitCode === null) {
+    for (const name of readdirSync(controlDir).filter((value) => /^\d+\.token$/.test(value))) {
+      const candidatePort = Number(name.slice(0, -6));
+      if (initialPorts.has(candidatePort)) continue;
+      const candidateToken = readFileSync(join(controlDir, name), 'utf8').trim();
+      try { await call(candidatePort, 'ui.inspect', {}, candidateToken); restarted = { port: candidatePort, token: candidateToken }; break; } catch {}
+    }
+    if (!restarted) await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+  }
+  assert(restarted, 'restarted native app did not expose a new authenticated session');
+  controlPort = restarted.port;
+  token = restarted.token;
+  // The first failed connection is intentionally not replayed: this protects model mutations
+  // whose outcome might be unknown. It clears the stale endpoint; the next distinct read retries
+  // secure discovery and must attach to the restarted session.
+  const staleEndpoint = await mcpTool('forge_list_commands', { filter: 'box' });
+  assert(staleEndpoint.isError && /ECONNREFUSED|connect/i.test(staleEndpoint.content?.[0]?.text ?? ''), 'bridge did not report its stale endpoint after restart');
+  const reconnected = await mcpTool('forge_list_commands', { filter: 'box' });
+  assert(!reconnected.isError, `stable MCP bridge failed to rediscover the restarted application: ${reconnected.content?.[0]?.text}`);
+
+  // A second live app must make a new bridge refuse session selection instead of guessing.
+  const beforeSecond = new Set(readdirSync(controlDir).filter((name) => /^\d+\.token$/.test(name)).map((name) => Number(name.slice(0, -6))));
+  const firstLiveApp = appProcess;
+  const secondApp = appProcess = spawn(exe, ['--safe-mode', '--forge-mcp'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
+  secondApp.stderr.on('data', () => {});
+  let second;
+  const secondDeadline = Date.now() + 240000;
+  while (!second && Date.now() < secondDeadline && secondApp.exitCode === null) {
+    for (const name of readdirSync(controlDir).filter((value) => /^\d+\.token$/.test(value))) {
+      const candidatePort = Number(name.slice(0, -6));
+      if (beforeSecond.has(candidatePort)) continue;
+      const candidateToken = readFileSync(join(controlDir, name), 'utf8').trim();
+      try { await call(candidatePort, 'ui.inspect', {}, candidateToken); second = { port: candidatePort, token: candidateToken }; break; } catch {}
+    }
+    if (!second) await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+  }
+  assert(second, 'second native Forge instance did not become ready');
+  if (mcpProcess && mcpProcess.exitCode === null) {
+    mcpProcess.stdin.end();
+    await Promise.race([new Promise((resolvePromise) => mcpProcess.once('exit', resolvePromise)), new Promise((resolvePromise) => setTimeout(resolvePromise, 3000))]);
+  }
+  mcpBuffer = '';
+  mcpPending.clear();
+  await startForgeMcp(localAppData);
+  const ambiguous = await mcpTool('forge_list_commands', { filter: 'box' });
+  assert(ambiguous.isError && /multiple DemonX Forge sessions/i.test(ambiguous.content?.[0]?.text ?? ''), 'MCP bridge did not refuse multiple active sessions');
+  await call(second.port, 'ui.window', { action: 'close' }, second.token);
+  if (secondApp.exitCode === null) await Promise.race([new Promise((resolvePromise) => secondApp.once('exit', resolvePromise)), new Promise((resolvePromise) => setTimeout(resolvePromise, 8000))]);
+  appProcess = firstLiveApp;
+  const recovered = await mcpTool('forge_list_commands', { filter: 'box' });
+  assert(!recovered.isError, `MCP bridge did not recover after the extra instance closed: ${recovered.content?.[0]?.text}`);
+
+  await call(controlPort, 'ui.window', { action: 'close' });
+  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, pythonSdkVerified, pythonSdkSingleUndo, largeModel: largeModelResults, mcpScreenshot: true, sessionRediscoveredAfterRestart: true, multipleInstancesRefused: true, recoveredAfterAmbiguity: true, titlebarScreenshots: [...titlebarScreenshots, maximizedScreenshot, restoredScreenshot] })}\n`);
 }
 
 main().catch((error) => {

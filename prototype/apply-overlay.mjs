@@ -210,15 +210,123 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   }
 }
 
+// Migrate the old Forge latest endpoint to a version-tag-filtered native release list. This
+// explicit transition keeps repeated overlay applications idempotent across prior checkpoints.
+{
+  const relative = 'crates/ui-egui/src/update.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const target = 'pub const LATEST_API: &str = "https://api.github.com/repos/pricklyguy/DemonX-Forge/releases?per_page=100";';
+  const old = [
+    'pub const LATEST_API: &str = "https://api.github.com/repos/bherbruck/solidcraft/releases/latest";',
+    'pub const LATEST_API: &str = "https://api.github.com/repos/pricklyguy/DemonX-Forge/releases/latest";',
+  ];
+  if (!text.includes(target)) {
+    const prior = old.find((candidate) => text.includes(candidate));
+    assert(prior, `Native Forge release API anchor drift in ${relative}`);
+    if (!checkOnly) writeFileSync(path, text.replace(prior, target));
+  }
+}
+{
+  const relative = 'crates/ui-egui/src/update.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const previous = 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases/latest";';
+  const target = 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases";';
+  if (!text.includes(target) && text.includes(previous) && !checkOnly) writeFileSync(path, text.replace(previous, target));
+}
+{
+  const relative = 'crates/ui-egui/src/update/install.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const previous = `return (active.trim() == version.file_name()?.to_string_lossy() && root.join("forge-update-windows.ps1").is_file())
+            .then(|| Method::ForgeImmutable(root.to_path_buf()));`;
+  const target = `return (active.trim() == version.file_name()?.to_string_lossy() && version.join("forge-update-windows.ps1").is_file())
+            .then(|| Method::ForgeImmutable(version.to_path_buf()));`;
+  const oldApply = `        Method::ForgeImmutable(root) => {
+            let helper = root.join("forge-update-windows.ps1");
+            if !helper.is_file() { return Err(format!("native Forge update helper is missing: {}", helper.display())); }
+            let updates = root.join("updates");
+            std::fs::create_dir_all(&updates).map_err(|e| format!("{}: {e}", updates.display()))?;
+            let staged = updates.join("pending-native-update.zip");
+            if staged.exists() { return Err("another native update is already staged".into()); }
+            std::fs::copy(package, &staged).map_err(|e| format!("{}: {e}", staged.display()))?;
+            Ok(Outcome::ForgeUpdate(PathBuf::from("powershell.exe"), vec![
+                "-NoProfile".into(), "-NonInteractive".into(), "-ExecutionPolicy".into(), "Bypass".into(), "-File".into(), helper.to_string_lossy().into_owned(),
+                "-InstallRoot".into(), root.to_string_lossy().into_owned(), "-PackageArchive".into(), staged.to_string_lossy().into_owned(),
+            ]))
+        }`;
+  const newApply = `        Method::ForgeImmutable(version) => {
+            let helper = version.join("forge-update-windows.ps1");
+            let root = version.parent().and_then(Path::parent).ok_or("native Forge version directory is outside its installation root")?;
+            if !helper.is_file() { return Err(format!("native Forge update helper is missing: {}", helper.display())); }
+            let updates = root.join("updates");
+            std::fs::create_dir_all(&updates).map_err(|e| format!("{}: {e}", updates.display()))?;
+            let staged = updates.join("pending-native-update.zip");
+            if staged.exists() { return Err("another native update is already staged".into()); }
+            let expected_hash = sha256_file(package)?;
+            std::fs::copy(package, &staged).map_err(|e| format!("{}: {e}", staged.display()))?;
+            Ok(Outcome::ForgeUpdate(PathBuf::from("powershell.exe"), vec![
+                "-NoProfile".into(), "-NonInteractive".into(), "-ExecutionPolicy".into(), "Bypass".into(), "-File".into(), helper.to_string_lossy().into_owned(),
+                "-InstallRoot".into(), root.to_string_lossy().into_owned(), "-PackageArchive".into(), staged.to_string_lossy().into_owned(), "-ExpectedPackageSha256".into(), expected_hash,
+            ]))
+        }`;
+  if (text.includes('Method::ForgeImmutable(root)')) {
+    const updated = text.includes(target) && text.includes(newApply) ? text : text.replace(previous, target).replace(oldApply, newApply);
+    assert(updated.includes(target) && updated.includes(newApply), `native updater helper path or verified-digest anchor drift in ${relative}`);
+    if (!checkOnly && updated !== text) writeFileSync(path, updated);
+  }
+}
+{
+  const relative = 'crates/ui-egui/src/update.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const retired = `pub fn available(app: &mut SolveApp) -> bool {
+    // The inherited SolidCraft installer replaces binaries in place and is not safe for Forge's immutable version directories. Keep its updater hidden until the Forge package manager is wired.
+    if std::env::var_os("DEMONX_FORGE_NATIVE_MANAGED").is_some() {
+        return false;
+    }
+    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))
+}`;
+  const current = `pub fn available(app: &mut SolveApp) -> bool {
+    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))
+}`;
+  if (text.includes(retired)) {
+    if (!checkOnly) writeFileSync(path, text.replace(retired, current));
+  }
+}
+{
+  const relative = 'crates/ui-egui/src/update.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const previous = 'if matches!(method, install::Method::ForgeImmutable(_)) && app.session.is_dirty() {\n        app.updater.installed = Some(Err("Save or discard the active document before installing a native Forge update.".into()));';
+  const target = 'if matches!(method, install::Method::ForgeImmutable(_)) && crate::documents::any_dirty(app) {\n        app.updater.installed = Some(Err("Save or discard every unsaved document before installing a native Forge update.".into()));';
+  if (!text.includes(target) && text.includes(previous) && !checkOnly) writeFileSync(path, text.replace(previous, target));
+}
+
 const uxEdits = [
   ['crates/ui-egui/src/toolbar.rs', 'pub const APP_BAR_HEIGHT: f32 = 34.0;', 'pub const APP_BAR_HEIGHT: f32 = 42.0;'],
   ['crates/ui-egui/src/toolbar.rs', 'let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };', 'let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };'],
   ['crates/ui-egui/src/update.rs', 'pub const REPO: &str = "bherbruck/solidcraft";', 'pub const REPO: &str = "pricklyguy/DemonX-Forge";'],
-  ['crates/ui-egui/src/update.rs', 'pub const LATEST_API: &str = "https://api.github.com/repos/bherbruck/solidcraft/releases/latest";', 'pub const LATEST_API: &str = "https://api.github.com/repos/pricklyguy/DemonX-Forge/releases/latest";'],
-  ['crates/ui-egui/src/update.rs', 'pub const RELEASES_PAGE: &str = "https://github.com/bherbruck/solidcraft/releases/latest";', 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases/latest";'],
+  ['crates/ui-egui/src/update.rs', 'pub const RELEASES_PAGE: &str = "https://github.com/bherbruck/solidcraft/releases/latest";', 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases";'],
+  ['crates/ui-egui/src/update.rs', 'let v = v.trim();\n    semver::Version::parse(v.strip_prefix(\'v\').unwrap_or(v)).ok()', 'let v = v.trim();\n    let v = v.strip_prefix("native-").unwrap_or(v);\n    semver::Version::parse(v.strip_prefix(\'v\').unwrap_or(v)).ok()'],
+  ['crates/ui-egui/src/update.rs', 'pub fn is_newer(latest: &str, current: &str) -> bool {\n    let (Some(latest), Some(current)) = (parse_version(latest), parse_version(current)) else { return false };\n    latest.pre.is_empty() && latest > comparable(&current)\n}', 'pub fn is_newer(latest: &str, current: &str) -> bool {\n    let native = latest.starts_with("native-v");\n    let (Some(latest), Some(current)) = (parse_version(latest), parse_version(current)) else { return false };\n    (latest.pre.is_empty() || native) && latest > comparable(&current)\n}'],
+  ['crates/ui-egui/src/update.rs', 'let v: Value = serde_json::from_slice(json).map_err(|e| FetchError::Failed(format!("unexpected answer from GitHub: {e}")))?;', 'let v: Value = serde_json::from_slice(json).map_err(|e| FetchError::Failed(format!("unexpected answer from GitHub: {e}")))?;\n        let v = if let Some(releases) = v.as_array() {\n            releases.iter()\n                .filter_map(|release| {\n                    let tag = release.get("tag_name").and_then(Value::as_str)?;\n                    if !tag.starts_with("native-v") || release.get("draft").and_then(Value::as_bool).unwrap_or(false) { return None; }\n                    parse_version(tag).map(|version| (version, release))\n                })\n                .max_by(|(a, _), (b, _)| a.cmp(b))\n                .map(|(_, release)| release.clone())\n                .ok_or_else(|| FetchError::Failed("no native DemonX Forge release is available".into()))?\n        } else { v };'],
+  ['crates/ui-egui/src/update.rs', 'if parse_version(&tag).is_none() {\n            return Err(FetchError::Failed(format!("the latest release\'s tag `{}` isn\'t a version", tag.chars().take(40).collect::<String>())));\n        }', 'if !tag.starts_with("native-v") || parse_version(&tag).is_none() {\n            return Err(FetchError::Failed(format!("the latest release\'s tag `{}` is not a native Forge version", tag.chars().take(40).collect::<String>())));\n        }'],
+  ['crates/ui-egui/src/update.rs', 'self.tag.trim_start_matches(\'v\')', 'self.tag.strip_prefix("native-v").unwrap_or_else(|| self.tag.trim_start_matches(\'v\'))'],
+  ['crates/ui-egui/src/update.rs', 'Some(Ok(install::Outcome::Installer(..) | install::Outcome::Opened(_))) => State::Started,', 'Some(Ok(install::Outcome::Installer(..) | install::Outcome::Opened(_) | install::Outcome::ForgeUpdate(..))) => State::Started,'],
+  ['crates/ui-egui/src/update.rs', '#[cfg(test)]\nmod tests;', '#[cfg(test)]\nmod native_channel_tests;\n#[cfg(test)]\nmod tests;'],
   ['crates/ui-egui/src/update.rs', 'const RELEASE_PREFIXES: [&str; 2] = ["https://github.com/bherbruck/solidcraft/releases/", "https://github.com/tangency-labs/solidcraft/releases/"];', 'const RELEASE_PREFIXES: [&str; 1] = ["https://github.com/pricklyguy/DemonX-Forge/releases/"];'],
   ['crates/ui-egui/src/update.rs', 'unwrap_or_else(|| format!("SolidCraft {tag}"))', 'unwrap_or_else(|| format!("DemonX Forge {tag}"))'],
-  ['crates/ui-egui/src/update.rs', 'pub fn available(app: &mut SolveApp) -> bool {\n    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))\n}', 'pub fn available(app: &mut SolveApp) -> bool {\n    // The inherited SolidCraft installer replaces binaries in place and is not safe for Forge\'s immutable version directories. Keep its updater hidden until the Forge package manager is wired.\n    if std::env::var_os("DEMONX_FORGE_NATIVE_MANAGED").is_some() {\n        return false;\n    }\n    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))\n}'],
+  ['crates/ui-egui/src/update/install.rs', 'pub const PUBLIC_KEY: Option<&str> = None;', 'pub const PUBLIC_KEY: Option<&str> = option_env!("DEMONX_FORGE_UPDATE_PUBLIC_KEY");'],
+  ['crates/ui-egui/src/update/install.rs', '    /// Open the downloaded disk image.\n    Dmg,', '    /// Stage a signed DemonX Forge package in an immutable release directory.\n    ForgeImmutable(PathBuf),\n    /// Open the downloaded disk image.\n    Dmg,'],
+  ['crates/ui-egui/src/update/install.rs', '    /// The disk image was opened for the user.\n    Opened(PathBuf),', '    /// The verified native package is staged; the pointer updater runs after this process exits.\n    ForgeUpdate(PathBuf, Vec<String>),\n    /// The disk image was opened for the user.\n    Opened(PathBuf),'],
+  ['crates/ui-egui/src/update/install.rs', 'pub fn method(kind: &InstallKind, exe: Option<&Path>) -> Option<Method> {\n    match kind {', 'pub fn method(kind: &InstallKind, exe: Option<&Path>) -> Option<Method> {\n    if cfg!(windows) && std::env::var_os("DEMONX_FORGE_NATIVE_MANAGED").is_some() {\n        let exe = exe?;\n        let version = exe.parent()?;\n        let root = version.parent()?.parent()?;\n        let active = std::fs::read_to_string(root.join("current.txt")).ok()?;\n        return (active.trim() == version.file_name()?.to_string_lossy() && version.join("forge-update-windows.ps1").is_file())\n            .then(|| Method::ForgeImmutable(version.to_path_buf()));\n    }\n    match kind {'],
+  ['crates/ui-egui/src/update/install.rs', '    let asset = release.asset_for(kind, arch).ok_or_else(|| format!("this release has no package for a {} on {arch}", kind.label()))?;', '    if matches!(method, Method::ForgeImmutable(_)) && PUBLIC_KEY.is_none() {\n        return Err("Native Forge updates are disabled because this build has no pinned minisign release public key.".into());\n    }\n    let asset = release.asset_for(kind, arch).ok_or_else(|| format!("this release has no package for a {} on {arch}", kind.label()))?;'],
+  ['crates/ui-egui/src/update/install.rs', 'Method::Msi | Method::Dmg | Method::PortableZip(_) => {', 'Method::Msi | Method::Dmg | Method::PortableZip(_) | Method::ForgeImmutable(_) => {'],
+  ['crates/ui-egui/src/update/install.rs', '        Method::Msi => Ok(Outcome::Installer(PathBuf::from("msiexec"), vec!["/i".into(), package.to_string_lossy().to_string(), "/passive".into()])),', '        Method::ForgeImmutable(version) => {\n            let helper = version.join("forge-update-windows.ps1");\n            let root = version.parent().and_then(Path::parent).ok_or("native Forge version directory is outside its installation root")?;\n            if !helper.is_file() { return Err(format!("native Forge update helper is missing: {}", helper.display())); }\n            let updates = root.join("updates");\n            std::fs::create_dir_all(&updates).map_err(|e| format!("{}: {e}", updates.display()))?;\n            let staged = updates.join("pending-native-update.zip");\n            if staged.exists() { return Err("another native update is already staged".into()); }\n            let expected_hash = sha256_file(package)?;\n            std::fs::copy(package, &staged).map_err(|e| format!("{}: {e}", staged.display()))?;\n            Ok(Outcome::ForgeUpdate(PathBuf::from("powershell.exe"), vec![\n                "-NoProfile".into(), "-NonInteractive".into(), "-ExecutionPolicy".into(), "Bypass".into(), "-File".into(), helper.to_string_lossy().into_owned(),\n                "-InstallRoot".into(), root.to_string_lossy().into_owned(), "-PackageArchive".into(), staged.to_string_lossy().into_owned(), "-ExpectedPackageSha256".into(), expected_hash,\n            ]))\n        }\n        Method::Msi => Ok(Outcome::Installer(PathBuf::from("msiexec"), vec!["/i".into(), package.to_string_lossy().to_string(), "/passive".into()])),'],
+  ['crates/ui-egui/src/update.rs', '            crate::documents::request_quit(app);\n        }\n        Ok(install::Outcome::Opened(dmg)) => {', '            crate::documents::request_quit(app);\n        }\n        Ok(install::Outcome::ForgeUpdate(program, args)) => {\n            app.updater.launch = Some((program.clone(), args.clone()));\n            crate::documents::request_quit(app);\n        }\n        Ok(install::Outcome::Opened(dmg)) => {'],
+  ['crates/ui-egui/src/update.rs', 'pub fn available(app: &mut SolveApp) -> bool {\n    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))\n}', 'pub fn available(app: &mut SolveApp) -> bool {\n    if std::env::var_os("DEMONX_FORGE_NATIVE_MANAGED").is_some() && crate::update::install::PUBLIC_KEY.is_none() { return false; }\n    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))\n}'],
   ['crates/ui-egui/src/toolbar.rs',
     '/// Panels shown on each tab (in order). Commands come from the registry by (tab, panel).',
     `/// Load the Forge wordmark once for this egui context.
@@ -391,7 +499,9 @@ const deferredTestArm = '            Outcome::Screenshot { .. } => panic!("ui.re
 const deferredTestArmWithReply = `${deferredTestArm}\n            Outcome::Deferred => panic!("ui.render deferred a control reply"),`;
 const controlTestText = readFileSync(controlTestPath, 'utf8').replace(/\r\n/g, '\n');
 assert(controlTestText.includes(deferredTestArm) || controlTestText.includes(deferredTestArmWithReply), 'deferred script reply test-arm anchor drift in control.rs');
-const normalizedControlTestText = controlTestText.replace(/(\n {12}Outcome::Deferred => panic!\("ui\.render deferred a control reply"\),){2,}/g, '\n            Outcome::Deferred => panic!("ui.render deferred a control reply"),');
+const normalizedControlTestText = controlTestText
+  .replace(/( {12}Outcome::Deferred => panic!\("ui\.render deferred a control reply"\),\n)(?: {12}Outcome::Deferred => panic!\("ui\.render deferred a control reply"\),\n)+/g, '$1')
+  .replace(/^ {12}Outcome::Deferred => panic!\("ui\.render unexpectedly deferred"\),\r?\n/gm, '');
 if (checkOnly) {
   assert(normalizedControlTestText === controlTestText, 'duplicate deferred script reply test arms in control.rs; apply the Forge overlay to normalize them');
 } else {
@@ -427,6 +537,20 @@ for (const [editIndex, [relative, before, after]] of uxEdits.entries()) {
   if (!checkOnly && hasBefore && before !== after) {
     const updated = replaceNextUnpatched(text, before, after);
     if (updated !== text) writeFileSync(path, updated);
+  }
+}
+
+// The immutable updater guard is an insertion, not a source-to-source replacement: it must also
+// upgrade clones that already contain the earlier active-document-only guard above.
+{
+  const relative = 'crates/ui-egui/src/update.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const guard = 'if matches!(method, install::Method::ForgeImmutable(_)) && crate::documents::any_dirty(app) {\n        app.updater.installed = Some(Err("Save or discard every unsaved document before installing a native Forge update.".into()));\n        return;\n    }\n    ';
+  if (!text.includes(guard)) {
+    const anchor = '        return;\n    };\n    if app.updater.job.is_some() {';
+    assert(text.includes(anchor), `Native updater dirty-document guard anchor drift in ${relative}`);
+    if (!checkOnly) writeFileSync(path, text.replace(anchor, `        return;\n    };\n    ${guard}if app.updater.job.is_some() {`));
   }
 }
 
@@ -501,6 +625,8 @@ if (!checkOnly) {
   cpSync(join(here, '..', 'assets/DemonX_Emblem.png'), join(source, 'assets/icons/app/shared/source/demonx-forge-icon.png'));
   cpSync(join(here, 'branding/demonx-forge-wordmark.png'), join(source, 'assets/icons/app/shared/source/demonx-forge-wordmark.png'));
   cpSync(join(here, 'scripts/forge_scripts.rs'), join(source, 'crates/ui-egui/src/forge_scripts.rs'));
+  cpSync(join(here, 'scripts/native_channel_tests.rs'), join(source, 'crates/ui-egui/src/update/native_channel_tests.rs'));
+  cpSync(join(here, 'forge-update-windows.ps1'), join(source, 'forge-update-windows.ps1'));
 }
 
 process.stdout.write(`${checkOnly ? 'Overlay anchors verified' : 'DemonX Forge overlay applied'} at ${head}\n`);
