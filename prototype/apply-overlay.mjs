@@ -290,7 +290,7 @@ for (const [editIndex, [relative, before, after]] of scenarioEdits.entries()) {
       if (next === updated) break;
       updated = next;
     }
-    writeFileSync(path, updated);
+    if (updated !== text) writeFileSync(path, updated);
   }
 }
 
