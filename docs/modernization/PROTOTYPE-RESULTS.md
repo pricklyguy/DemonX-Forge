@@ -236,3 +236,36 @@ Linux file associations, signed distribution, and broad hardware/display coverag
 Linux work is outstanding but does not block use of the Windows installation. Keep independent
 backups of important designs and save deliberately; a crash recovery file is best-effort recovery,
 not a replacement for a saved project. The prior Forge installation remains available as a fallback.
+
+### Sketch plane selection and drag-to-dimension follow-up (2026-10-22)
+
+The installed-app report about an unavailable sketch plane and prematurely completed rectangle
+draws was reproduced against the pinned native UI. The Create Sketch card now includes a native
+UI-kit **Origin plane** dropdown with `XY · Top`, `XZ · Front`, and `YZ · Right`; it remains
+unselected until the user chooses an option, so opening the card cannot silently start an XY
+sketch. The existing planar-face selection chip is retained. A regression scenario starts the
+card with all three origin planes individually hidden and verifies selecting `XZ · Front` starts
+the sketch on that plane.
+
+For rectangle, circle, and line tools, a real press-drag-release now leaves the second point as an
+editable preview. Exact live dimensions can be entered after releasing the mouse, Tab moves between
+fields, Enter commits the shape, and Escape cancels. A short movement still behaves as a click and
+the click-click workflow remains available. Tests verify the typed profile dimensions, line length
+and angle, release-without-commit, cancel without partial geometry, and single-step undo/redo.
+
+Verification against the pinned upstream checkout, using a writable temporary Windows test
+profile and DX12 with GPU rendering required:
+
+```text
+Sketch dropdown acceptance: 1 passed
+Mouse-drag rectangle/circle/line acceptance: 3 passed
+Shared UI-kit guard tests: 15 passed
+Complete release UI library suite: 1855 passed, 0 failed, 6 ignored
+```
+
+The complete **debug** test profile still triggers seven epaint `Dropped TexturesDelta` assertions
+in unrelated existing gallery, browser, thread-dialog, and preview tests, even when serialized;
+the release-profile suite (the native packaging profile) passes. The upstream unused `brand_mark`
+warning remains. The fixes are Forge-owned overlay patches applied to the pinned SolidCraft commit;
+the read-only upstream checkout remains unchanged. A fresh package rebuild and installed-app MCP
+acceptance are still required before these fixes are present in the persistent Windows install.

@@ -164,3 +164,11 @@ package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESU
 - Treat engine pin changes, `.forge` schema changes, and package/update changes as separately revertible commits.
 - Retain the last known-good engine reference and release artifact until the candidate completes Linux and Windows acceptance.
 - Never use reset, force-push, rebase, destructive cleanup or changes to `main` to recover a phase.
+
+### Native usability follow-up — 2026-10-22
+
+- [x] Add a real Origin plane dropdown to Create Sketch, including the three principal planes and a neutral unselected state; retain planar-face picking.
+- [x] Keep rectangle, circle, and line geometry in an editable preview after a drag release so live dimensions can be typed; preserve click-click, Tab, Enter, Escape, and single-step undo/redo behavior.
+- [x] Verify the plane picker, three drag tools, shared UI-kit guards, and complete release-profile UI library suite on Windows.
+- [ ] Rebuild and install a new native Windows package, then rerun the installed-app MCP and modeling acceptance against the updated executable.
+- [ ] Give the owner the updated package launch path after installed acceptance; the already-running process may still be the previous binary until restarted.

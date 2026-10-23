@@ -1,6 +1,6 @@
 --- a/crates/ui-egui/src/sketch_dims_tests.rs
 +++ b/crates/ui-egui/src/sketch_dims_tests.rs
-@@ -367,0 +368,104 @@
+@@ -367,0 +368,109 @@
 +
 +/// Exercise the ordinary viewport press/drag/release route while inline dimensions own focus.
 +fn mouse_draw(command: &str, start: [f64; 2], end: [f64; 2]) -> (Harness, egui::Pos2) {
@@ -35,13 +35,16 @@
 +#[test]
 +fn mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape() {
 +    let (mut h, end) = mouse_draw("sketch.rectangle.two_point", [0.0, 0.0], [30.0, 15.0]);
-+    // The pointer remains down while the live fields are edited; Tab stays in the tool.
++    mouse_draw_release(&mut h, end);
++    assert_eq!(h.app.tool.as_ref().unwrap().pts.len(), 1, "release leaves the second corner as an editable preview");
++    assert!(h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.curves.is_empty());
++    // Type after release; Tab stays in the live dimension fields until Enter confirms.
 +    type_value(&mut h, "24");
 +    tab(&mut h, false);
 +    assert_focus(&h, 1);
 +    type_value(&mut h, "12");
 +    let undo = h.app.session.undo.len();
-+    mouse_draw_release(&mut h, end);
++    h.step(&json!({"key":"Enter"})).unwrap();
 +    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
 +    let profiles = solidcraft_engine::sketch::find_drawn_profiles(&sketch);
 +    assert_eq!(profiles.len(), 1);
@@ -58,8 +61,9 @@
 +#[test]
 +fn mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool() {
 +    let (mut h, end) = mouse_draw("sketch.circle.center", [0.0, 0.0], [18.0, 6.0]);
-+    type_value(&mut h, "12 mm");
 +    mouse_draw_release(&mut h, end);
++    type_value(&mut h, "12 mm");
++    h.step(&json!({"key":"Enter"})).unwrap();
 +    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
 +    let profiles = solidcraft_engine::sketch::find_drawn_profiles(&sketch);
 +    assert_eq!(profiles.len(), 1);
@@ -70,11 +74,12 @@
 +fn mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw() {
 +    use solidcraft_engine::sketch::CurveKind;
 +    let (mut h, end) = mouse_draw("sketch.line", [0.0, 0.0], [24.0, 12.0]);
++    mouse_draw_release(&mut h, end);
 +    type_value(&mut h, "20");
 +    tab(&mut h, false);
 +    assert_focus(&h, 1);
 +    type_value(&mut h, "30 deg");
-+    mouse_draw_release(&mut h, end);
++    h.step(&json!({"key":"Enter"})).unwrap();
 +    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
 +    let (a, b) = sketch.curves.iter().find_map(|curve| match curve.kind { CurveKind::Line { a, b } => Some((a, b)), _ => None }).unwrap();
 +    let line = sketch.point(b).unwrap() - sketch.point(a).unwrap();

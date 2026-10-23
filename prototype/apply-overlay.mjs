@@ -148,6 +148,25 @@ if (checkOnly) {
   execFileSync('git', ['-C', source, 'apply', lineDragPatch]);
 }
 
+const planeSelectionPatch = join(here, 'patches/sketch-plane-selection.patch');
+const dialogs = join(source, 'crates/ui-egui/src/dialogs.rs');
+const planeSelectionMarker = 'dialog:origin-plane:dropdown';
+const hasPlaneSelection = readFileSync(dialogs, 'utf8').includes(planeSelectionMarker);
+if (checkOnly) {
+  if (!hasPlaneSelection) execFileSync('git', ['-C', source, 'apply', '--check', planeSelectionPatch]);
+} else if (!hasPlaneSelection) {
+  execFileSync('git', ['-C', source, 'apply', planeSelectionPatch]);
+}
+
+const releaseConfirmPatch = join(here, 'patches/sketch-release-to-confirm.patch');
+const releaseConfirmMarker = 'A real drag leaves the second point as a live';
+const hasReleaseConfirm = readFileSync(viewport, 'utf8').includes(releaseConfirmMarker);
+if (checkOnly) {
+  if (!hasReleaseConfirm) execFileSync('git', ['-C', source, 'apply', '--check', releaseConfirmPatch]);
+} else if (!hasReleaseConfirm) {
+  execFileSync('git', ['-C', source, 'apply', releaseConfirmPatch]);
+}
+
 if (!checkOnly) {
   const themes = join(source, 'assets/styles/ui/themes');
   cpSync(join(here, 'branding/demonx-forge-dark.json'), join(themes, 'demonx-forge-dark.json'));

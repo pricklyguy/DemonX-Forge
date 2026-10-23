@@ -1,0 +1,76 @@
+diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
+index 89f9892a..00000000 100644
+--- a/crates/ui-egui/src/dialogs.rs
++++ b/crates/ui-egui/src/dialogs.rs
+@@ -1894,3 +1894,4 @@ fn input_rows_range(d: &mut Dialog, ui: &mut egui::Ui, s: &Session, range: std::
+     let mut activate: Option<usize> = None;
+     let mut remove = None;
++    let mut origin_plane = None;
+     let shell_count = d.shell_faces(s).map(|faces| faces.len());
+@@ -1958,1 +1959,18 @@ fn input_rows_range(d: &mut Dialog, ui: &mut egui::Ui, s: &Session, range: std::
++        if matches!(d.kind, Kind::Sketch) && i == 0 {
++            let selected = inp.items.iter().find_map(|item| match item {
++                Sel::Plane { name } => Some(name.as_str()),
++                _ => None,
++            });
++            form_row(ui, "Origin plane", |ui| {
++                let options = ["Choose an origin plane", "XY · Top", "XZ · Front", "YZ · Right"];
++                let mut selected_index = match selected { Some("XY") => 1, Some("XZ") => 2, Some("YZ") => 3, _ => 0 };
++                let response = crate::ui_kit::choice_row(ui, "Origin plane", "sketch_origin_plane", &mut selected_index, &options);
++                crate::scenario::publish_rect("dialog:origin-plane:dropdown", response.rect);
++                crate::scenario::publish_handle("dialog:origin-plane:dropdown", response.rect.center());
++                let chosen = match selected_index { 1 => Some("XY"), 2 => Some("XZ"), 3 => Some("YZ"), _ => None };
++                if let Some(chosen) = chosen.filter(|name| selected != Some(*name)) {
++                    origin_plane = Some(chosen);
++                }
++            });
++        }
+         if matches!(d.kind, Kind::SketchModify(_)) && inp.multi {
+@@ -1964,3 +1977,11 @@ fn input_rows_range(d: &mut Dialog, ui: &mut egui::Ui, s: &Session, range: std::
+         }
+     }
++    if let Some(name) = origin_plane {
++        if let Some(input) = d.inputs.first_mut() {
++            input.items = vec![Sel::Plane { name: name.into() }];
++        }
++        d.active = 0;
++        d.error = None;
++        d.refused = None;
++    }
+     if let Some((input, index)) = remove
+@@ -2006,4 +2027,7 @@ fn input_rows_range(d: &mut Dialog, ui: &mut egui::Ui, s: &Session, range: std::
+         d.active = i;
+     }
++    if origin_plane.is_some() {
++        d.sync_thread(s);
++    }
+     d.sync_thread(s);
+ }
+diff --git a/crates/ui-egui/src/dialogs_sketch_tests.rs b/crates/ui-egui/src/dialogs_sketch_tests.rs
+index 3ac93380..00000000 100644
+--- a/crates/ui-egui/src/dialogs_sketch_tests.rs
++++ b/crates/ui-egui/src/dialogs_sketch_tests.rs
+@@ -101,5 +101,23 @@ fn create_sketch_uses_card_and_still_starts_immediately_on_plane_pick() {
+     assert!(h.app.session.active_sketch.is_some());
+ }
+ 
++#[test]
++fn create_sketch_dropdown_waits_for_an_explicit_plane_choice() {
++    let mut h = Harness::new();
++    h.app.ui.show_origin = true;
++    h.app.session.visibility.hidden_origin = vec!["XY".into(), "XZ".into(), "YZ".into()];
++    h.app.start("sketch.create");
++    h.frames(4);
++    assert!(matches!(h.app.dialog.as_ref().map(|d| &d.kind), Some(Kind::Sketch)), "the picker stays open before a choice");
++    h.step(&json!({"click":{"handle":"dialog:origin-plane:dropdown"}})).unwrap();
++    h.frames(2);
++    h.step(&json!({"click":{"handle":"dialog:Origin plane:XZ · Front"}})).unwrap();
++    h.frames(4);
++    let id = h.app.session.active_sketch.expect("choosing a plane starts the sketch");
++    let actual = h.app.session.world_state().sketch(id).unwrap().plane.normal();
++    let expected = solidcraft_engine::geom::Plane::named("XZ").unwrap().normal();
++    assert!(actual.dot(expected).abs() > 1.0 - 1e-9, "Front selects the XZ plane: {actual:?}");
++}
++
+ #[test]
+ fn apply_commits_once_keeps_values_and_waits_for_new_selection_ok_closes() {
