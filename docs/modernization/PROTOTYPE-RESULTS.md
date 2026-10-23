@@ -312,4 +312,16 @@ the previous SolidCraft axes default, theme ID, and immediate commit-on-release 
 overlay was updated to account for the cube default, branded theme ID, and Enter-to-confirm drag
 workflow. At the last completed scenario run, three assertions still failed (two preferences
 expectations and the circle drag confirmation); those scenario adjustments have not yet been
-rerun. The installed package build and installed acceptance for this follow-up are also pending.
+rerun. The current source was packaged and installed as
+`0.19.0-forge-a92a977068ed-engine-75261cd79733` under `C:\DemonX-Forge-Native`; the prior known-good
+release remains in `previous.txt`. Installed acceptance against the bundled executable and MCP
+bridge passed:
+
+```json
+{"status":"passed","bodies":["Plate","Part B","Part C"],"historyFeatures":8,"threeMfObjects":3,"stlBytes":19684,"allBodiesStlBytes":20884,"forgeMcpTools":9,"mcpScreenshot":true}
+```
+
+This covers independent bodies, history edits, save/reopen, exports, undo/redo, Forge MCP
+compatibility and security refusals, and GUI/MCP synchronization. The image is
+`%TEMP%\demonx-forge-native-acceptance-CrfTvy\demonx-forge-three-body.png`. No native `solidcraft`
+process was running when the version pointer was checked, so the launcher will start this build.

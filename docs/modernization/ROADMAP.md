@@ -180,5 +180,6 @@ package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESU
 - [x] Make the Sketch Grid toggle hide the sketch-plane grid while a sketch is open; verify hidden and shown grid geometry in a viewport test.
 - [x] Run the complete release UI library tests with DX12 required: 1,855 passed, 0 failed, 6 ignored.
 - [x] Rerun the icon audit after normalizing manifest line endings for Windows: 4 passed.
-- [ ] Rebuild and install this follow-up on Windows, then verify the visible dimensions and grid toggle in the packaged app.
-- [ ] Resolve or document the remaining legacy scenario assertions for old theme IDs and update the drag-to-confirm scenario to press Enter for both rectangle and circle before claiming the complete integration suite passes.
+- [x] Build and install `0.19.0-forge-a92a977068ed-engine-75261cd79733` under `C:\DemonX-Forge-Native`; the prior release remains in `previous.txt` for rollback.
+- [x] Rerun installed-app modeling and MCP acceptance: three independent bodies, history edits, save/reopen, STL and separated 3MF export, undo/redo, all nine Forge MCP tools, security refusals, and GUI screenshot passed.
+- [ ] Rerun the adjusted broader scenario target. Last executed run had three failures for legacy theme expectations and the circle’s release-to-confirm interaction; scenario overlay adjustments are recorded but unverified.
