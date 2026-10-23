@@ -135,12 +135,12 @@ cargo build --locked --release -p solidcraft — passed
 node prototype/native-acceptance.mjs <release executable> — passed
 ```
 
-The three failures were: the static colour-literal guard (fixed afterward by using egui's neutral
-white tint; direct source-count check is now within allowance), plus
+The three failures at that checkpoint were: the static colour-literal guard (fixed afterward by
+using egui's neutral white tint; the focused suite and full suite now pass), plus
 `home::tests::cached_recent_uses_a_separate_png_without_reading_or_changing_design_json` and
-`home::tests::imported_step_picture_is_cached_under_its_source_without_a_save_path`. The two cache
-tests reproduce individually on Windows in upstream `home.rs`, which this overlay does not modify;
-they remain unresolved and the full suite has not been rerun after the neutral-tint adjustment.
+`home::tests::imported_step_picture_is_cached_under_its_source_without_a_save_path`. Both cache
+tests later passed individually and in the full suite when the test process used a writable
+temporary `LOCALAPPDATA`; the failure cause and full rerun result are recorded below.
 The test build also reports one unused upstream `brand_mark` warning because the Forge wordmark
 replaces that app-bar glyph.
 
@@ -156,3 +156,83 @@ A fresh-profile preview is running as PID `30392` from
 are under `%TEMP%\DemonX-Forge-Cube-Logo-Preview-20261022`. Fresh-profile launch confirms the cube
 and branded wordmark appear together. Existing prototype processes were not interrupted because
 they held the previous release executable open.
+
+## Permanent Windows installation and full-suite acceptance (2026-10-22)
+
+The repeatable Windows package and install/update/rollback workflow were exercised using the
+branch checkout at `d968a6840236d939629e12d5c07f83bc5222f390` and pinned engine
+`75261cd79733fe47cf898b54f865e6bfaffa1129`. The package is x64 and includes the native GUI and
+CLI, Forge MCP bridge, DemonX Forge `.ico` and wordmark, and the SolidCraft/Forge license notices.
+The ZIP is `prototype/dist-windows/0.19.0-forge-d968a6840236-engine-75261cd79733.zip` and its
+manifest records per-file SHA-256 hashes. The install scripts stage immutable version directories,
+switch the active version pointer, retain the prior version for rollback, and leave per-user data
+outside the installed version tree.
+
+The package is installed separately at `C:\DemonX-Forge-Native`; the existing Forge application
+was not changed. Launch it from Start Menu > DemonX Forge or run
+`C:\DemonX-Forge-Native\DemonX Forge.cmd`. Current version:
+`0.19.0-forge-d968a6840236-engine-75261cd79733`. Normal settings are stored in
+`%APPDATA%\DemonX Forge\data`; recovery, thumbnails, and the private MCP control token use
+`%LOCALAPPDATA%\DemonX Forge`. User-selected native `.solidcraft` projects remain wherever the
+user saves them and are not stored inside a release directory.
+
+The actual installed GUI and bundled MCP bridge passed `prototype/native-acceptance.mjs` against
+a fresh temporary user profile. It created and independently named three bodies, selected each,
+hid/showed/isolated them, picked a face and origin plane, sketched on a body face, extruded and
+edited history, selected a face, filleted, undid/redid, saved and reopened with eight history
+features, exported one body as a 19,684-byte STL and all three as a 3-object 3MF, and captured the
+native GUI screenshot. The installed bundled bridge exposed all nine Forge tools. MCP inspection,
+measurement, screenshot, parameter changes, undo/redo, modeling, actionable errors, and GUI sync
+passed; invalid authentication, scoped path traversal, unsafe file operations, and forbidden file
+commands were refused. Run result:
+
+```json
+{"status":"passed","root":"%TEMP%\\demonx-forge-native-acceptance-LqcFKP","screenshot":"%TEMP%\\demonx-forge-native-acceptance-LqcFKP\\demonx-forge-three-body.png","bodies":["Plate","Part B","Part C"],"historyFeatures":8,"threeMfObjects":3,"stlBytes":19684,"allBodiesStlBytes":20884,"forgeMcpTools":9,"mcpScreenshot":true}
+```
+
+The screenshot is `demonx-forge-three-body.png` in that acceptance directory. The installed GUI was
+also launched from the persistent directory and remained open as PID `45376`. A separate package
+script smoke test installed version 1, updated to version 2, and rolled back to version 1 while a
+user-data marker survived both transitions. The test used synthetic packages to exercise installer
+pointer/data behavior; the shipped native package itself was then installed and accepted as above.
+
+### Rust UI test suite and cache failures
+
+After correcting the Forge color-token check, the focused suite passed:
+
+```text
+cargo test --locked --release -p solidcraft-ui-egui --lib colour_tokens_tests -- --nocapture
+5 passed, 0 failed
+```
+
+The complete UI library suite was rerun from the pinned isolated build with GPU rendering required
+on DX12 and a writable temporary `LOCALAPPDATA`:
+
+```text
+1854 passed, 0 failed, 6 ignored; 0 measured, 0 filtered out
+```
+
+Both previously failing thumbnail-cache tests now pass with this profile. They had failed in the
+Codex test process because Windows resolves `%LOCALAPPDATA%` to the owner's
+`C:\Users\ogbul\AppData\Local`, where the sandbox identity only has read/execute access. The app
+silently skips cache directory creation on that denied path. Setting the test process's
+`LOCALAPPDATA` to a writable temporary directory makes both tests pass, matching normal execution
+under the owner's interactive Windows account. The test run did not change SolidCraft source; only
+the disposable build clone and temporary profile were used. The Forge color-token guard now passes
+with the overlay's neutral tint. One upstream unused-brand-mark/dead-code compiler warning remains.
+
+### Update, rollback, and outstanding platform work
+
+Repeatable commands and prerequisites are in `prototype/README.md`. Build with
+`prototype/package-windows.ps1`, install or update with `prototype/install-windows.ps1`, and restore
+the previous release with `prototype/rollback-windows.ps1`. The installer verifies the package
+manifest before switching versions. It does not migrate `.forge` projects or change project file
+associations. `.dxforge` remains a deferred branding task; native `.solidcraft` remains the supported
+format and existing `.solidcraft` projects keep their native serialization.
+
+Windows package build, launch, install, update-pointer, rollback, installed-app modeling, save/reopen,
+undo/redo, export, MCP compatibility, and security gates pass. Linux compilation/package launch,
+Linux file associations, signed distribution, and broad hardware/display coverage remain unverified.
+Linux work is outstanding but does not block use of the Windows installation. Keep independent
+backups of important designs and save deliberately; a crash recovery file is best-effort recovery,
+not a replacement for a saved project. The prior Forge installation remains available as a fallback.

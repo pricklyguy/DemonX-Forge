@@ -5,19 +5,19 @@
 
 ## Approved native prototype track
 
-**Transition status:** native direction approved; packaged cutover remains gated on Windows/Linux, real-model usability, MCP compatibility/security, and a documented rollback checkpoint.
+**Transition status:** Windows native package is installed separately and passed installed-app real-model, nine-tool MCP/security, save/reopen, export, and update/rollback acceptance. Keep the React app as a fallback. Linux package validation and broader platform coverage remain open; they do not block Windows daily use.
 
 ### Prototype 1 — Source pin, branding, and reproducible build
 
-**Status:** Windows implementation and launch verified; Linux build/package remains pending. The pinned `prototype/solidcraft` source (`75261cd79733fe47cf898b54f865e6bfaffa1129`) is built from an isolated clone with a branding overlay. Local MSVC build, actual native startup, regression suite, and real-model GUI/MCP acceptance are recorded in `PROTOTYPE-RESULTS.md`. The branch workflow still needs `SOLIDCRAFT_READ_TOKEN` for CI checkout.
+**Status:** Windows package, install, launch, and full UI suite verified; Linux build/package remains pending. The pinned `prototype/solidcraft` source (`75261cd79733fe47cf898b54f865e6bfaffa1129`) is built from an isolated clone with a branding overlay. The branch workflow still needs `SOLIDCRAFT_READ_TOKEN` for CI checkout. Full Windows evidence is in `PROTOTYPE-RESULTS.md`.
 
 **Completion:** overlay validation passes, pinned workspace builds and its engine/UI tests pass on Windows and Linux, and a branded native window starts on Windows with a captured screenshot. Attach build logs/artifacts and document dependencies and license notices.
 
 **UX checkpoint (2026-10-22):** the native navigation cube is now the default for new profiles,
 and the app bar uses Forge's existing horizontal wordmark. Existing saved navigator choices remain
-respected. The Windows release build and native GUI/MCP workflow passed with the updated overlay;
-the upstream UI suite passed 1,851 tests but retained two isolated failures in untouched thumbnail
-cache tests. See `PROTOTYPE-RESULTS.md` for exact commands and artifact paths.
+respected. The Windows installed release build and native GUI/MCP workflow passed with the updated
+overlay. The complete UI suite later passed with 1,854 tests, 0 failures, and 6 ignored after using
+a writable test profile for thumbnail caching. See `PROTOTYPE-RESULTS.md` for details.
 
 ### Prototype 2 — Three-body usability acceptance
 
@@ -41,13 +41,13 @@ cache tests. See `PROTOTYPE-RESULTS.md` for exact commands and artifact paths.
 - Demonstrate an MCP-authored sketch/extrude/modify workflow reflected in the GUI, then inspect, measure, screenshot, undo/redo, and save/reopen it.
 - Keep the adapter isolated from Forge's default product route; add MCP compatibility and security regressions before any migration.
 
-**Implementation checkpoint:** `prototype/mcp-native.ts` reuses `server/src/mcp.ts` and `server/src/commands.ts` instead of defining a second tool contract. The native acceptance harness sends MCP protocol requests into the adapter and then verifies native document/GUI state. Contract and engine-flow checks remain unverified until Windows native CI executes.
+**Implementation checkpoint:** `prototype/mcp-native.ts` reuses `server/src/mcp.ts` and `server/src/commands.ts` instead of defining a second tool contract. The installed-app acceptance harness sent MCP protocol requests through the bundled bridge and verified native document/GUI state, all nine tools, authentication, path scope, and unsafe-operation refusals.
 
 **Completion:** existing Forge MCP integration tests pass against the active native session, including forbidden command/path and unauthenticated control refusals.
 
 ### Prototype 4 — Packaging and migration recommendation
 
-**Status:** Windows installation workflow implemented; installed-app gate in progress. The build recipe emits a pinned branded app/CLI package and the Forge MCP bridge; versioned install and rollback scripts preserve per-user data. Final install-directory launch and acceptance results will be added to `PROTOTYPE-RESULTS.md` after execution.
+**Status:** Windows package installed and accepted at `C:\DemonX-Forge-Native`; the separate existing Forge installation is intact. Manifest verification, versioned install/update/rollback, persistent per-user paths, native app launch, modeling, MCP, export, and save/reopen passed. Linux package execution is unverified and does not block the Windows installation.
 
 - Build and launch Windows/Linux packages with Forge-owned identity and isolated app-data paths; preserve SolidCraft license and third-party notices.
 - Keep package and update steps repeatable: stage immutable version folders, switch one active-release pointer atomically, retain the previous release, and keep project/settings/recovery data outside version folders.
@@ -55,7 +55,7 @@ cache tests. See `PROTOTYPE-RESULTS.md` for exact commands and artifact paths.
 - Compare the three-body scenario against the current Forge UI, publish screenshots, verified behaviors, limitations, and rollback steps.
 - Present a migration plan and wait for separate owner approval before replacing the existing application.
 
-**Completion:** platform build/launch and native usability/MCP gates pass, prototype is reversible, and the owner receives a cutover decision package. No merge into `main`.
+**Windows installation gate:** passed on 2026-10-22; the owner can use the native app while the incumbent remains a fallback. Linux package and broader release audit remain outstanding. No merge into `main`.
 
 ### Future branding task — `.dxforge` project extension (low priority)
 
