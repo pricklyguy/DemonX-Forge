@@ -210,6 +210,84 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   }
 }
 
+// Native Forge releases carry an explicit manifest whose digest is covered by the signed
+// checksum list. Keep this patch in the Forge overlay so the pinned upstream checkout stays clean.
+{
+  const relative = 'crates/ui-egui/src/update/install.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const anchor = '    let sums = String::from_utf8_lossy(&sums);\n    let expected = expected_sha256(&sums, &asset.name).ok_or_else(|| format!("{SUMS} doesn\'t list {}", asset.name))?;';
+  const insertion = `    let sums = String::from_utf8_lossy(&sums);
+    if matches!(method, Method::ForgeImmutable(_)) {
+        let key = PUBLIC_KEY.ok_or("native Forge updates are disabled without a pinned signing key")?;
+        let manifest_asset = release.assets.iter().find(|a| a.name == "DemonX-Forge-release.json")
+            .ok_or("native Forge release has no signed metadata manifest")?;
+        let manifest = (net.get)(&manifest_asset.url).map_err(|e| format!("release manifest: {e}"))?;
+        let expected_manifest = expected_sha256(&sums, "DemonX-Forge-release.json")
+            .ok_or("signed checksum list does not cover the release manifest")?;
+        let actual_manifest = Sha256::digest(&manifest).iter().map(|b| format!("{b:02x}")).collect::<String>();
+        if actual_manifest != expected_manifest {
+            return Err("native Forge release manifest does not match its signed checksum".into());
+        }
+        let metadata: serde_json::Value = serde_json::from_slice(&manifest)
+            .map_err(|e| format!("invalid native Forge release manifest: {e}"))?;
+        let version = release.tag.strip_prefix("native-v").ok_or("release tag is not in the native Forge channel")?;
+        if metadata.get("schema_version").and_then(serde_json::Value::as_u64) != Some(1)
+            || metadata.get("product").and_then(serde_json::Value::as_str) != Some("DemonX Forge")
+            || metadata.get("channel").and_then(serde_json::Value::as_str) != Some("native-preview")
+            || metadata.get("version").and_then(serde_json::Value::as_str) != Some(version)
+            || metadata.get("tag").and_then(serde_json::Value::as_str) != Some(release.tag.as_str()) {
+            return Err("native Forge release manifest has a product, channel, tag, or version mismatch".into());
+        }
+        let platform = metadata.get("platforms").and_then(serde_json::Value::as_array)
+            .and_then(|platforms| {
+                let mut matches = platforms.iter().filter(|item| item.get("id").and_then(serde_json::Value::as_str) == Some("windows-x64"));
+                let platform = matches.next()?;
+                matches.next().is_none().then_some(platform)
+            }).ok_or("native Forge release manifest must contain exactly one windows-x64 artifact")?;
+        let metadata_asset = platform.get("asset").and_then(serde_json::Value::as_str)
+            .ok_or("native Forge windows-x64 metadata has no asset name")?;
+        let metadata_sha256 = platform.get("sha256").and_then(serde_json::Value::as_str)
+            .ok_or("native Forge windows-x64 metadata has no SHA-256")?;
+        let signed_sha256 = expected_sha256(&sums, &asset.name)
+            .ok_or_else(|| format!("{SUMS} doesn't list {}", asset.name))?;
+        if metadata_asset != asset.name || !metadata_sha256.eq_ignore_ascii_case(&signed_sha256) {
+            return Err("native Forge windows-x64 artifact does not match its signed metadata".into());
+        }
+        // Signature is mandatory for this channel; the general updater may still handle other feeds.
+        let _ = key;
+    }
+    let expected = expected_sha256(&sums, &asset.name).ok_or_else(|| format!("{SUMS} doesn\'t list {}", asset.name))?;`;
+  const keyLine = '        let key = PUBLIC_KEY.ok_or("native Forge updates are disabled without a pinned signing key")?;';
+  const versionGuard = `\n        if !super::is_newer(&release.tag, super::current_version()) {
+            return Err("native Forge release is not newer than the installed version".into());
+        }`;
+  assert(text.includes(anchor) || text.includes(insertion) || text.replace(versionGuard, '').includes(insertion), `Native release manifest overlay anchor drift in ${relative}`);
+  if (!checkOnly) {
+    let updated = text.includes(anchor) ? text.replace(anchor, insertion) : text;
+    if (!updated.includes(versionGuard)) updated = updated.replace(keyLine, keyLine + versionGuard);
+    writeFileSync(path, updated);
+  }
+}
+
+// Permit a deliberate overlap of trust keys during routine rotation. Emergency rotation still
+// requires reinstall through a separately trusted path if the currently trusted key is compromised.
+{
+  const relative = 'crates/ui-egui/src/update/install.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const before = `    let key = minisign_verify::PublicKey::from_base64(key.trim()).map_err(|e| format!("update signing key: {e}"))?;
+    let sig = minisign_verify::Signature::decode(signature).map_err(|e| format!("{SUMS_SIG}: {e}"))?;
+    key.verify(sums, &sig, false).map_err(|e| format!("{SUMS} isn\'t signed by SolidCraft\'s release key: {e}"))?;`;
+  const after = `    let sig = minisign_verify::Signature::decode(signature).map_err(|e| format!("{SUMS_SIG}: {e}"))?;
+    let verified = key.split(';').map(str::trim).filter(|key| !key.is_empty()).any(|encoded| {
+        minisign_verify::PublicKey::from_base64(encoded).ok().is_some_and(|public_key| public_key.verify(sums, &sig, false).is_ok())
+    });
+    if !verified { return Err(format!("{SUMS} is not signed by any pinned native Forge release key")); }`;
+  assert(text.includes(before) || text.includes(after), `Signing-key rotation overlay anchor drift in ${relative}`);
+  if (!checkOnly && text.includes(before)) writeFileSync(path, text.replace(before, after));
+}
+
 // Migrate the old Forge latest endpoint to a version-tag-filtered native release list. This
 // explicit transition keeps repeated overlay applications idempotent across prior checkpoints.
 {
@@ -311,6 +389,7 @@ const uxEdits = [
   ['crates/ui-egui/src/update.rs', 'pub const RELEASES_PAGE: &str = "https://github.com/bherbruck/solidcraft/releases/latest";', 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases";'],
   ['crates/ui-egui/src/update.rs', 'let v = v.trim();\n    semver::Version::parse(v.strip_prefix(\'v\').unwrap_or(v)).ok()', 'let v = v.trim();\n    let v = v.strip_prefix("native-").unwrap_or(v);\n    semver::Version::parse(v.strip_prefix(\'v\').unwrap_or(v)).ok()'],
   ['crates/ui-egui/src/update.rs', 'pub fn is_newer(latest: &str, current: &str) -> bool {\n    let (Some(latest), Some(current)) = (parse_version(latest), parse_version(current)) else { return false };\n    latest.pre.is_empty() && latest > comparable(&current)\n}', 'pub fn is_newer(latest: &str, current: &str) -> bool {\n    let native = latest.starts_with("native-v");\n    let (Some(latest), Some(current)) = (parse_version(latest), parse_version(current)) else { return false };\n    (latest.pre.is_empty() || native) && latest > comparable(&current)\n}'],
+  ['crates/ui-egui/src/update.rs', 'if app.updater.rx.is_none() && app.preferences.check_updates && app.preferences.update.due(now, launch) && available(app) {', 'if app.updater.rx.is_none() && option_env!("DEMONX_FORGE_AUTO_UPDATES") == Some("1") && app.preferences.check_updates && app.preferences.update.due(now, launch) && available(app) {'],
   ['crates/ui-egui/src/update.rs', 'let v: Value = serde_json::from_slice(json).map_err(|e| FetchError::Failed(format!("unexpected answer from GitHub: {e}")))?;', 'let v: Value = serde_json::from_slice(json).map_err(|e| FetchError::Failed(format!("unexpected answer from GitHub: {e}")))?;\n        let v = if let Some(releases) = v.as_array() {\n            releases.iter()\n                .filter_map(|release| {\n                    let tag = release.get("tag_name").and_then(Value::as_str)?;\n                    if !tag.starts_with("native-v") || release.get("draft").and_then(Value::as_bool).unwrap_or(false) { return None; }\n                    parse_version(tag).map(|version| (version, release))\n                })\n                .max_by(|(a, _), (b, _)| a.cmp(b))\n                .map(|(_, release)| release.clone())\n                .ok_or_else(|| FetchError::Failed("no native DemonX Forge release is available".into()))?\n        } else { v };'],
   ['crates/ui-egui/src/update.rs', 'if parse_version(&tag).is_none() {\n            return Err(FetchError::Failed(format!("the latest release\'s tag `{}` isn\'t a version", tag.chars().take(40).collect::<String>())));\n        }', 'if !tag.starts_with("native-v") || parse_version(&tag).is_none() {\n            return Err(FetchError::Failed(format!("the latest release\'s tag `{}` is not a native Forge version", tag.chars().take(40).collect::<String>())));\n        }'],
   ['crates/ui-egui/src/update.rs', 'self.tag.trim_start_matches(\'v\')', 'self.tag.strip_prefix("native-v").unwrap_or_else(|| self.tag.trim_start_matches(\'v\'))'],

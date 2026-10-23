@@ -12,7 +12,8 @@ param(
   [string] $OutputDirectory = (Join-Path $PSScriptRoot 'dist-windows'),
   [string] $VsDevCmdPath = 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat',
   [string] $BuildSource,
-  [string] $BuildTargetDirectory
+  [string] $BuildTargetDirectory,
+  [string] $ReleaseVersion
 )
 $ErrorActionPreference = 'Stop'
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -39,6 +40,10 @@ $sourceHead = (& git -C $Submodule rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceHead -ne $Pinned) { throw "SolidCraft submodule must be at pinned commit $Pinned (found $sourceHead)." }
 $cargoVersion = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $Submodule 'Cargo.toml')), '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
 if (-not $cargoVersion) { throw 'Could not determine the native engine version from Cargo.toml.' }
+$packageVersion = if ($ReleaseVersion) { $ReleaseVersion } else { $cargoVersion }
+if ($ReleaseVersion -and $ReleaseVersion -notmatch '^\d+\.\d+\.\d+-preview\.\d+$') {
+  throw "Native preview version must use numeric semver with a -preview.N suffix: $ReleaseVersion"
+}
 $shouldPrepareBuildClone = -not $BuildSource
 if ($shouldPrepareBuildClone) { $BuildSource = $isolatedBuildSource }
 if ($shouldPrepareBuildClone -and -not (Test-Path $BuildSource)) {
@@ -79,7 +84,7 @@ if errorlevel 1 exit /b %errorlevel%
 set PATH=$cargoBin;%PATH%
 set CARGO_TARGET_DIR=$targetDir
 set CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=-C target-feature=+crt-static
-set SOLIDCRAFT_VERSION=$cargoVersion
+set SOLIDCRAFT_VERSION=$packageVersion
 $updatePublicKeyAssignment
 cd /d "$BuildSource"
 rustc -vV | findstr /c:"host: x86_64-pc-windows-msvc" >nul
@@ -198,11 +203,11 @@ by the included GNU GPL-3.0-or-later license.
 
 $forgeCommit = (& git -C $Repo rev-parse HEAD).Trim()
 $forgeCommitTime = (& git -C $Repo show -s --format=%cI $forgeCommit).Trim()
-$releaseId = "${cargoVersion}-forge-$($forgeCommit.Substring(0,12))-engine-$($Pinned.Substring(0,12))"
+$releaseId = "${packageVersion}-forge-$($forgeCommit.Substring(0,12))-engine-$($Pinned.Substring(0,12))"
 Write-Host '==> Hash package files and write manifest'
 $manifest = [ordered]@{
   product = 'DemonX Forge'
-  version = $cargoVersion
+  version = $packageVersion
   releaseId = $releaseId
   architecture = $Arch
   forgeCommit = $forgeCommit

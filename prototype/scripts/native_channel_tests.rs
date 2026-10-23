@@ -38,6 +38,9 @@ fn release_list_ignores_react_channel_and_selects_native_forge_release() {
     assert_eq!(release.version(), "0.20.0-preview.1");
     assert_eq!(release.asset_for(&InstallKind::WindowsPortable, "x86_64").map(|a| a.name.as_str()), Some("solidcraft-windows-x64-portable.zip"));
     assert!(is_newer(&release.tag, "0.19.0"));
+    assert!(!is_newer("native-v0.19.9-preview.2", "0.20.0-preview.1"), "a native downgrade is not offered");
+    assert!(!is_newer("native-v0.20.0-preview.1", "0.20.0-preview.1"), "an equal version is not offered");
+    assert!(!is_newer("v9.99.0", "0.20.0-preview.1"), "a higher React version is still the wrong channel");
 }
 
 #[test]

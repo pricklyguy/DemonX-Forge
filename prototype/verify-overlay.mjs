@@ -37,9 +37,14 @@ requireMatch(toolbar, /else \{ 172\.0 \}/, 'app bar spacing for full Forge wordm
 requireMatch(toolbar, /APP_BAR_HEIGHT: f32 = 42\.0/, 'taller Forge title bar');
 requireMatch(updater, /api\.github\.com\/repos\/pricklyguy\/DemonX-Forge\/releases\?per_page=100/, 'native-only Forge release listing');
 requireMatch(updater, /tag\.starts_with\("native-v"\)/, 'native Forge updater channel filtering');
+requireMatch(updater, /option_env!\("DEMONX_FORGE_AUTO_UPDATES"\) == Some\("1"\)/, 'automatic update checks remain opt-in');
 requireMatch(updater, /documents::any_dirty\(app\)/, 'dirty protection across every open document');
 requireMatch(updaterInstall, /Method::ForgeImmutable/, 'immutable version-directory updater');
 requireMatch(updaterInstall, /option_env!\("DEMONX_FORGE_UPDATE_PUBLIC_KEY"\)/, 'pinned native release-signing key');
+requireMatch(updaterInstall, /DemonX-Forge-release\.json/, 'signed native release metadata');
+requireMatch(updaterInstall, /native-preview/, 'strict native preview channel validation');
+requireMatch(updaterInstall, /exactly one windows-x64 artifact/, 'unique signed Windows x64 artifact requirement');
+requireMatch(updaterInstall, /not signed by any pinned native Forge release key/, 'signature verification against pinned key set');
 requireMatch(sketchDimensionTests, /mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape/, 'mouse gesture/live dimension regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool/, 'mouse circle diameter regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw/, 'mouse line angle and cancellation regression test');
