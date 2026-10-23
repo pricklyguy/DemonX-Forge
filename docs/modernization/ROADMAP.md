@@ -1,7 +1,7 @@
 # DemonX Forge modernization roadmap
 
 **Baseline:** Forge v0.27.0, branch `codex/fusion-parity`.
-**Strategy (updated 2026-10-22):** the owner approved the SolidCraft-based native application as Forge's primary product direction. Keep the existing React app/server and saved projects as a rollback during the phased transition; do not spend effort rebuilding its interaction architecture. Native usability gates lead active work. Forge MCP names and security remain required compatibility gates. Native `.solidcraft` is preferred; legacy `.forge` migration is low priority.
+**Strategy (updated 2026-10-23):** the owner approved the SolidCraft-based native application as Forge's primary product direction. Keep the existing React app/server and saved projects as a rollback during the phased transition; do not spend effort rebuilding its interaction architecture. Native usability gates lead active work. Forge MCP names and security remain required compatibility gates. New Forge projects use `.dxforge` over the unchanged native container; `.solidcraft` remains compatible. Legacy `.forge` migration is low priority.
 
 ## Approved native prototype track
 
@@ -95,15 +95,15 @@ installed release and user documents remain available for rollback.
 
 **Windows installation gate:** passed on 2026-10-22; the owner can use the native app while the incumbent remains a fallback. Linux package and broader release audit remain outstanding. No merge into `main`.
 
-### Future branding task — `.dxforge` project extension (low priority)
+### Native branding task — `.dxforge` project extension (after scripting and large-model baseline)
 
-**Status:** deferred until the permanent Windows installation and core CAD usability work are stable. New projects continue to use SolidCraft's native `.solidcraft` format and serialization for now.
+**Status:** implementation and focused source tests pass; installed Windows round-trip and association checks are pending before this milestone is called complete. The existing SolidCraft container and `.solidcraft` compatibility are preserved.
 
 - Add `.dxforge` as the preferred Forge save/open extension while retaining read/write compatibility with existing `.solidcraft` projects.
-- Update Save/Save As/Open dialogs, recent files, project icons, Windows and Linux desktop/file associations, and command-line open behavior together.
+- Update Save/Save As/Open dialogs, recent files, project icons, Windows and Linux desktop/file associations, component links, and command-line open behavior together.
 - Preserve the current underlying project bytes unless a separate format change is justified by a tested migration and rollback plan.
 
-**Completion:** create/save/open/reopen both extensions, confirm recent-file behavior and native history integrity, and verify install/uninstall associations on Windows and Linux without changing `.solidcraft` projects.
+**Completion:** create/save/open/reopen both extensions, confirm recent-file behavior and native history integrity, and verify Windows associations plus Linux metadata without changing `.solidcraft` projects. Linux package execution is reported separately from metadata validation.
 
 The React-focused Phases 2–8 below are retained as the verified incumbent-app backlog and regression reference. They are deferred as the primary product path while the approved native prototype gates are active.
 

@@ -40,6 +40,18 @@ const head = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding
 assert(head === PIN, `SolidCraft source must be pinned at ${PIN}; found ${head}`);
 
 const edits = [
+  ['crates/io/src/lib.rs',
+    'pub const LEGACY_DESIGN_EXT: &str = "solvecraft";\n/// Every extension a design file may have, current first.\npub const DESIGN_EXTS: [&str; 2] = [DESIGN_EXT, LEGACY_DESIGN_EXT];',
+    'pub const LEGACY_DESIGN_EXT: &str = "solvecraft";\n/// Forge-branded extension for the unchanged native design container.\npub const FORGE_DESIGN_EXT: &str = "dxforge";\n/// Every extension a design file may have, current first.\npub const DESIGN_EXTS: [&str; 3] = [FORGE_DESIGN_EXT, DESIGN_EXT, LEGACY_DESIGN_EXT];'],
+  ['crates/io/src/lib.rs',
+    '/// Is this a design file name (`.solidcraft`, or the legacy extension), any case?',
+    '/// Is this a native design file name (`.dxforge`, `.solidcraft`, or `.solvecraft`), any case?'],
+  ['crates/io/src/lib.rs',
+    '"solidcraft" | "solvecraft" | "json" => Format::Design,',
+    '"dxforge" | "solidcraft" | "solvecraft" | "json" => Format::Design,'],
+  ['crates/io/src/lib.rs',
+    '        assert_eq!(Format::from_name("new.solidcraft").unwrap(), Format::Design);\n        assert!(is_design_path("/d/old.SOLVECRAFT") && is_design_path("new.solidcraft") && !is_design_path("a.step"));',
+    '        assert_eq!(Format::from_name("new.solidcraft").unwrap(), Format::Design);\n        assert_eq!(Format::from_name("new.dxforge").unwrap(), Format::Design);\n        assert!(is_design_path("/d/old.SOLVECRAFT") && is_design_path("new.solidcraft") && is_design_path("new.DXFORGE") && !is_design_path("a.step"));'],
   ['crates/ui-egui/src/toolbar.rs',
     '// Brand mark: the SolidCraft logo, drawn in code from the SVG\'s own coordinates\n        // (viewBox 357 x 412). Same 20 px height and centre as the old block.\n        {\n            let c = pos2(left + 20.0, r.center().y);\n            crate::icons::glyphs::brand_mark(ui.painter(), c);\n        }',
     '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'],
@@ -47,6 +59,60 @@ const edits = [
     '        let mut x = left + if compact_actions { 56.0 } else { 128.0 };',
     '        let mut x = left + if compact_actions { 140.0 } else { 172.0 };'],
   ['apps/solidcraft/src/main.rs', '.with_title("SolidCraft")', '.with_title("DemonX Forge")'],
+  ['apps/solidcraft/src/main.rs',
+    '                        io::DESIGN_EXT,\n                        io::LEGACY_DESIGN_EXT,\n                        "json",',
+    '                        io::FORGE_DESIGN_EXT,\n                        io::DESIGN_EXT,\n                        io::LEGACY_DESIGN_EXT,\n                        "json",'],
+  ['apps/solidcraft/src/main.rs',
+    '.add_filter("SolidCraft design (container or JSON)", &[io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])',
+    '.add_filter("DemonX Forge and SolidCraft designs (container or JSON)", &[io::FORGE_DESIGN_EXT, io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])'],
+  ['apps/solidcraft/src/main.rs',
+    'if exts == [io::DESIGN_EXT, "json"] {\n                if name.ends_with(".json") {\n                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("SolidCraft container", &[io::DESIGN_EXT])\n                } else {\n                    dialog.add_filter("SolidCraft container", &[io::DESIGN_EXT]).add_filter("Plain JSON design", &["json"])\n                }',
+    'if exts == [io::FORGE_DESIGN_EXT, io::DESIGN_EXT, "json"] {\n                let container_filter = &[io::FORGE_DESIGN_EXT, io::DESIGN_EXT];\n                if name.ends_with(".json") {\n                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("DemonX Forge / SolidCraft container", container_filter)\n                } else {\n                    dialog.add_filter("DemonX Forge / SolidCraft container", container_filter).add_filter("Plain JSON design", &["json"])\n                }'],
+  ['crates/ui-egui/src/toolbar.rs',
+    'save_as_with_extension(app, solidcraft_engine::io::DESIGN_EXT);',
+    'save_as_with_extension(app, solidcraft_engine::io::FORGE_DESIGN_EXT);'],
+  ['crates/ui-egui/src/toolbar.rs',
+    'app.pick_save(&name, &[solidcraft_engine::io::DESIGN_EXT, "json"], |app, path| {',
+    'app.pick_save(&name, &[solidcraft_engine::io::FORGE_DESIGN_EXT, solidcraft_engine::io::DESIGN_EXT, "json"], |app, path| {'],
+  ['crates/ui-egui/src/toolbar.rs',
+    '/// File > Download design (browser build): the open design as a `.solidcraft` file download.',
+    '/// File > Download design (browser build): the open design as a `.dxforge` file download.'],
+  ['crates/ui-egui/src/toolbar.rs',
+    'let name = format!("{}.{}", app.session.doc.name, solidcraft_engine::io::DESIGN_EXT);',
+    'let name = format!("{}.{}", app.session.doc.name, solidcraft_engine::io::FORGE_DESIGN_EXT);'],
+  ['crates/ui-egui/src/toolbar.rs',
+    'assert_eq!(got[0].0, "Plate.solidcraft");',
+    'assert_eq!(got[0].0, "Plate.dxforge");'],
+  ['crates/ui-egui/src/toolbar.rs',
+    '    /// File › Export STL… and Export 3MF… both open the Save as mesh dialog with their format',
+    `    #[test]
+    fn save_as_defaults_to_dxforge_and_writes_native_container() {
+        let mut h = crate::scenario::Harness::new();
+        h.app.run("solid.box", json!({"length":2,"width":3,"height":4})).unwrap();
+        let dir = h.dir.clone();
+        let requested = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, Vec<String>)>::new()));
+        let capture = requested.clone();
+        h.app.services.pick_save = Some(Box::new(move |name, extensions| {
+            capture.borrow_mut().push((name.to_string(), extensions.iter().map(|extension| extension.to_string()).collect()));
+            Box::pin(std::future::ready(Some(dir.join(name).to_string_lossy().into_owned())))
+        }));
+        h.frames(3);
+        h.step(&json!({"click":{"handle":"appbar:folder"}})).unwrap();
+        h.step(&json!({"widget":"Save As…"})).unwrap();
+        h.settle();
+        let requested = requested.borrow();
+        assert_eq!(requested[0].0, "Untitled.dxforge");
+        assert_eq!(requested[0].1, ["dxforge", "solidcraft", "json"]);
+        let saved = h.app.session.path.as_deref().unwrap();
+        let bytes = std::fs::read(saved).unwrap();
+        assert!(solidcraft_engine::io::is_design_container(&bytes));
+        assert_eq!(solidcraft_engine::io::read_design(&bytes).unwrap(), *h.app.session.doc);
+    }
+
+    /// File › Export STL… and Export 3MF… both open the Save as mesh dialog with their format`],
+  ['crates/ui-egui/src/toolbar.rs',
+    '/// The browser build\'s File > Download design hands the open design to the host as a\n    /// `.solidcraft` container named after it; a host that saves real files shows no such item.',
+    '/// The browser build\'s File > Download design hands the open design to the host as a\n    /// `.dxforge` container named after it; a host that saves real files shows no such item.'],
   ['apps/solidcraft/src/main.rs', '    let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());', '    let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());\n    let mut forge_control = false;'],
   ['apps/solidcraft/src/main.rs', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),\n            "--forge-mcp" => {\n                forge_control = true;\n                control_port = Some(0);\n            }'],
   ['apps/solidcraft/src/main.rs', 'if files.is_empty() && !sample && control_port.is_none() {', 'if files.is_empty() && !sample && (control_port.is_none() || forge_control) {'],
@@ -65,7 +131,12 @@ const edits = [
     'fn app_viewport() -> Result<egui::ViewportBuilder, eframe::Error> {',
     'fn forge_icon() -> Result<egui::IconData, eframe::Error> {\n    let image = image::load_from_memory(include_bytes!("../../../assets/icons/app/shared/source/demonx-forge-icon.png"))\n        .map_err(|e| eframe::Error::AppCreation(std::io::Error::other(e).into()))?\n        .resize_exact(64, 64, image::imageops::FilterType::Lanczos3)\n        .into_rgba8();\n    Ok(egui::IconData { rgba: image.into_raw(), width: 64, height: 64 })\n}\n\nfn app_viewport() -> Result<egui::ViewportBuilder, eframe::Error> {'],
   ['apps/solidcraft/Cargo.toml', 'log = { workspace = true }', 'log = { workspace = true }\nimage = { workspace = true }'],
+  ['xtask/Cargo.toml', 'serde_json = { workspace = true }', 'serde_json = { workspace = true }\nimage = { workspace = true }'],
+  ['xtask/src/app_icons.rs',
+    'fn draw(path: &Path, size: usize) -> Result<(), String> {\n    let mut c = crate::cargo();\n    c.args(["run", "-q", "--profile", "ci", "-p", "solidcraft-cli", "--", "icon", "--size", &size.to_string(), "--out"]).arg(path);\n    crate::run(c, "solidcraft-cli icon")\n}',
+    'fn draw(path: &Path, size: usize) -> Result<(), String> {\n    let image = image::load_from_memory(include_bytes!("../../assets/icons/app/shared/source/demonx-forge-icon.png"))\n        .map_err(|e| e.to_string())?\n        .resize_exact(size as u32, size as u32, image::imageops::FilterType::Lanczos3);\n    image.save_with_format(path, image::ImageFormat::Png).map_err(|e| e.to_string())\n}'],
   ['Cargo.lock', ' "getrandom 0.3.4",\n "hidapi",', ' "getrandom 0.3.4",\n "hidapi",\n "image",'],
+  ['Cargo.lock', 'name = "xtask"\nversion = "0.19.0"\ndependencies = [\n "proc-macro2",', 'name = "xtask"\nversion = "0.19.0"\ndependencies = [\n "image",\n "proc-macro2",'],
   ['crates/io/src/legacy_dir.rs', '"ai.storyteller.solidcraft"', '"com.pricklyguy.demonxforge"'],
   ['crates/io/src/legacy_dir.rs', '"ai.storyteller.solvecraft"', '"com.pricklyguy.demonxforge.legacy"'],
   ['apps/solidcraft/src/main.rs', 'eframe::storage_dir("SolidCraft")', 'eframe::storage_dir("DemonX Forge")'],
@@ -75,6 +146,30 @@ const edits = [
   ['crates/engine/src/recovery.rs', '?.join("solidcraft"))', '?.join("demonx-forge"))'],
   ['crates/engine/src/recovery.rs', '("SolidCraft", "SolveCraft")', '("DemonX Forge", "DemonX Forge Legacy")'],
   ['crates/engine/src/recovery.rs', 'else { ("solidcraft", "solvecraft") }', 'else { ("demonx-forge", "demonx-forge-legacy") }'],
+  ['crates/engine/src/cmd/component_link.rs',
+    'path: a .solidcraft design → a new component linked to it, holding its solid bodies as placed in that design;',
+    'path: a .dxforge or .solidcraft design → a new component linked to it, holding its solid bodies as placed in that design;'],
+  ['crates/engine/src/cmd/component_link.rs',
+    'path: a saved .solidcraft design — replaces the source and linked bodies for all its occurrences,',
+    'path: a saved .dxforge or .solidcraft design — replaces the source and linked bodies for all its occurrences,'],
+  ['crates/engine/src/cmd/component_link.rs',
+    'if !file.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("solidcraft")) {\n        return Err(bad(cmd, "choose a saved .solidcraft design"));',
+    'if !file.extension().and_then(|e| e.to_str()).is_some_and(|e| ["dxforge", "solidcraft"].iter().any(|x| e.eq_ignore_ascii_case(x))) {\n        return Err(bad(cmd, "choose a saved .dxforge or .solidcraft design"));'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.desktop',
+    'Name=SolidCraft',
+    'Name=DemonX Forge'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in',
+    '<name>SolidCraft</name>',
+    '<name>DemonX Forge</name>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.desktop',
+    'MimeType=application/x-solidcraft;model/step;',
+    'MimeType=application/x-demonxforge;application/x-solidcraft;model/step;'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.mime.xml',
+    '  <mime-type type="application/x-solidcraft">',
+    '  <mime-type type="application/x-demonxforge">\n    <comment>DemonX Forge design</comment>\n    <icon name="ai.storyteller.solidcraft"/>\n    <sub-class-of type="application/json"/>\n    <glob pattern="*.dxforge"/>\n  </mime-type>\n  <mime-type type="application/x-solidcraft">'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.mime.xml',
+    '<glob pattern="*.solidcraft"/>',
+    '<glob pattern="*.solidcraft"/>'],
   ['crates/ui-egui/src/home.rs', 'root.join("SolidCraft").join("thumbnails")', 'root.join("DemonX Forge").join("thumbnails")'],
   ['crates/ui-egui/src/prefs.rs', 'theme: String = "dark".into(), PAGE_INTERFACE;', 'theme: String = "demonx-forge-dark".into(), PAGE_INTERFACE;'],
   ['crates/ui-egui/src/theme_files.rs',
@@ -244,8 +339,14 @@ const deferredTestArm = '            Outcome::Screenshot { .. } => panic!("ui.re
 const deferredTestArmWithReply = `${deferredTestArm}\n            Outcome::Deferred => panic!("ui.render deferred a control reply"),`;
 const controlTestText = readFileSync(controlTestPath, 'utf8').replace(/\r\n/g, '\n');
 assert(controlTestText.includes(deferredTestArm) || controlTestText.includes(deferredTestArmWithReply), 'deferred script reply test-arm anchor drift in control.rs');
-if (!checkOnly && controlTestText.includes(deferredTestArm)) {
-  writeFileSync(controlTestPath, controlTestText.replaceAll(deferredTestArm, deferredTestArmWithReply));
+const normalizedControlTestText = controlTestText.replace(/(\n {12}Outcome::Deferred => panic!\("ui\.render deferred a control reply"\),){2,}/g, '\n            Outcome::Deferred => panic!("ui.render deferred a control reply"),');
+if (checkOnly) {
+  assert(normalizedControlTestText === controlTestText, 'duplicate deferred script reply test arms in control.rs; apply the Forge overlay to normalize them');
+} else {
+  const withDeferredReply = normalizedControlTestText.includes(deferredTestArmWithReply)
+    ? normalizedControlTestText
+    : normalizedControlTestText.replaceAll(deferredTestArm, deferredTestArmWithReply);
+  if (withDeferredReply !== controlTestText) writeFileSync(controlTestPath, withDeferredReply);
 }
 
 const controlWaitPath = join(source, 'crates/ui-egui/src/lib.rs');

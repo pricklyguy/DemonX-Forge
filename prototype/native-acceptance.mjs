@@ -384,12 +384,18 @@ async function main() {
   const mcpScreenshot = await mcpTool('forge_screenshot', { view: 'fit', width: 600, height: 400 });
   assert(mcpScreenshot.content[0]?.type === 'image' && mcpScreenshot.content[0]?.mimeType === 'image/png', 'Forge MCP screenshot did not return a PNG image');
 
-  const saved = join(root, 'three-body.solidcraft');
+  const saved = join(root, 'three-body.dxforge');
   await call(port, 'engine.execute', { command: 'file.save', params: { path: saved } }, token, [root]);
   await call(port, 'engine.execute', { command: 'doc.open', params: { path: saved } }, token, [root]);
   const reopened = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
   assert(['Plate', 'Part B', 'Part C'].every((name) => reopened.bodies.some((body) => body.name === name)), 'save/reopen lost a body name');
   assert(reopened.timeline.some((feature) => feature.name === 'Face Boss'), 'save/reopen lost feature history');
+  const solidcraftCompat = join(root, 'three-body-compat.solidcraft');
+  await call(port, 'engine.execute', { command: 'file.save_as', params: { path: solidcraftCompat } }, token, [root]);
+  await call(port, 'engine.execute', { command: 'doc.open', params: { path: solidcraftCompat } }, token, [root]);
+  const compatReopened = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
+  assert(['Plate', 'Part B', 'Part C'].every((name) => compatReopened.bodies.some((body) => body.name === name)), 'legacy .solidcraft reopen lost a body');
+  assert(compatReopened.timeline.some((feature) => feature.name === 'Face Boss'), 'legacy .solidcraft reopen lost parametric history');
 
   const stl = join(root, 'plate-only.stl');
   const allStl = join(root, 'all-bodies.stl');

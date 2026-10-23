@@ -133,7 +133,8 @@ The launch script accepts normal app arguments, including --safe-mode. It starts
 loopback MCP control listener on a dynamically assigned port; the stable MCP bridge discovers the
 private token file and port securely. A caller-supplied --control PORT overrides that default.
 
-Projects are saved as native .solidcraft documents. The app keeps settings in %APPDATA%\DemonX Forge\data
+New projects are saved as native .dxforge documents using the unchanged SolidCraft container.
+Existing .solidcraft and .solvecraft projects remain openable and linkable. The app keeps settings in %APPDATA%\DemonX Forge\data
 and autosave/recovery/MCP token data in %LOCALAPPDATA%\DemonX Forge. These paths are stable between
 version folders. The installer retains prior binaries; run prototype\rollback-windows.ps1 from the
 Forge checkout to restore the previous version. Do not delete either user-data folder while designs

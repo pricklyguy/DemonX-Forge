@@ -83,7 +83,32 @@ if (-not $SkipShortcut) {
   $shortcut.Save()
 }
 
+# Register Forge projects for the current Windows user. Preserve any existing default handler
+# for .solidcraft; Forge is offered as an Open With choice for those files.
+$forgeProgId = 'DemonXForge.dxforge'
+$openCommand = '"' + (Join-Path $root 'DemonX Forge.cmd') + '" "%1"'
+$iconCommand = '"' + (Join-Path $final 'DemonX Forge.ico') + '",0'
+$forgeClass = "HKCU:\Software\Classes\$forgeProgId"
+New-Item -Path $forgeClass -Force | Out-Null
+Set-Item -Path $forgeClass -Value 'DemonX Forge Project'
+New-Item -Path (Join-Path $forgeClass 'DefaultIcon') -Force | Out-Null
+Set-Item -Path (Join-Path $forgeClass 'DefaultIcon') -Value $iconCommand
+New-Item -Path (Join-Path $forgeClass 'shell\open\command') -Force | Out-Null
+Set-Item -Path (Join-Path $forgeClass 'shell\open\command') -Value $openCommand
+$dxforgeClass = 'HKCU:\Software\Classes\.dxforge'
+New-Item -Path $dxforgeClass -Force | Out-Null
+Set-Item -Path $dxforgeClass -Value $forgeProgId
+New-Item -Path (Join-Path $dxforgeClass 'OpenWithProgids') -Force | Out-Null
+New-ItemProperty -Path (Join-Path $dxforgeClass 'OpenWithProgids') -Name $forgeProgId -Value '' -PropertyType String -Force | Out-Null
+foreach ($compatibleExtension in '.solidcraft', '.solvecraft') {
+  $compatibilityKey = "HKCU:\Software\Classes\$compatibleExtension"
+  New-Item -Path $compatibilityKey -Force | Out-Null
+  New-Item -Path (Join-Path $compatibilityKey 'OpenWithProgids') -Force | Out-Null
+  New-ItemProperty -Path (Join-Path $compatibilityKey 'OpenWithProgids') -Name $forgeProgId -Value '' -PropertyType String -Force | Out-Null
+}
+
 Write-Host "Installed DemonX Forge $($manifest.version) in $root"
 Write-Host "Launch: $root\DemonX Forge.cmd (or Start menu: DemonX Forge)"
+Write-Host 'Windows opens .dxforge projects with Forge; .solidcraft and .solvecraft remain available through Open With.'
 Write-Host 'Projects and settings use persistent per-user paths: %APPDATA%\DemonX Forge and %LOCALAPPDATA%\DemonX Forge.'
 Write-Host "Previous release retained: $(Join-Path $root 'previous.txt') (if this was an upgrade)."
