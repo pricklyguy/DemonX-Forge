@@ -274,6 +274,43 @@ and preserve parametric history; verify MCP tools and security refusals remain u
 - [x] Rerun installed-app MCP and modeling acceptance against the updated executable: nine tools, security refusals, body/face selection, sketching, feature/history edits, exports, save/reopen, undo/redo and GUI synchronization passed.
 - [x] Record the persistent launch path. The pre-existing process remains on the older executable until the owner saves and restarts it.
 
+### Native CAD workflow feedback — 2026-10-23
+
+**Status:** added from owner-reported use of the installed Windows application. Some related
+interaction work already exists, but the specific behaviors below are not considered accepted until
+they pass the stated GUI checks. No installed-app or active-build changes are implied by this entry.
+
+- [ ] **Sketch snapping:** extend the existing snapping/inference checks to cover midpoint and
+  intersection snaps in both sketching and solid-selection contexts. Show a clear snap cue and
+  verify the committed point is numerically on the intended midpoint/intersection, including at
+  different zoom levels and with nearby competing geometry.
+- [ ] **Driving line length:** existing drag-to-create and live-field checks cover line length and
+  angle entry, but do not close the reported case where typing a length still leaves a different
+  final line. Verify typed length constrains the preview and committed geometry exactly within the
+  model tolerance; cover click-click and drag creation, Enter/Tab, cancellation, and undo/redo.
+- [ ] **Move/copy preview:** selection-drag tests cover selection and editing, not a visible
+  transform preview. During arrow/manipulator dragging, render the moving object or copy at its
+  prospective position; commit at pointer release and confirm Escape restores the original state.
+  Cover both Move and Copy, with no duplicate or geometry mutation before commit.
+- [ ] **Edge length feedback:** add an in-context measurement for a selected body edge, visible
+  while inspecting the model and reporting the edge length in document units. Check straight and
+  curved edges, unit formatting, selection changes, and clearing the selection. MCP measurement
+  coverage does not satisfy this GUI workflow.
+- [ ] **DemonX Suite header alignment:** compare the native Forge top bar against the supplied
+  Design and CNC reference screenshots and the `DemonX_logo.png` / `DemonX Forge Header.png`
+  artwork. Match the Suite logo placement, scale, spacing, and dark header treatment while
+  retaining Forge-specific workspace navigation. Review at narrow and maximized window sizes.
+- [ ] **Remove inert upstream controls:** the product-identity audit already calls for DemonX Forge
+  About/Help, support destinations, and branded errors. Explicitly inspect the running GUI's
+  upstream version label, bug-report, Help, and Assistant controls; remove or replace each
+  no-op/upstream-facing control and verify every remaining action has a Forge destination or useful
+  behavior. Show the independent Forge version and keep the engine version in technical
+  diagnostics only.
+
+**Evidence required:** record the exact installed Forge build, focused GUI reproduction and
+acceptance results for each item. Keep these usability fixes on the native development branch and
+preserve the known-good installation until an acceptance-tested update is approved.
+
 ### Sketch annotation and grid follow-up — 2026-10-22
 
 - [x] Verify that rectangle live width and height are retained as driving dimensions and their numeric labels render after Enter; add a viewport regression assertion for both.
