@@ -1,9 +1,8 @@
-import { randomBytes } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
-import { connect, createServer } from 'node:net';
+import { connect } from 'node:net';
 import { inflateRawSync } from 'node:zlib';
 import { buildNativeMcp } from './build-mcp-native.mjs';
 
@@ -18,21 +17,13 @@ const controlDir = process.platform === 'win32'
   : process.platform === 'darwin'
     ? join(root, 'Library', 'Application Support', 'DemonX Forge', 'control')
     : join(dataDir, 'demonx-forge', 'control');
-const token = randomBytes(32).toString('hex');
+let token = '';
 mkdirSync(controlDir, { recursive: true });
 mkdirSync(dataDir, { recursive: true });
 mkdirSync(appData, { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-async function freeLoopbackPort() {
-  const server = createServer();
-  await new Promise((resolvePromise, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolvePromise));
-  const port = server.address().port;
-  await new Promise((resolvePromise) => server.close(resolvePromise));
-  return port;
 }
 
 let requestId = 0;
@@ -95,10 +86,13 @@ let mcpRequestId = 0;
 let mcpBuffer = '';
 const mcpPending = new Map();
 
-async function startForgeMcp(port, localData) {
+async function startForgeMcp(localData) {
   const adapter = packagedMcpAdapter ?? join(root, 'forge-mcp-native.mjs');
   if (!packagedMcpAdapter) await buildNativeMcp(adapter);
-  const env = { ...process.env, LOCALAPPDATA: localData, SOLIDCRAFT_CONTROL_PORT: String(port) };
+  const env = { ...process.env, LOCALAPPDATA: localData };
+  // Exercise the same secure token-file discovery used by the installed stable launcher.
+  delete env.SOLIDCRAFT_CONTROL_PORT;
+  delete env.FORGE_NATIVE_PORT;
   delete env.SOLIDCRAFT_CONTROL_DIR;
   delete env.SOLIDCRAFT_CONTROL_TOKEN;
   mcpProcess = spawn(process.execPath, [adapter], {
@@ -150,14 +144,11 @@ async function mcpTool(name, args = {}) {
 }
 
 async function main() {
-  const port = await freeLoopbackPort();
-  controlPort = port;
   const env = {
     ...process.env,
     APPDATA: appData,
     LOCALAPPDATA: localAppData,
     XDG_DATA_HOME: dataDir,
-    SOLIDCRAFT_CONTROL_TOKEN: token,
     SOLIDCRAFT_CRASH_DIR: join(root, 'crashes'),
     SOLIDCRAFT_SAFE_MODE: '1',
     WGPU_BACKEND: 'dx12',
@@ -168,22 +159,32 @@ async function main() {
     if (user) { env.USERDOMAIN = domain; env.USERNAME = user; }
   }
   delete env.SOLIDCRAFT_CONTROL_DIR;
-  const app = appProcess = spawn(exe, ['--safe-mode', '--control', String(port)], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
+  const app = appProcess = spawn(exe, ['--safe-mode', '--forge-mcp'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false });
   let stderr = '';
   app.stderr.setEncoding('utf8').on('data', (s) => { stderr += s; });
   let first;
   const deadline = Date.now() + 240000;
   while (!first && Date.now() < deadline && app.exitCode === null) {
-    try { first = await call(port, 'ui.inspect'); } catch { await new Promise((r) => setTimeout(r, 500)); }
+    try {
+      const files = readdirSync(controlDir).filter((name) => /^\d+\.token$/.test(name));
+      const candidate = files.map((name) => ({ name, mtime: statSync(join(controlDir, name)).mtimeMs })).sort((a, b) => b.mtime - a.mtime)[0];
+      if (candidate) {
+        controlPort = Number(candidate.name.slice(0, -6));
+        token = readFileSync(join(controlDir, candidate.name), 'utf8').trim();
+        if (token.length >= 32) first = await call(controlPort, 'ui.inspect');
+      }
+    } catch { /* Wait for native window creation, port binding and private token write. */ }
+    if (!first) await new Promise((r) => setTimeout(r, 500));
   }
-  assert(first, `native app did not expose its authenticated control channel: ${stderr.slice(-2000)}`);
+  const port = controlPort;
+  assert(first, `native app did not expose an auto-discovered authenticated control channel: ${stderr.slice(-2000)}`);
   assert(['gpu', 'cpu'].includes(first.renderer), `native viewport did not report a renderer (renderer=${first.renderer ?? 'unknown'})`);
 
   let denied = false;
   try { await call(port, 'engine.commands', {}, '00'.repeat(32)); } catch (error) { denied = /unauthorized/i.test(error.message); }
   assert(denied, 'control channel accepted a request with the wrong token');
 
-  await startForgeMcp(port, localAppData);
+  await startForgeMcp(localAppData);
   const listed = await mcpRequest('tools/list');
   const toolNames = listed.result.tools.map((tool) => tool.name);
   assert(toolNames.length === 9 && toolNames.includes('forge_run_commands') && toolNames.includes('forge_get_design'), 'native adapter changed the established Forge MCP tool contract');
@@ -198,6 +199,7 @@ async function main() {
   assert(!firstBatch.isError, `Forge MCP modeling batch failed: ${firstBatch.content?.[0]?.text}`);
   const firstDesign = JSON.parse(firstBatch.content[0].text);
   assert(['Plate', 'Part B seed', 'Part C seed'].every((name) => firstDesign.bodies.some((body) => body.name === name)), 'Forge MCP batch did not update the native design and browser model');
+  assert((await call(port, 'ui.inspect')).home === false, 'the first MCP modeling command moves the native UI from Home to the live design');
   const addParameter = await mcpTool('forge_run_commands', { steps: [{ command: 'parameters.add', params: { name: 'McpSpan', expression: 5, unit: 'mm' } }] });
   assert(!addParameter.isError, `Forge MCP could not add a test parameter: ${addParameter.content?.[0]?.text}`);
   const changeParameter = await mcpTool('forge_set_parameter', { name: 'McpSpan', value: 7 });

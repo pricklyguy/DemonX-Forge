@@ -50,9 +50,11 @@ if not exist "%FORGE_EXE%" (
   echo The active DemonX Forge files are incomplete: "%FORGE_EXE%"
   exit /b 2
 )
-"%FORGE_EXE%" %*
+"%FORGE_EXE%" --forge-mcp %*
 '@
 Set-Content -LiteralPath (Join-Path $root 'DemonX Forge.cmd') -Value $launcher -Encoding ascii
+
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'forge-mcp-launcher.mjs') -Destination (Join-Path $root 'forge-mcp-native.mjs')
 
 function Write-AtomicPointer([string] $Path, [string] $Value) {
   $temp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"

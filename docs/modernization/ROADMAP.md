@@ -203,6 +203,52 @@ package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESU
 - Retain the last known-good engine reference and release artifact until the candidate completes Linux and Windows acceptance.
 - Never use reset, force-push, rebase, destructive cleanup or changes to `main` to recover a phase.
 
+## Native scripting and large-model usability milestone (2026-10-23)
+
+The owner approved the hybrid scripting architecture in [`SCRIPTING-ARCHITECTURE.md`](SCRIPTING-ARCHITECTURE.md).
+Native JSON scripts reuse the pinned SolidCraft command registry; they do not introduce a second
+modeling kernel. The existing nine Forge MCP tools and MCP command/path restrictions remain a
+separate compatibility surface.
+
+### Scripting checkpoint
+
+- [x] Add a native Scripts & Add-Ins interface with library, JSON editing, import, save, Run, Stop,
+  progress, completion/error reporting, and an explicit future-only Add-Ins label.
+- [x] Validate script version/size, command names, Forge permissions, and typed parameters when
+  present. Refuse file operations, import/export, UI/view control, nested scripting, undo/redo, and
+  transaction-control commands.
+- [x] Run on the UI thread one command per frame with a native session checkpoint. A failed command
+  or Stop restores the pre-run document and history. Success groups all modeling changes as one
+  undo/redo step.
+- [x] Keep the user script library outside versioned app folders and separate from MCP permissions.
+- [ ] Verify all nine MCP tools against the newly installed application and complete stable
+  endpoint discovery/launcher changes.
+- [ ] Package, install beside the prior release, and validate Windows GUI/engine acceptance.
+- [ ] Run save/reopen, rollback, stop, undo/redo and GUI interaction acceptance in the packaged
+  application; record Linux build compatibility.
+- [ ] Implement the optional Python SDK only after native runner and MCP acceptance pass.
+
+**Acceptance:** create a multi-body model from a reusable script; deliberately fail a later feature
+and verify no partial geometry or history remains; run successfully and undo/redo once; save/reopen
+and preserve parametric history; verify MCP tools and security refusals remain unchanged.
+
+### Large-model GUI performance checkpoint (dependency: installed script runner and stable MCP)
+
+- [ ] Generate an isolated fixture with at least 50 independently named bodies and substantial
+  feature history; never use or save over the owner's 57-body project.
+- [ ] Measure browser scroll/selection/rename/hide/isolate latency, dense face/edge selection,
+  face-attached sketch setup, camera response, viewport frame rate, body exports, MCP inspect and
+  parameter rebuild latency.
+- [ ] Record hardware, fixture generation method, model size, timings and screenshots. Set budgets
+  from measured baseline and investigate regressions before optimizing.
+- [ ] Save/reopen the fixture and verify model structure and parametric edits.
+
+### Product identity follow-up (after scripting and large-model acceptance)
+
+- [ ] Adopt `.dxforge` as the native project extension while continuing to open `.solidcraft`.
+- [ ] Update dialogs, recent files, project icons, Windows/Linux file associations, and Save/Open
+  behavior without an unnecessary serialization change.
+
 ### Native usability follow-up — 2026-10-22
 
 - [x] Add a real Origin plane dropdown to Create Sketch, including the three principal planes and a neutral unselected state; retain planar-face picking.

@@ -129,7 +129,9 @@ Install or update from the Forge checkout:
   powershell -ExecutionPolicy Bypass -File prototype\install-windows.ps1 -PackageDirectory <this-folder>
 
 Launch from Start > DemonX Forge, or run C:\DemonX-Forge-Native\DemonX Forge.cmd.
-The launch script accepts normal app arguments, including --safe-mode and --control 47831.
+The launch script accepts normal app arguments, including --safe-mode. It starts the authenticated
+loopback MCP control listener on a dynamically assigned port; the stable MCP bridge discovers the
+private token file and port securely. A caller-supplied --control PORT overrides that default.
 
 Projects are saved as native .solidcraft documents. The app keeps settings in %APPDATA%\DemonX Forge\data
 and autosave/recovery/MCP token data in %LOCALAPPDATA%\DemonX Forge. These paths are stable between
@@ -137,11 +139,14 @@ version folders. The installer retains prior binaries; run prototype\rollback-wi
 Forge checkout to restore the previous version. Do not delete either user-data folder while designs
 need recovery.
 
-The bundled forge-mcp-native.mjs is the existing Forge nine-tool compatibility bridge. Configure
-your MCP client to run `node` with this file as its only argument and set
-SOLIDCRAFT_CONTROL_PORT to the same loopback port passed to the app. The bridge reads the private
-per-port token file; do not copy a token into MCP client configuration. MCP is disabled unless the
-app is started with --control PORT. Keep the port local to this computer.
+The stable `C:\DemonX-Forge-Native\forge-mcp-native.mjs` launcher follows `current.txt` across
+upgrades and runs the existing Forge nine-tool compatibility bridge for that version. Configure a
+local MCP client with command `C:\Program Files\nodejs\node.exe` and args
+`["C:\\DemonX-Forge-Native\\forge-mcp-native.mjs"]`; no port or token environment variable is
+needed. The app must be open. The bridge reads only the private per-user token files in Forge's
+control directory, authenticates to loopback, and reports a launch instruction if no endpoint is
+available. Do not copy the token into client configuration. Filesystem scopes and unsafe-command
+refusals are unchanged.
 
 This package preserves SolidCraft MIT/Apache and third-party notices. The Forge bridge is covered
 by the included GNU GPL-3.0-or-later license.

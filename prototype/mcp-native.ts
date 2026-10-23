@@ -4,14 +4,16 @@
  * does not maintain a second MCP schema or a broader modeling allowlist.
  */
 import { connect } from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createBridge, serve } from '../server/src/mcp';
 import { checkStep, isAllowedCommand } from '../server/src/commands';
 
-const port = Number(process.env.SOLIDCRAFT_CONTROL_PORT ?? process.env.FORGE_NATIVE_PORT ?? 0);
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Set SOLIDCRAFT_CONTROL_PORT to the native app control port.');
+const configuredPort = Number(process.env.SOLIDCRAFT_CONTROL_PORT ?? process.env.FORGE_NATIVE_PORT ?? 0);
+if (configuredPort !== 0 && (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 65535)) {
+  throw new Error('SOLIDCRAFT_CONTROL_PORT must be a valid TCP port from 1 to 65535.');
+}
 
 function defaultControlDir() {
   if (process.env.SOLIDCRAFT_CONTROL_DIR) return process.env.SOLIDCRAFT_CONTROL_DIR;
@@ -20,19 +22,28 @@ function defaultControlDir() {
   return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'demonx-forge', 'control');
 }
 
-const token = process.env.SOLIDCRAFT_CONTROL_TOKEN?.trim()
-  || readFileSync(join(defaultControlDir(), `${port}.token`), 'utf8').trim();
-if (token.length < 32) throw new Error('The native app control token is missing or too short.');
+type Endpoint = { port: number; token: string };
+let endpoint: Endpoint | undefined;
+const configuredToken = process.env.SOLIDCRAFT_CONTROL_TOKEN?.trim();
 
 let id = 0;
-function native(method: string, params: Record<string, unknown> = {}, allowPaths?: string[]): Promise<any> {
+function controlCall(target: Endpoint, method: string, params: Record<string, unknown> = {}, allowPaths?: string[], timeoutMs?: number): Promise<any> {
   return new Promise((resolve, reject) => {
-    const socket = connect(port, '127.0.0.1');
+    const socket = connect(target.port, '127.0.0.1');
     let text = '';
-    const timeout = setTimeout(() => { socket.destroy(); reject(new Error(`${method} timed out; inspect the native app before retrying.`)); }, method === 'engine.batch' ? 3_600_000 : 90_000);
+    let requestSent = false;
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      const error = new Error(`${method} timed out; inspect the native app before retrying.`) as Error & { requestSent?: boolean };
+      error.requestSent = requestSent;
+      reject(error);
+    }, timeoutMs ?? (method === 'engine.batch' ? 3_600_000 : 90_000));
     socket.setEncoding('utf8');
     const scoped = allowPaths ? { ...params, allow_paths: allowPaths } : params;
-    socket.once('connect', () => socket.write(`${JSON.stringify({ id: ++id, method, params: scoped, token })}\n`));
+    socket.once('connect', () => {
+      requestSent = true;
+      socket.write(`${JSON.stringify({ id: ++id, method, params: scoped, token: target.token })}\n`);
+    });
     socket.on('data', (chunk) => {
       text += chunk;
       const end = text.indexOf('\n');
@@ -41,12 +52,73 @@ function native(method: string, params: Record<string, unknown> = {}, allowPaths
       socket.end();
       try {
         const reply = JSON.parse(text.slice(0, end));
-        if (!reply.ok) reject(new Error(reply.error ?? `${method} was refused`));
+        if (!reply.ok) {
+          const error = new Error(reply.error ?? `${method} was refused`) as Error & { requestSent?: boolean };
+          error.requestSent = true;
+          reject(error);
+        }
         else resolve(reply.result);
-      } catch (error) { reject(error); }
+      } catch (error) {
+        if (error instanceof Error && !('requestSent' in error)) (error as Error & { requestSent?: boolean }).requestSent = true;
+        reject(error);
+      }
     });
-    socket.once('error', (error) => { clearTimeout(timeout); reject(error); });
+    socket.once('error', (cause) => {
+      clearTimeout(timeout);
+      const error = new Error(cause.message, { cause }) as Error & { requestSent?: boolean };
+      error.requestSent = requestSent;
+      reject(error);
+    });
   });
+}
+
+function candidates(): Endpoint[] {
+  if (configuredPort) {
+    let token = configuredToken;
+    if (!token) {
+      try { token = readFileSync(join(defaultControlDir(), `${configuredPort}.token`), 'utf8').trim(); }
+      catch { throw new Error(`The private control token for port ${configuredPort} was not found. Start Forge with --control ${configuredPort}, or remove SOLIDCRAFT_CONTROL_PORT to use automatic discovery.`); }
+    }
+    if (token.length < 32) throw new Error(`The private control token for port ${configuredPort} is missing or too short.`);
+    return [{ port: configuredPort, token }];
+  }
+  const dir = defaultControlDir();
+  let files: string[];
+  try { files = readdirSync(dir).filter((name) => /^\d+\.token$/.test(name)); }
+  catch { return []; }
+  return files.map((name) => {
+    const port = Number(name.slice(0, -6));
+    try {
+      const path = join(dir, name);
+      if (statSync(path).size > 4096) return undefined;
+      const token = readFileSync(path, 'utf8').trim();
+      return Number.isInteger(port) && port > 0 && port <= 65535 && token.length >= 32 ? { port, token, mtime: statSync(path).mtimeMs } : undefined;
+    } catch { return undefined; }
+  }).filter((item): item is Endpoint & { mtime: number } => item !== undefined).sort((a, b) => b.mtime - a.mtime);
+}
+
+async function discoverEndpoint(): Promise<Endpoint> {
+  const available = candidates();
+  if (configuredPort && available.length) return available[0];
+  for (const candidate of available) {
+    try {
+      await controlCall(candidate, 'control.running', {}, undefined, 5000);
+      return candidate;
+    } catch { /* Stale token files and closed listeners are skipped; the app removes them on exit. */ }
+  }
+  const expected = configuredPort ? `port ${configuredPort}` : `a private token in ${defaultControlDir()}`;
+  throw new Error(`No running DemonX Forge control endpoint found (${expected}). Start DemonX Forge and retry. MCP will not scan arbitrary ports or read a token supplied by an MCP request.`);
+}
+
+async function native(method: string, params: Record<string, unknown> = {}, allowPaths?: string[]): Promise<any> {
+  endpoint ??= await discoverEndpoint();
+  try { return await controlCall(endpoint, method, params, allowPaths); }
+  catch (error) {
+    // Never replay a possibly-sent model mutation. Forget only the cached endpoint so the next
+    // distinct MCP request can discover a restarted app.
+    endpoint = undefined;
+    throw error;
+  }
 }
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });

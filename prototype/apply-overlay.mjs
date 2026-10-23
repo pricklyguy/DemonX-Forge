@@ -24,6 +24,11 @@ const edits = [
     '        let mut x = left + if compact_actions { 56.0 } else { 128.0 };',
     '        let mut x = left + if compact_actions { 140.0 } else { 172.0 };'],
   ['apps/solidcraft/src/main.rs', '.with_title("SolidCraft")', '.with_title("DemonX Forge")'],
+  ['apps/solidcraft/src/main.rs', '    let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());', '    let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());\n    let mut forge_control = false;'],
+  ['apps/solidcraft/src/main.rs', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),\n            "--forge-mcp" => { forge_control = true; control_port = Some(0); },'],
+  ['apps/solidcraft/src/main.rs', 'if files.is_empty() && !sample && control_port.is_none() {', 'if files.is_empty() && !sample && (control_port.is_none() || forge_control) {'],
+  ['apps/solidcraft/src/main.rs', '                take_focus_unwanted: control_port.is_some(),', '                take_focus_unwanted: control_port.is_some() && !forge_control,'],
+  ['apps/solidcraft/src/main.rs', 'usage: solidcraft [--control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]', 'usage: solidcraft [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]'],
   ['apps/solidcraft/src/main.rs',
     '#[cfg(not(target_os = "macos"))]\n#[path = "../../../assets/icons/app/shared/source/app_icon.rs"]\nmod app_icon;',
     '// Forge-owned window icon; supplied by this prototype overlay.'],
@@ -167,6 +172,42 @@ const scenarioEdits = [
     '"theme": "demonx-forge-dark"'],
 ];
 
+const scriptUiEdits = [
+  ['crates/ui-egui/src/lib.rs', 'pub mod fonts;', 'pub mod fonts;\npub mod forge_scripts;'],
+  ['crates/ui-egui/src/lib.rs', '    pub help: help::HelpState,', '    pub help: help::HelpState,\n    /// Native Forge scripts library and transactional runner.\n    pub forge_scripts: forge_scripts::Manager,'],
+  ['crates/ui-egui/src/lib.rs', '            help: help::HelpState::default(),', '            help: help::HelpState::default(),\n            forge_scripts: forge_scripts::Manager::default(),'],
+  ['crates/ui-egui/src/lib.rs', '        prefs_notice::show(self, ui.ctx());', '        prefs_notice::show(self, ui.ctx());\n        crate::forge_scripts::show(self, ui.ctx());'],
+  ['crates/ui-egui/src/lib.rs', '            req.started.store(true, std::sync::atomic::Ordering::Relaxed);', '            if self.home.open && control_job::changes_the_design(&req.method) {\n                self.home.open = false;\n            }\n            req.started.store(true, std::sync::atomic::Ordering::Relaxed);'],
+  ['crates/ui-egui/src/help.rs', '        "about" => app.help.about = true,', '        "about" => app.help.about = true,\n        "scripts" => app.forge_scripts.open(),'],
+  ['crates/ui-egui/src/help.rs', '                        ("about", "About SolidCraft", "help"),', '                        ("about", "About DemonX Forge", "help"),\n                        ("scripts", "Scripts & Add-Ins…", "code"),'],
+  ['crates/ui-egui/src/toolbar.rs', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.'],
+];
+
+for (const [editIndex, [relative, before, after]] of scriptUiEdits.entries()) {
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const hasAfter = text.includes(after);
+  const hasBefore = text.includes(before);
+  assert(hasBefore || hasAfter, `Script UI overlay anchor ${editIndex + 1} drift in ${relative}`);
+  if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
+}
+
+const controlWaitPath = join(source, 'crates/ui-egui/src/lib.rs');
+const waitVariants = [
+  'let waits = self.file_load.busy() || self.file_picker.is_some() || self.control_job.is_some() || self.agent.busy();',
+  'let waits = self.file_load.busy()\n                || self.file_picker.is_some()\n                || self.control_job.is_some()\n                || self.agent.busy();',
+  'let waits = self.file_load.busy()\n                || self.file_picker.is_some()\n                || self.control_job.is_some()\n                || self.agent.busy()\n                || self.forge_scripts.run.is_some();',
+];
+const waitText = readFileSync(controlWaitPath, 'utf8').replace(/\r\n/g, '\n');
+assert(waitVariants.some((variant) => waitText.includes(variant)), 'Script runner control-serialization anchor drift in crates/ui-egui/src/lib.rs');
+if (!checkOnly && !waitText.includes(waitVariants[2])) {
+  const before = waitVariants.find((variant) => waitText.includes(variant));
+  const after = before.includes(' || ')
+    ? before.replace(' || self.agent.busy();', ' || self.agent.busy() || self.forge_scripts.run.is_some();')
+    : before.replace('                || self.agent.busy();', '                || self.agent.busy()\n                || self.forge_scripts.run.is_some();');
+  writeFileSync(controlWaitPath, waitText.replace(before, after));
+}
+
 for (const [editIndex, [relative, before, after]] of uxEdits.entries()) {
   const path = join(source, relative);
   const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
@@ -238,6 +279,7 @@ if (!checkOnly) {
   cpSync(join(here, 'branding/demonx-forge-light.json'), join(themes, 'demonx-forge-light.json'));
   cpSync(join(here, '..', 'assets/DemonX_Emblem.png'), join(source, 'assets/icons/app/shared/source/demonx-forge-icon.png'));
   cpSync(join(here, 'branding/demonx-forge-wordmark.png'), join(source, 'assets/icons/app/shared/source/demonx-forge-wordmark.png'));
+  cpSync(join(here, 'scripts/forge_scripts.rs'), join(source, 'crates/ui-egui/src/forge_scripts.rs'));
 }
 
 process.stdout.write(`${checkOnly ? 'Overlay anchors verified' : 'DemonX Forge overlay applied'} at ${head}\n`);
