@@ -5,6 +5,7 @@ on:
     branches: [codex/fusion-parity]
     paths:
       - .github/workflows/native-windows-baseline-diagnostic.yml
+      - prototype/apply-overlay.mjs
   workflow_dispatch:
 
 permissions:
@@ -44,6 +45,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: prototype/solidcraft
+          shared-key: native-windows-x64
+          cache-on-failure: true
 
       - name: Compare focused tests on pristine and overlaid source
         shell: pwsh

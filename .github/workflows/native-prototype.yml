@@ -58,6 +58,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: prototype/solidcraft
+          cache-on-failure: true
       - name: Install Linux viewport test dependencies
         if: runner.os == 'Linux'
         run: |

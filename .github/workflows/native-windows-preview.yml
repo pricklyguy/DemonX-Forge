@@ -61,6 +61,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: prototype/solidcraft
+          shared-key: native-windows-x64
+          cache-on-failure: true
       - name: Require pinned release verification key
         shell: pwsh
         env:
