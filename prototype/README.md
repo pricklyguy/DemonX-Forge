@@ -55,11 +55,13 @@ the versioned program folders and are never replaced by an update or rollback. B
 `.solidcraft` files separately; the app's recovery folder is for unsaved work, not a project archive.
 The installer does not replace the original Forge app or its associations.
 
-To start MCP support, launch the installed app with `--control 47831` and configure the client to
-run Node 22+ with the installed `forge-mcp-native.mjs` path and `SOLIDCRAFT_CONTROL_PORT=47831`.
-The bridge reads the app's authenticated private token file itself. Do not put tokens in MCP
-configuration. No file-open, file-save, file-import/export, or arbitrary filesystem tools are added.
-See `INSTALL.txt` inside the package for this client configuration.
+For MCP, launch the installed app normally. Configure a client to run
+`C:\DemonX-Forge-Native\forge-mcp.exe` with no arguments. The Windows package bundles Node and a
+stable stdio launcher; no port, token, or separately installed Node runtime is needed. A
+shell-friendly `forge-mcp.cmd` is also installed. The bridge still reads only Forge's authenticated
+per-user control token files and keeps the existing nine-tool contracts, filesystem scopes, and
+unsafe-command refusals. It does not add arbitrary file or script execution tools. See
+`docs/modernization/RELEASE-PREP.md` for the client configuration and updater status.
 
 Install the Rust toolchain required by the pinned workspace (`rust-version` in
 `solidcraft/Cargo.toml`), then from the repository root:

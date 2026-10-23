@@ -54,7 +54,7 @@ const edits = [
     '        assert_eq!(Format::from_name("new.solidcraft").unwrap(), Format::Design);\n        assert_eq!(Format::from_name("new.dxforge").unwrap(), Format::Design);\n        assert!(is_design_path("/d/old.SOLVECRAFT") && is_design_path("new.solidcraft") && is_design_path("new.DXFORGE") && !is_design_path("a.step"));'],
   ['crates/ui-egui/src/toolbar.rs',
     '// Brand mark: the SolidCraft logo, drawn in code from the SVG\'s own coordinates\n        // (viewBox 357 x 412). Same 20 px height and centre as the old block.\n        {\n            let c = pos2(left + 20.0, r.center().y);\n            crate::icons::glyphs::brand_mark(ui.painter(), c);\n        }',
-    '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'],
+    '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'],
   ['crates/ui-egui/src/toolbar.rs',
     '        let mut x = left + if compact_actions { 56.0 } else { 128.0 };',
     '        let mut x = left + if compact_actions { 140.0 } else { 172.0 };'],
@@ -195,17 +195,30 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
   const hasAfter = text.includes(after);
   const hasBefore = text.includes(before);
-  assert(hasBefore || hasAfter, `Overlay anchor ${editIndex + 1} drift in ${relative}: expected a recorded before/after snippet`);
+  const legacyWordmark = relative === 'crates/ui-egui/src/toolbar.rs' && before.startsWith('// Brand mark:')
+    ? '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'
+    : undefined;
+  assert(hasBefore || hasAfter || (legacyWordmark && text.includes(legacyWordmark)), `Overlay anchor ${editIndex + 1} drift in ${relative}: expected a recorded before/after snippet`);
   // Several overlays intentionally target repeated match arms in one file.
   // Replace each remaining source anchor even if a prior replacement already
   // introduced the same `after` snippet elsewhere in the file.
   if (!checkOnly && hasBefore && before !== after) {
     const updated = replaceNextUnpatched(text, before, after);
     if (updated !== text) writeFileSync(path, updated);
+  } else if (!checkOnly && legacyWordmark && text.includes(legacyWordmark)) {
+    writeFileSync(path, text.replace(legacyWordmark, after));
   }
 }
 
 const uxEdits = [
+  ['crates/ui-egui/src/toolbar.rs', 'pub const APP_BAR_HEIGHT: f32 = 34.0;', 'pub const APP_BAR_HEIGHT: f32 = 42.0;'],
+  ['crates/ui-egui/src/toolbar.rs', 'let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };', 'let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };'],
+  ['crates/ui-egui/src/update.rs', 'pub const REPO: &str = "bherbruck/solidcraft";', 'pub const REPO: &str = "pricklyguy/DemonX-Forge";'],
+  ['crates/ui-egui/src/update.rs', 'pub const LATEST_API: &str = "https://api.github.com/repos/bherbruck/solidcraft/releases/latest";', 'pub const LATEST_API: &str = "https://api.github.com/repos/pricklyguy/DemonX-Forge/releases/latest";'],
+  ['crates/ui-egui/src/update.rs', 'pub const RELEASES_PAGE: &str = "https://github.com/bherbruck/solidcraft/releases/latest";', 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases/latest";'],
+  ['crates/ui-egui/src/update.rs', 'const RELEASE_PREFIXES: [&str; 2] = ["https://github.com/bherbruck/solidcraft/releases/", "https://github.com/tangency-labs/solidcraft/releases/"];', 'const RELEASE_PREFIXES: [&str; 1] = ["https://github.com/pricklyguy/DemonX-Forge/releases/"];'],
+  ['crates/ui-egui/src/update.rs', 'unwrap_or_else(|| format!("SolidCraft {tag}"))', 'unwrap_or_else(|| format!("DemonX Forge {tag}"))'],
+  ['crates/ui-egui/src/update.rs', 'pub fn available(app: &mut SolveApp) -> bool {\n    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))\n}', 'pub fn available(app: &mut SolveApp) -> bool {\n    // The inherited SolidCraft installer replaces binaries in place and is not safe for Forge\'s immutable version directories. Keep its updater hidden until the Forge package manager is wired.\n    if std::env::var_os("DEMONX_FORGE_NATIVE_MANAGED").is_some() {\n        return false;\n    }\n    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))\n}'],
   ['crates/ui-egui/src/toolbar.rs',
     '/// Panels shown on each tab (in order). Commands come from the registry by (tab, panel).',
     `/// Load the Forge wordmark once for this egui context.
@@ -345,6 +358,33 @@ for (const [editIndex, [relative, before, after]] of scriptUiEdits.entries()) {
     if (updated !== text) writeFileSync(path, updated);
   }
 }
+
+// The application and icon generator both consume the `image` crate. Older versions of this
+// overlay inserted that dependency every time it ran, which could leave duplicate TOML keys in a
+// reused build clone. Normalize those owned entries so repeated package runs stay valid.
+for (const relative of ['apps/solidcraft/Cargo.toml', 'xtask/Cargo.toml']) {
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const normalized = text.replace(/^(image = \{ workspace = true \}\n)(?:image = \{ workspace = true \}\n)+/gm, '$1');
+  assert(checkOnly ? text === normalized : true, `duplicate Forge image dependency in ${relative}; rerun the overlay to normalize it`);
+  if (!checkOnly && text !== normalized) writeFileSync(path, normalized);
+}
+
+const mainPath = join(source, 'apps/solidcraft/src/main.rs');
+let mainText = readFileSync(mainPath, 'utf8').replace(/\r\n/g, '\n');
+const forgeControlArm = '            "--forge-mcp" => {\n                forge_control = true;\n                control_port = Some(0);\n            }\n';
+const dedupedIcons = mainText.replace(/(fn forge_icon\(\) -> Result<egui::IconData, eframe::Error> \{[\s\S]*?\n\})(?:\s*\1)+/g, '$1');
+assert(checkOnly ? dedupedIcons === mainText : true, 'duplicate Forge window icon helpers in apps/solidcraft/src/main.rs; rerun the overlay to normalize them');
+mainText = dedupedIcons;
+for (const [pattern, replacement, label] of [
+  [/    let mut forge_control = false;\n(?:    let mut forge_control = false;\n)+/, '    let mut forge_control = false;\n', 'MCP control flag'],
+  [/            "--forge-mcp" => \{\n                forge_control = true;\n                control_port = Some\(0\);\n            \}\n(?:            "--forge-mcp" => \{\n                forge_control = true;\n                control_port = Some\(0\);\n            \}\n)+/, forgeControlArm, 'MCP argument arm'],
+]) {
+  const normalized = mainText.replace(pattern, replacement);
+  assert(checkOnly ? normalized === mainText : true, `duplicate ${label} in apps/solidcraft/src/main.rs; rerun the overlay to normalize it`);
+  mainText = normalized;
+}
+if (!checkOnly) writeFileSync(mainPath, mainText);
 
 const controlTestPath = join(source, 'crates/ui-egui/src/control.rs');
 const deferredTestArm = '            Outcome::Screenshot { .. } => panic!("ui.render took a screenshot"),';

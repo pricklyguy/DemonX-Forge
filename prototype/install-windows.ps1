@@ -12,13 +12,13 @@ if (-not (Test-Path $manifestPath)) { throw "Package manifest missing: $manifest
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.product -ne 'DemonX Forge' -or $manifest.architecture -ne 'x64' -or -not $manifest.releaseId) { throw 'Package manifest is not a supported DemonX Forge x64 release.' }
 foreach ($name in $manifest.files.PSObject.Properties.Name) {
-  if ([IO.Path]::GetFileName($name) -ne $name) { throw "Unsafe package path in manifest: $name" }
-  $file = Join-Path $package $name
+  if ([IO.Path]::IsPathRooted($name) -or $name -match '(^|[\\/])\.\.([\\/]|$)' -or $name -match '^\\') { throw "Unsafe package path in manifest: $name" }
+  $file = Join-Path $package ($name.Replace('/', '\'))
   if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Package file missing: $name" }
   $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $manifest.files.$name) { throw "Package integrity check failed: $name" }
 }
-foreach ($required in 'solidcraft.exe', 'solidcraft-cli.exe', 'forge-mcp-native.mjs', 'DemonX Forge.ico', 'LICENSE-GPL-3.0-or-later', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt') {
+foreach ($required in 'solidcraft.exe', 'solidcraft-cli.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe', 'DemonX Forge.ico', 'LICENSE-GPL-3.0-or-later', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt') {
   if ($required -notin @($manifest.files.PSObject.Properties.Name)) { throw "Package is missing required file: $required" }
 }
 
@@ -40,6 +40,7 @@ $launcher = @'
 @echo off
 setlocal
 set "FORGE_ROOT=%~dp0"
+set "DEMONX_FORGE_NATIVE_MANAGED=1"
 set /p "FORGE_RELEASE=" < "%FORGE_ROOT%current.txt"
 if not defined FORGE_RELEASE (
   echo DemonX Forge has no active release. Run install-windows.ps1 again.
@@ -55,6 +56,36 @@ if not exist "%FORGE_EXE%" (
 Set-Content -LiteralPath (Join-Path $root 'DemonX Forge.cmd') -Value $launcher -Encoding ascii
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'forge-mcp-launcher.mjs') -Destination (Join-Path $root 'forge-mcp-native.mjs')
+
+# Stable MCP client entry point. The runtime is shared across versioned application folders and
+# preserved by upgrades; it is installed atomically only when absent.
+$runtimeRoot = Join-Path $root 'runtime'
+New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+$stableNode = Join-Path $runtimeRoot 'node.exe'
+if (-not (Test-Path -LiteralPath $stableNode)) {
+  $runtimeStage = Join-Path $runtimeRoot ('.node-' + [guid]::NewGuid().ToString('N') + '.tmp')
+  Copy-Item -LiteralPath (Join-Path $package 'runtime\node.exe') -Destination $runtimeStage
+  Move-Item -LiteralPath $runtimeStage -Destination $stableNode
+  $nodeLicense = Get-ChildItem -LiteralPath (Join-Path $package 'runtime') -Filter 'Node-LICENSE*' -File | Select-Object -First 1
+  if ($nodeLicense) { Copy-Item -LiteralPath $nodeLicense.FullName -Destination (Join-Path $runtimeRoot $nodeLicense.Name) }
+}
+$stableMcpExe = Join-Path $root 'forge-mcp.exe'
+if (-not (Test-Path -LiteralPath $stableMcpExe)) {
+  $mcpStage = Join-Path $root ('.forge-mcp-' + [guid]::NewGuid().ToString('N') + '.tmp.exe')
+  Copy-Item -LiteralPath (Join-Path $package 'forge-mcp.exe') -Destination $mcpStage
+  Move-Item -LiteralPath $mcpStage -Destination $stableMcpExe
+}
+$mcpCmd = @'
+@echo off
+setlocal
+set "FORGE_ROOT=%~dp0"
+if not exist "%FORGE_ROOT%runtime\node.exe" (
+  echo DemonX Forge MCP runtime is missing. Repair the installation with install-windows.ps1.
+  exit /b 2
+)
+"%FORGE_ROOT%runtime\node.exe" "%FORGE_ROOT%forge-mcp-native.mjs"
+'@
+Set-Content -LiteralPath (Join-Path $root 'forge-mcp.cmd') -Value $mcpCmd -Encoding ascii
 
 function Write-AtomicPointer([string] $Path, [string] $Value) {
   $temp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"

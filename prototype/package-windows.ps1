@@ -78,6 +78,8 @@ cd /d "$BuildSource"
 rustc -vV | findstr /c:"host: x86_64-pc-windows-msvc" >nul
 if errorlevel 1 (echo This package recipe requires the x86_64-pc-windows-msvc host toolchain. & exit /b 1)
 cargo build --release --locked -p solidcraft -p solidcraft-cli
+rustc --edition=2021 --target x86_64-pc-windows-msvc -C target-feature=+crt-static "$Repo\prototype\forge-mcp-launcher.rs" -o "$stage\forge-mcp.exe"
+if errorlevel 1 exit /b %errorlevel%
 exit /b %errorlevel%
 "@
 Set-Content -Path $cmdFile -Value $script -Encoding ascii
@@ -101,9 +103,32 @@ foreach ($file in 'solidcraft.exe', 'solidcraft-cli.exe', 'solvecraft-cli.exe') 
   if ($header.Subsystem -ne $expectedSubsystem) { throw "$file has PE subsystem $($header.Subsystem); expected $expectedSubsystem." }
   Copy-Item -LiteralPath $binary -Destination $stage
 }
+$mcpHeader = Get-PeHeader (Join-Path $stage 'forge-mcp.exe')
+if ($mcpHeader.Machine -ne 0x8664 -or $mcpHeader.Subsystem -ne 3) { throw 'forge-mcp.exe is not a Windows x64 console executable.' }
 foreach ($file in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt', 'README.md') { Copy-Item -LiteralPath (Join-Path $BuildSource $file) -Destination $stage }
 Copy-Item -LiteralPath (Join-Path $Repo 'LICENSE') -Destination (Join-Path $stage 'LICENSE-GPL-3.0-or-later')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'branding\demonx-forge-wordmark.png') -Destination $stage
+# MCP is a local stdio child process. Bundle a pinned official Node runtime rather than copying
+# whichever machine-wide Node happens to be installed on the build host.
+$nodeVersion = '24.19.0'
+$nodeArchiveName = "node-v$nodeVersion-win-x64.zip"
+$nodeSha256 = '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'
+$nodeCache = Join-Path $env:TEMP "DemonXForgeBuild\runtime\$nodeArchiveName"
+New-Item -ItemType Directory -Force -Path (Split-Path $nodeCache) | Out-Null
+if (-not (Test-Path -LiteralPath $nodeCache)) {
+  Invoke-WebRequest -Uri "https://nodejs.org/dist/v$nodeVersion/$nodeArchiveName" -OutFile $nodeCache
+}
+$downloadHash = (Get-FileHash -LiteralPath $nodeCache -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($downloadHash -ne $nodeSha256) { Remove-Item -LiteralPath $nodeCache -Force; throw "Pinned Node.js archive SHA-256 mismatch: $downloadHash" }
+$nodeExtract = Join-Path $env:TEMP ("DemonXForgeBuild\runtime\unpack-" + [guid]::NewGuid().ToString('N'))
+Expand-Archive -LiteralPath $nodeCache -DestinationPath $nodeExtract
+$nodeDistribution = Join-Path $nodeExtract "node-v$nodeVersion-win-x64"
+$runtimeDir = Join-Path $stage 'runtime'
+New-Item -ItemType Directory -Path $runtimeDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $nodeDistribution 'node.exe') -Destination (Join-Path $runtimeDir 'node.exe')
+Copy-Item -LiteralPath (Join-Path $nodeDistribution 'LICENSE') -Destination (Join-Path $runtimeDir 'Node-LICENSE')
+$bundledNodeVersion = (& (Join-Path $runtimeDir 'node.exe') --version).Trim()
+if ($bundledNodeVersion -ne "v$nodeVersion") { throw "Bundled MCP runtime version mismatch: $bundledNodeVersion" }
 Invoke-Checked 'Bundle the existing nine-tool Forge MCP compatibility bridge' {
   Push-Location $Repo
   try { node (Join-Path $PSScriptRoot 'build-mcp-native.mjs') (Join-Path $stage 'forge-mcp-native.mjs') }
@@ -140,14 +165,14 @@ version folders. The installer retains prior binaries; run prototype\rollback-wi
 Forge checkout to restore the previous version. Do not delete either user-data folder while designs
 need recovery.
 
-The stable `C:\DemonX-Forge-Native\forge-mcp-native.mjs` launcher follows `current.txt` across
-upgrades and runs the existing Forge nine-tool compatibility bridge for that version. Configure a
-local MCP client with command `C:\Program Files\nodejs\node.exe` and args
-`["C:\\DemonX-Forge-Native\\forge-mcp-native.mjs"]`; no port or token environment variable is
-needed. The app must be open. The bridge reads only the private per-user token files in Forge's
-control directory, authenticates to loopback, and reports a launch instruction if no endpoint is
-available. Do not copy the token into client configuration. Filesystem scopes and unsafe-command
-refusals are unchanged.
+Configure a local MCP client with command `C:\DemonX-Forge-Native\forge-mcp.exe` and no args.
+This stable stdio launcher uses the bundled Node runtime and follows `current.txt` across upgrades.
+The shell-friendly `forge-mcp.cmd` is also available. No port or token environment variable is
+needed when one Forge session is running. The app must be open. The bridge reads only private
+per-user token files in Forge's control directory, authenticates to loopback, and reports a launch
+instruction if no endpoint is available. If multiple app sessions are detected, it refuses to guess;
+set `FORGE_NATIVE_PORT` only when deliberately selecting one session. Do not copy tokens into client
+configuration. Filesystem scopes and unsafe-command refusals are unchanged.
 
 This package preserves SolidCraft MIT/Apache and third-party notices. The Forge bridge is covered
 by the included GNU GPL-3.0-or-later license.
@@ -167,8 +192,9 @@ $manifest = [ordered]@{
   sourceCommitTime = $forgeCommitTime
   files = @{}
 }
-foreach ($file in Get-ChildItem -LiteralPath $stage -File) {
-  if ($file.Name -ne 'manifest.json') { $manifest.files[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse) {
+  $relative = [IO.Path]::GetRelativePath($stage, $file.FullName).Replace('\', '/')
+  if ($relative -ne 'manifest.json') { $manifest.files[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding utf8
 $package = Join-Path $output $releaseId

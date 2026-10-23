@@ -283,3 +283,15 @@ and preserve parametric history; verify MCP tools and security refusals remain u
 - [x] Build and install `0.19.0-forge-a92a977068ed-engine-75261cd79733` under `C:\DemonX-Forge-Native`; the prior release remains in `previous.txt` for rollback.
 - [x] Rerun installed-app modeling and MCP acceptance: three independent bodies, history edits, save/reopen, STL and separated 3MF export, undo/redo, all nine Forge MCP tools, security refusals, and GUI screenshot passed.
 - [x] Rerun the adjusted broader scenario target: 121 passed, 0 failed, 1 ignored.
+
+### Native release preparation — 2026-10-23
+
+- [x] Keep the installed versioned application folders immutable and preserve the current working release as rollback.
+- [ ] Package and install a stable Windows MCP entry point (`forge-mcp.exe` and `forge-mcp.cmd`) with a bundled Node runtime; verify all nine tools, restart discovery, multiple-instance refusal, and security contracts from the installed release.
+- [x] Keep MCP discovery loopback-only and token-authenticated; refuse ambiguous multi-instance targeting unless the client explicitly selects one port.
+- [ ] Build a dedicated native updater against a native-only release channel. Do not use the inherited SolidCraft in-place executable swap or the existing React `v0.27.0` release channel.
+- [ ] Require trusted remote package provenance; stage immutable package folders; protect user data; defer while a document is dirty; atomically switch pointers; verify startup and roll back on failure.
+- [ ] Verify taller Forge title bar and wordmark at Windows standard/high DPI, maximized/restored, small-window, and light/dark combinations.
+- [ ] Run installed-app acceptance and preserve the prior package. Native release stays preview until Linux build/package acceptance also passes.
+
+Current detail: [`RELEASE-PREP.md`](RELEASE-PREP.md).

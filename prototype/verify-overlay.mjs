@@ -27,8 +27,14 @@ requireMatch(recovery, /XDG_DATA_HOME[\s\S]*?join\("demonx-forge"\)/, 'persisten
 requireMatch(home, /join\("DemonX Forge"\)\.join\("thumbnails"\)/, 'isolated thumbnail cache');
 requireMatch(main, /demonx-forge-icon\.png/, 'Forge-owned window icon');
 requireMatch(main, /fn forge_icon\(\)/, 'Forge icon loader');
+if ([...main.matchAll(/fn forge_icon\(\)/g)].length !== 1) throw new Error('Overlay left duplicate Forge icon helpers in main.rs');
+if ([...main.matchAll(/"--forge-mcp" =>/g)].length !== 1) throw new Error('Overlay left duplicate MCP launch arguments in main.rs');
+if ([...main.matchAll(/let mut forge_control = false;/g)].length !== 1) throw new Error('Overlay left duplicate MCP control state in main.rs');
 requireMatch(toolbar, /demonx-forge-wordmark/, 'Forge-owned horizontal app bar wordmark');
 requireMatch(toolbar, /else \{ 172\.0 \}/, 'app bar spacing for full Forge wordmark');
+requireMatch(toolbar, /APP_BAR_HEIGHT: f32 = 42\.0/, 'taller Forge title bar');
+requireMatch(read('crates/ui-egui/src/update.rs'), /api\.github\.com\/repos\/pricklyguy\/DemonX-Forge\/releases\/latest/, 'updater does not query upstream SolidCraft releases');
+requireMatch(read('crates/ui-egui/src/update.rs'), /DEMONX_FORGE_NATIVE_MANAGED/, 'unsafe inherited in-place updater disabled for managed Forge installs');
 requireMatch(sketchDimensionTests, /mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape/, 'mouse gesture/live dimension regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool/, 'mouse circle diameter regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw/, 'mouse line angle and cancellation regression test');

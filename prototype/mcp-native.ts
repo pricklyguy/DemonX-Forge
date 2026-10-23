@@ -100,12 +100,18 @@ function candidates(): Endpoint[] {
 async function discoverEndpoint(): Promise<Endpoint> {
   const available = candidates();
   if (configuredPort && available.length) return available[0];
+  const live: Endpoint[] = [];
   for (const candidate of available) {
     try {
       await controlCall(candidate, 'control.running', {}, undefined, 5000);
-      return candidate;
+      live.push(candidate);
     } catch { /* Stale token files and closed listeners are skipped; the app removes them on exit. */ }
   }
+  if (live.length > 1) {
+    const ports = live.map((item) => item.port).join(', ');
+    throw new Error(`Multiple DemonX Forge sessions are running (ports ${ports}). Close extra sessions, or set FORGE_NATIVE_PORT in this MCP client to select one. Authentication still comes from Forge's private token file.`);
+  }
+  if (live.length === 1) return live[0];
   const expected = configuredPort ? `port ${configuredPort}` : `a private token in ${defaultControlDir()}`;
   throw new Error(`No running DemonX Forge control endpoint found (${expected}). Start DemonX Forge and retry. MCP will not scan arbitrary ports or read a token supplied by an MCP request.`);
 }
