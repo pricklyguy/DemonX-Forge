@@ -117,6 +117,54 @@ fn demonx_forge_wordmark(ctx: &egui::Context) -> egui::TextureHandle {
   ['crates/ui-egui/src/viewport_overlays_tests.rs',
     'fn compass_circle_grabs_on_hover_and_the_home_chip_points() {\n    let mut h = Harness::new();',
     'fn compass_circle_grabs_on_hover_and_the_home_chip_points() {\n    let mut h = Harness::new();\n    h.call("ui.prefs", json!({"navigator_style":"axes"}));'],
+  ['crates/ui-egui/src/viewport.rs',
+    '    if sketch_plane.is_some() || (app.ui.show_grid && !active_view(app).hide_grid) {',
+    '    if app.ui.show_grid && (sketch_plane.is_some() || !active_view(app).hide_grid) {'],
+  ['crates/ui-egui/src/viewport.rs',
+    '        // An open sketch always has its grid on its own plane; otherwise the ground plane: XY with',
+    '        // When enabled, an open sketch grid lies on its own plane; otherwise the ground plane: XY with'],
+  ['crates/ui-egui/src/viewport.rs',
+    '    /// An open sketch always has its grid, on its own plane, whatever the Grid switch and the\n    /// follow-the-view preference say; outside a sketch the switch decides.',
+    '    /// The Grid switch controls the grid both in an open sketch and in the model view.'],
+  ['crates/ui-egui/src/viewport.rs',
+    '        app.ui.show_grid = false;\n        let grid = |app: &SolveApp| build_sketch_scene(app, &projection(app, rect)).under;\n        assert!(grid(&app).is_empty(), "no grid outside a sketch with the switch off");\n        app.run("sketch.create", json!({"plane": "XZ"})).unwrap();\n        for follows in [false, true] {\n            app.preferences.grid_follows_view = follows;\n            let under = grid(&app);\n            assert!(!under.is_empty(), "the open sketch shows a grid (follows the view: {follows})");',
+    '        app.ui.show_grid = true;\n        let grid = |app: &SolveApp| build_sketch_scene(app, &projection(app, rect)).under;\n        assert!(!grid(&app).is_empty(), "the model view shows the grid when enabled");\n        app.run("sketch.create", json!({"plane": "XZ"})).unwrap();\n        for follows in [false, true] {\n            app.preferences.grid_follows_view = follows;\n            let under = grid(&app);\n            assert!(!under.is_empty(), "the open sketch shows a grid when enabled (follows the view: {follows})");\n            app.ui.show_grid = false;\n            assert!(grid(&app).is_empty(), "the Sketch Grid switch hides the open sketch grid");\n            app.ui.show_grid = true;'],
+  ['crates/ui-egui/tests/icon_audit.rs',
+    '        let expected = std::fs::read_to_string(&path).unwrap_or_default();',
+    '        let expected = std::fs::read_to_string(&path).unwrap_or_default().replace("\\r\\n", "\\n");'],
+];
+
+const scenarioEdits = [
+  ['crates/ui-egui/tests/scenarios/axis_view_hover.json',
+    '[\n  {\n    "note": "Signed axis tips own one highlight at a time and choose principal views."',
+    '[\n  {"call":"ui.prefs","params":{"navigator_style":"axes"}},\n  {\n    "note": "Signed axis tips own one highlight at a time and choose principal views."'],
+  ['crates/ui-egui/tests/scenarios/axis_view_y_up.json',
+    '      "up_axis": "y"\n    }',
+    '      "up_axis": "y",\n      "navigator_style": "axes"\n    }'],
+  ['crates/ui-egui/tests/scenarios/prefs_theme_files.json',
+    '"theme": "dark"',
+    '"theme": "demonx-forge-dark"'],
+  ['crates/ui-egui/tests/scenarios/s45_preferences.json',
+    '"theme": "dark"',
+    '"theme": "demonx-forge-dark"'],
+  ['crates/ui-egui/tests/scenarios/prefs_theme_files.json',
+    '"prefs:theme:gruvbox-dark"',
+    '"prefs:theme:demonx-forge-dark"'],
+  ['crates/ui-egui/tests/scenarios/prefs_theme_files.json',
+    '"theme": "gruvbox-dark"',
+    '"theme": "demonx-forge-dark"'],
+  ['crates/ui-egui/tests/scenarios/two_point_shapes_drawn_by_dragging.json',
+    '  {"drag": [{"sketch": [10, 10]}, {"sketch": [40, 30]}], "steps": 8},\n  {"expect":',
+    '  {"drag": [{"sketch": [10, 10]}, {"sketch": [40, 30]}], "steps": 8},\n  {"key":"Enter"},\n  {"expect":'],
+  ['crates/ui-egui/tests/scenarios/two_point_shapes_drawn_by_dragging.json',
+    '  {"drag": [{"sketch": [-30, 10]}, {"sketch": [-20, 10]}], "steps": 8},\n  {"expect":',
+    '  {"drag": [{"sketch": [-30, 10]}, {"sketch": [-20, 10]}], "steps": 8},\n  {"key":"Enter"},\n  {"expect":'],
+  ['crates/ui-egui/tests/scenarios/prefs_theme_files.json',
+    '"theme": "dark"',
+    '"theme": "demonx-forge-dark"'],
+  ['crates/ui-egui/tests/scenarios/s45_preferences.json',
+    '"theme": "dark"',
+    '"theme": "demonx-forge-dark"'],
 ];
 
 for (const [editIndex, [relative, before, after]] of uxEdits.entries()) {
@@ -128,6 +176,15 @@ for (const [editIndex, [relative, before, after]] of uxEdits.entries()) {
   if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
 }
 
+for (const [editIndex, [relative, before, after]] of scenarioEdits.entries()) {
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const hasAfter = text.includes(after);
+  const hasBefore = text.includes(before);
+  assert(hasBefore || hasAfter, `Scenario overlay anchor ${editIndex + 1} drift in ${relative}`);
+  if (!checkOnly && hasBefore) writeFileSync(path, text.replaceAll(before, after));
+}
+
 const interactionTestPatch = join(here, 'patches/sketch-live-input-ui-tests.patch');
 const interactionTests = join(source, 'crates/ui-egui/src/sketch_dims_tests.rs');
 const interactionTestMarker = 'mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape';
@@ -137,6 +194,14 @@ if (checkOnly) {
 } else if (!hasInteractionTests) {
   execFileSync('git', ['-C', source, 'apply', interactionTestPatch]);
 }
+
+const sketchDimsTests = join(source, 'crates/ui-egui/src/sketch_dims_tests.rs');
+const dimensionVisibilityMarker = 'the typed width remains a driving sketch dimension';
+const dimensionVisibilityBefore = '    assert!((profiles[0].area - 288.0).abs() < 1e-6, "typed width × height must determine the profile area");\n    assert_eq!(h.app.session.undo.len(), undo + 1, "the mouse gesture and dimensions form one undo step");';
+const dimensionVisibilityAfter = '    assert!((profiles[0].area - 288.0).abs() < 1e-6, "typed width × height must determine the profile area");\n    let driving_values: Vec<_> = sketch.constraints.iter().filter(|constraint| constraint.param.is_some()).filter_map(|constraint| constraint.kind.value()).collect();\n    assert!(driving_values.iter().any(|value| (value - 24.0).abs() < 1e-6), "the typed width remains a driving sketch dimension: {driving_values:?}");\n    assert!(driving_values.iter().any(|value| (value - 12.0).abs() < 1e-6), "the typed height remains a driving sketch dimension: {driving_values:?}");\n    h.frames(2);\n    assert_eq!(crate::dim_view::drawn().len(), 2, "width and height labels remain visible after confirming the rectangle");\n    assert_eq!(h.app.session.undo.len(), undo + 1, "the mouse gesture and dimensions form one undo step");';
+const sketchDimsText = readFileSync(sketchDimsTests, 'utf8').replace(/\r\n/g, '\n');
+assert(sketchDimsText.includes(dimensionVisibilityBefore) || sketchDimsText.includes(dimensionVisibilityMarker), 'rectangle dimension visibility test anchor drifted');
+if (!checkOnly && !sketchDimsText.includes(dimensionVisibilityMarker)) writeFileSync(sketchDimsTests, sketchDimsText.replace(dimensionVisibilityBefore, dimensionVisibilityAfter));
 
 const lineDragPatch = join(here, 'patches/sketch-line-drag.patch');
 const viewport = join(source, 'crates/ui-egui/src/viewport.rs');

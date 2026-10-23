@@ -173,3 +173,12 @@ package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESU
 - [x] Rebuild and install `0.19.0-forge-b2b80238e377-engine-75261cd79733`; the prior release remains in `versions/` and `previous.txt`.
 - [x] Rerun installed-app MCP and modeling acceptance against the updated executable: nine tools, security refusals, body/face selection, sketching, feature/history edits, exports, save/reopen, undo/redo and GUI synchronization passed.
 - [x] Record the persistent launch path. The pre-existing process remains on the older executable until the owner saves and restarts it.
+
+### Sketch annotation and grid follow-up — 2026-10-22
+
+- [x] Verify that rectangle live width and height are retained as driving dimensions and their numeric labels render after Enter; add a viewport regression assertion for both.
+- [x] Make the Sketch Grid toggle hide the sketch-plane grid while a sketch is open; verify hidden and shown grid geometry in a viewport test.
+- [x] Run the complete release UI library tests with DX12 required: 1,855 passed, 0 failed, 6 ignored.
+- [x] Rerun the icon audit after normalizing manifest line endings for Windows: 4 passed.
+- [ ] Rebuild and install this follow-up on Windows, then verify the visible dimensions and grid toggle in the packaged app.
+- [ ] Resolve or document the remaining legacy scenario assertions for old theme IDs and update the drag-to-confirm scenario to press Enter for both rectangle and circle before claiming the complete integration suite passes.

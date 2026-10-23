@@ -49,6 +49,11 @@
 +    let profiles = solidcraft_engine::sketch::find_drawn_profiles(&sketch);
 +    assert_eq!(profiles.len(), 1);
 +    assert!((profiles[0].area - 288.0).abs() < 1e-6, "typed width × height must determine the profile area");
++    let driving_values: Vec<_> = sketch.constraints.iter().filter(|constraint| constraint.param.is_some()).filter_map(|constraint| constraint.kind.value()).collect();
++    assert!(driving_values.iter().any(|value| (value - 24.0).abs() < 1e-6), "the typed width remains a driving sketch dimension: {driving_values:?}");
++    assert!(driving_values.iter().any(|value| (value - 12.0).abs() < 1e-6), "the typed height remains a driving sketch dimension: {driving_values:?}");
++    h.frames(2);
++    assert_eq!(crate::dim_view::drawn().len(), 2, "width and height labels remain visible after confirming the rectangle");
 +    assert_eq!(h.app.session.undo.len(), undo + 1, "the mouse gesture and dimensions form one undo step");
 +    h.app.run("edit.undo", json!({})).unwrap();
 +    assert!(h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.curves.is_empty());

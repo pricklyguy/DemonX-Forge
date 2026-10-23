@@ -285,3 +285,31 @@ multi-body 3MF separation from the installed build. Screenshot:
 `%TEMP%\demonx-forge-native-acceptance-n0bPxi\demonx-forge-three-body.png`. The previously running
 native app process (PID `45376`) was left open on its prior executable; save any open design, close
 that window, and relaunch with `C:\DemonX-Forge-Native\DemonX Forge.cmd` to use the patched build.
+
+### Sketch dimension labels and Sketch Grid toggle (2026-10-22)
+
+The report about numeric rectangle dimensions was checked against the actual drawing path. Typed
+rectangle width and height already reach the engine as parameter-backed constraints; the missing
+evidence was a post-confirmation render check. The drag regression now verifies both persistent
+driving values (24 mm and 12 mm) and two visible dimension annotations after Enter. This keeps the
+H/V constraint markers and adds the width and height labels users expect.
+
+The Sketch Grid control was wired to a preference that the open-sketch viewport intentionally
+overrode. The Forge overlay now applies the same grid visibility switch while a sketch is open.
+Its viewport test checks the grid is absent with the switch off and restored when it is on.
+
+Verified on the pinned Windows source using DX12 with GPU tests required:
+
+```text
+Post-confirmation rectangle dimensions and rendered labels: 1 passed
+Sketch Grid viewport toggle: 1 passed
+UI library unit tests: 1855 passed, 0 failed, 6 ignored
+Windows icon audit after CRLF normalization in its test copy: 4 passed
+```
+
+The broader scenario integration target was also run. Its first run had five old expectations for
+the previous SolidCraft axes default, theme ID, and immediate commit-on-release behavior. The Forge
+overlay was updated to account for the cube default, branded theme ID, and Enter-to-confirm drag
+workflow. At the last completed scenario run, three assertions still failed (two preferences
+expectations and the circle drag confirmation); those scenario adjustments have not yet been
+rerun. The installed package build and installed acceptance for this follow-up are also pending.
