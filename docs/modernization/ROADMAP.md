@@ -45,6 +45,44 @@ a writable test profile for thumbnail caching. See `PROTOTYPE-RESULTS.md` for de
 
 **Completion:** existing Forge MCP integration tests pass against the active native session, including forbidden command/path and unauthenticated control refusals.
 
+### Follow-up — MCP script-driven modeling (requested 2026-10-23)
+
+**Status:** planned. Forge exposes structured modeling commands through `forge_run_commands`, but it does not provide a script import workflow. The intended use is a parameter-driven generator that turns inputs into Forge commands, submits bounded batches, and checks the resulting model.
+
+- Validate a reusable parameter-to-command workflow over the existing MCP tools; prefer structured, allowlisted command batches over executing arbitrary source code inside Forge.
+- Support staged batches with checks between stages using design inspection, queries, measurements, or screenshots, and return actionable errors when a stage fails.
+- Preserve all nine MCP tool names and schemas, authentication, command/path restrictions, and the native GUI's live document synchronization. Do not add arbitrary filesystem access or client-selected file operations.
+- Decide whether a script import/definition format is still needed after validating the external generator workflow; if so, specify parameter validation, failure/partial-run behavior, and compatibility before implementation.
+
+**Completion:** a parameterized real-model workflow can create and modify representative geometry (including primitives, joins/cuts, patterns, and mirroring), verify each stage through MCP, and leave the active GUI model consistent. Save/reopen and undo/redo behavior, partial-failure reporting, and security refusals are verified; no script execution or import capability is claimed before its acceptance checks pass.
+
+## Native scripting, first-class MCP, and large-model milestone (requested 2026-10-23)
+
+**Status:** source assessment and proposed scripting architecture documented in
+[`SCRIPTING-ARCHITECTURE.md`](SCRIPTING-ARCHITECTURE.md); owner review requested before building a
+new in-app script runner/runtime. The installed application and project data were not changed.
+
+1. **Scripting architecture:** approve or revise the proposed JSON in-app runner plus external
+   Python generator/client, both using the existing SolidCraft command registry. Require checked
+   batches, geometry/timeline postconditions, clear per-step errors, and verified undo/rollback.
+   Add reusable user scripts now; design add-in lifecycle and permissions as a later decision.
+2. **First-class MCP:** install a stable version-independent launcher, add secure live-app endpoint
+   discovery with a private token, make normal connection setup discoverable in the app, and keep
+   the fixed-port/version-path setup as a compatibility fallback. Preserve the nine Forge tools,
+   their schemas, and all existing filesystem and unsafe-command restrictions.
+3. **Large-model usability:** use an independent generated or copied test fixture with at least 50
+   named bodies and substantial feature history. Measure load/save/rebuild, viewport, browser,
+   selection, exports, and MCP latency; verify geometry, history, save/reopen, and GUI/MCP sync.
+   Never run acceptance edits against the owner's working project.
+4. **Branding and project files:** keep `.dxforge` associations as a lower-priority follow-up and
+   retain `.solidcraft` compatibility without serialization changes for branding alone.
+
+**Completion:** approved script workflow works in-app and through MCP against the same live model;
+the stable MCP shim connects securely without version-specific paths or a manually selected port;
+all nine tools and refusals have regression evidence; the 50+ body scenario meets recorded
+performance and geometry criteria on Windows, with Linux results clearly separated; the prior
+installed release and user documents remain available for rollback.
+
 ### Prototype 4 — Packaging and migration recommendation
 
 **Status:** Windows package installed and accepted at `C:\DemonX-Forge-Native`; the separate existing Forge installation is intact. Manifest verification, versioned install/update/rollback, persistent per-user paths, native app launch, modeling, MCP, export, and save/reopen passed. Linux package execution is unverified and does not block the Windows installation.
