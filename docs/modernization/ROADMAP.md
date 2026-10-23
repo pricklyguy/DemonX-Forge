@@ -222,14 +222,23 @@ separate compatibility surface.
   undo/redo step.
 - [x] Keep the user script library outside versioned app folders and separate from MCP permissions.
 - [x] Verify all nine MCP tools against the newly installed application and complete stable
-  endpoint discovery/launcher changes.
-- [x] Package, install beside the prior release, and validate Windows GUI/engine acceptance.
-- [x] Run save/reopen, rollback, Stop, undo/redo and GUI interaction acceptance in the packaged
-  Windows application.
+  endpoint discovery/launcher changes. The optional `single_undo: true` argument on the existing
+  `forge_run_commands` tool submits through the native script runner while preserving the normal
+  default batch behavior and all nine tool names.
+- [x] Package and install `0.19.0-forge-bcbe72dcbc90-engine-75261cd79733` beside the prior release;
+  verify the package overlay is repeatable and the stable MCP launcher still follows the active
+  version.
+- [x] Run save/reopen, real fillet-failure rollback, Stop, SDK failure/success, single undo/redo,
+  and GUI interaction acceptance in the installed Windows application.
 - [ ] Verify Linux build and package compatibility; no Linux runner was available in this local
   acceptance pass.
 - [x] Implement the optional Python SDK after native runner and MCP acceptance pass. It generates
-  schema v1 scripts and submits one MCP-validated, all-or-nothing `forge_run_commands` batch.
+  schema v1 scripts and submits one MCP-validated native transaction using the existing
+  `forge_run_commands` tool.
+
+**Verified 2026-10-23:** native runner tests: 4 passed; Python SDK tests: 3 passed; server suite with
+the installed CLI engine: 160 passed, 4 skipped; combined installed-app acceptance passed. Full
+commands and evidence are in [`SCRIPTING-TEST-RESULTS.md`](SCRIPTING-TEST-RESULTS.md).
 
 **Acceptance:** create a multi-body model from a reusable script; deliberately fail a later feature
 and verify no partial geometry or history remains; run successfully and undo/redo once; save/reopen
@@ -237,14 +246,18 @@ and preserve parametric history; verify MCP tools and security refusals remain u
 
 ### Large-model GUI performance checkpoint (dependency: installed script runner and stable MCP)
 
-- [ ] Generate an isolated fixture with at least 50 independently named bodies and substantial
-  feature history; never use or save over the owner's 57-body project.
-- [ ] Measure browser scroll/selection/rename/hide/isolate latency, dense face/edge selection,
-  face-attached sketch setup, camera response, viewport frame rate, body exports, MCP inspect and
-  parameter rebuild latency.
-- [ ] Record hardware, fixture generation method, model size, timings and screenshots. Set budgets
-  from measured baseline and investigate regressions before optimizing.
-- [ ] Save/reopen the fixture and verify model structure and parametric edits.
+- [x] Generate an isolated fixture with 50 independently named bodies and 60 history features;
+  never open or save over the owner's 57-body project.
+- [x] Measure browser scroll/selection/rename/hide/show/isolate latency, dense face/edge selection,
+  face-attached sketch setup, standard camera navigation, sampled viewport timings, individual and
+  multi-body exports, MCP inspection and parameter rebuild latency.
+- [x] Record hardware available to the runtime, fixture method, model size, timings and screenshots
+  in [`SCRIPTING-TEST-RESULTS.md`](SCRIPTING-TEST-RESULTS.md). These are baseline measurements, not
+  performance budgets.
+- [x] Save/reopen the fixture and verify body structure, rename, history, and an edited parametric
+  volume.
+- [ ] Measure sustained viewport frame rate and physical mouse orbit/pan latency; the current
+  acceptance records a single frame/build sample and standard Front-view transition only.
 
 ### Product identity follow-up (after scripting and large-model acceptance)
 

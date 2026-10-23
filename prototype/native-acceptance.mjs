@@ -246,6 +246,7 @@ async function main() {
   await call(port, 'engine.execute', { command: 'sketch.finish' });
 
   await call(port, 'ui.view', { view: 'top' });
+  const faceSketchSetupStarted = performance.now();
   await call(port, 'ui.start', { command: 'sketch.create' });
   const sketchFacePoint = await call(port, 'ui.at', { world: top.point });
   await call(port, 'ui.click', { x: sketchFacePoint[0], y: sketchFacePoint[1] });
@@ -262,6 +263,7 @@ async function main() {
     await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
     throw new Error(`viewport face picking did not start a sketch on Plate; face point=${JSON.stringify(sketchFacePoint)}, selection=${JSON.stringify(selection)}, screenshot=${screenshot}`);
   }
+  const faceSketchSetupMs = performance.now() - faceSketchSetupStarted;
   await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [-2, -2], p1: [2, 2] } });
   await call(port, 'engine.execute', { command: 'sketch.finish' });
   const faceSketchDocument = await call(port, 'engine.execute', { command: 'document.inspect' });
@@ -455,6 +457,10 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     await mcpTool('forge_redo');
     const sdkRedoDesign = JSON.parse((await mcpTool('forge_get_design')).content[0].text).bodies;
     assert(['Python SDK Body', 'Python SDK Body 2'].every((name) => sdkRedoDesign.some((body) => body.name === name)), 'Python SDK redo did not restore the complete submitted batch');
+    // External scripts leave their progress/result window open for the user. Dismiss
+    // that native modal as a real user would before exercising the large-model browser.
+    await call(port, 'ui.key', { key: 'Escape' });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
     pythonSdkVerified = true;
   }
 
@@ -507,7 +513,12 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
       targetRow = (await browserRow(largeNames.at(-1)));
     }
-    assert(targetRow, 'the browser did not reveal the last named body after scrolling');
+    if (!targetRow) {
+      const debugScreenshot = join(root, 'large-browser-scroll-debug.png');
+      const debugUi = await call(port, 'ui.inspect');
+      await call(port, 'ui.screenshot', { path: debugScreenshot }, token, [root]);
+      throw new Error(`the browser did not reveal the last named body after scrolling; viewport=${JSON.stringify(debugUi.viewport)}, screenshot=${debugScreenshot}`);
+    }
     const browserScrollMs = performance.now() - scrollStarted;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 120));
     const liveRowPoint = await call(port, 'ui.at', { browser: largeNames.at(-1) });
@@ -532,9 +543,12 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     let menu = await bodyMenu(largeNames.at(-1));
     let action = menu.items?.find((item) => item.id === 'ui.rename' || item.label === 'Rename');
     assert(action, 'large-model body context menu did not offer Rename');
+    const renameStarted = performance.now();
     await call(port, 'ui.menuPick', { item: action.id ?? action.label });
     await call(port, 'ui.rename', { text: 'Large Part 050 Renamed', commit: true });
     assert(await browserRow('Large Part 050 Renamed'), 'large-model browser rename did not update the body row');
+    const renameMs = performance.now() - renameStarted;
+    const visibilityStarted = performance.now();
     menu = await bodyMenu('Large Part 050 Renamed');
     action = menu.items?.find((item) => item.id === 'ui.hide' || item.label === 'Show/Hide');
     await call(port, 'ui.menuPick', { item: action?.id ?? action?.label });
@@ -545,12 +559,15 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     await call(port, 'ui.menuPick', { item: action?.id ?? action?.label });
     visibleState = (await call(port, 'ui.inspect')).visibility;
     assert(!visibleState.hidden_bodies.includes('Large Part 050 Renamed'), 'large-model body Show failed');
+    const hideShowMs = performance.now() - visibilityStarted;
+    const isolateStarted = performance.now();
     menu = await bodyMenu('Large Part 050 Renamed');
     action = menu.items?.find((item) => item.id === 'ui.isolate' || item.label === 'Isolate');
     assert(action, 'large-model body context menu did not offer Isolate');
     await call(port, 'ui.menuPick', { item: action.id });
     const isolateState = (await call(port, 'ui.inspect')).visibility;
     assert(isolateState.hidden_bodies.filter((name) => name.startsWith('Large Part ')).length === 49, 'large-model Isolate did not hide the other 49 fixture bodies');
+    const isolateMs = performance.now() - isolateStarted;
     await call(port, 'ui.menu', { close: true });
     const renamedLargeNames = [...largeNames.slice(0, 49), 'Large Part 050 Renamed'];
     await call(port, 'engine.execute', { command: 'browser.visibility', params: { items: renamedLargeNames, visible: true } });
@@ -604,10 +621,14 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     assert(reopenedLarge.bodies.find((body) => body.name === largeNames[0])?.volume_mm3 === volumeAfterEdit, 'large-model save/reopen lost the parametric body edit');
 
     const largeStl = join(root, 'large-part-050.stl');
+    const individualExportStarted = performance.now();
     await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: largeStl, format: 'stl', bodies: ['Large Part 050 Renamed'] } }, token, [root]);
+    const individualStlExportMs = performance.now() - individualExportStarted;
     assert(statSync(largeStl).size > 84, 'individual STL export from the large fixture is empty');
     const large3mf = join(root, 'large-model.3mf');
+    const multiExportStarted = performance.now();
     await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: large3mf, format: '3mf', bodies: renamedLargeNames } }, token, [root]);
+    const multiBodyExportMs = performance.now() - multiExportStarted;
     const objectCount = parse3mfObjects(large3mf);
     assert(objectCount === 50, `large-model 3MF export preserved ${objectCount} objects; expected 50`);
     const viewportBeforePan = await call(port, 'ui.inspect');
@@ -623,13 +644,19 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
       mcpInspectionMs: Math.round(inspectionMs),
       browserScrollMs: Math.round(browserScrollMs),
       browserSelectionMs: Math.round(rowSelectionMs),
+      browserRenameMs: Math.round(renameMs),
+      browserHideShowMs: Math.round(hideShowMs),
+      browserIsolateMs: Math.round(isolateMs),
       faceSelectionMs: Math.round(faceSelectionMs),
       edgeSelectionMs: Math.round(edgeSelectionMs),
+      faceSketchSetupMs: Math.round(faceSketchSetupMs),
       parameterEditMs: Math.round(parameterEditMs),
-      cameraPanMs: Math.round(cameraNavigationMs),
+      cameraNavigationMs: Math.round(cameraNavigationMs),
       viewportFrameMs: Math.round(viewportAfterPan.frame_ms),
       viewportBuildMs: Math.round(viewportAfterPan.build_ms),
       saveReopenMs: Math.round(saveReopenMs),
+      individualStlExportMs: Math.round(individualStlExportMs),
+      multiBodyExportMs: Math.round(multiBodyExportMs),
       exported3mfObjects: objectCount,
       documentInspectBytes: Buffer.byteLength(largeDesignReply.content[0].text),
     };
