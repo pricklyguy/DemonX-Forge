@@ -170,5 +170,6 @@ package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESU
 - [x] Add a real Origin plane dropdown to Create Sketch, including the three principal planes and a neutral unselected state; retain planar-face picking.
 - [x] Keep rectangle, circle, and line geometry in an editable preview after a drag release so live dimensions can be typed; preserve click-click, Tab, Enter, Escape, and single-step undo/redo behavior.
 - [x] Verify the plane picker, three drag tools, shared UI-kit guards, and complete release-profile UI library suite on Windows.
-- [ ] Rebuild and install a new native Windows package, then rerun the installed-app MCP and modeling acceptance against the updated executable.
-- [ ] Give the owner the updated package launch path after installed acceptance; the already-running process may still be the previous binary until restarted.
+- [x] Rebuild and install `0.19.0-forge-b2b80238e377-engine-75261cd79733`; the prior release remains in `versions/` and `previous.txt`.
+- [x] Rerun installed-app MCP and modeling acceptance against the updated executable: nine tools, security refusals, body/face selection, sketching, feature/history edits, exports, save/reopen, undo/redo and GUI synchronization passed.
+- [x] Record the persistent launch path. The pre-existing process remains on the older executable until the owner saves and restarts it.

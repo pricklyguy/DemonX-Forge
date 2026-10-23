@@ -267,5 +267,21 @@ The complete **debug** test profile still triggers seven epaint `Dropped Texture
 in unrelated existing gallery, browser, thread-dialog, and preview tests, even when serialized;
 the release-profile suite (the native packaging profile) passes. The upstream unused `brand_mark`
 warning remains. The fixes are Forge-owned overlay patches applied to the pinned SolidCraft commit;
-the read-only upstream checkout remains unchanged. A fresh package rebuild and installed-app MCP
-acceptance are still required before these fixes are present in the persistent Windows install.
+the read-only upstream checkout remains unchanged.
+
+The fixes were packaged and installed as
+`0.19.0-forge-b2b80238e377-engine-75261cd79733` under
+`C:\DemonX-Forge-Native\versions\`; `current.txt` points to this version and
+`previous.txt` retains `0.19.0-forge-d968a6840236-engine-75261cd79733` for rollback. The package
+was accepted using its installed executable and bundled MCP bridge, with a fresh temporary profile:
+
+```json
+{"status":"passed","bodies":["Plate","Part B","Part C"],"historyFeatures":8,"threeMfObjects":3,"stlBytes":19684,"allBodiesStlBytes":20884,"forgeMcpTools":9,"mcpScreenshot":true}
+```
+
+This reverified the nine-tool contract, security refusals, GUI/MCP synchronization, three separate
+bodies, face selection, modeling/history edits, save/reopen, undo/redo, one-body STL export, and
+multi-body 3MF separation from the installed build. Screenshot:
+`%TEMP%\demonx-forge-native-acceptance-n0bPxi\demonx-forge-three-body.png`. The previously running
+native app process (PID `45376`) was left open on its prior executable; save any open design, close
+that window, and relaunch with `C:\DemonX-Forge-Native\DemonX Forge.cmd` to use the patched build.
