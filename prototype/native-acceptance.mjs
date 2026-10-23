@@ -414,6 +414,7 @@ async function main() {
   assert(escaped, 'control channel wrote a design outside its explicit allow_paths scope');
 
   let pythonSdkVerified = false;
+  let pythonSdkSingleUndo;
   if (process.env.FORGE_TEST_PYTHON_SDK === '1') {
     const sdkRoot = resolve('prototype/python-sdk');
     const sdkProbe = String.raw`
@@ -431,6 +432,7 @@ else:
     raise SystemExit("the invalid fillet unexpectedly succeeded")
 success = ForgeScript("Python SDK success")
 success.add("solid.box", length=5, width=5, height=5, corner=[70, 0, 0], operation="new_body", body_name="Python SDK Body")
+success.add("solid.box", length=5, width=5, height=5, corner=[80, 0, 0], operation="new_body", body_name="Python SDK Body 2")
 result = submit(success, launcher=launcher, node=node, timeout=120)
 print(json.dumps({"success": result.get("isError") is not True, "result": result}))
 `;
@@ -444,7 +446,15 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     const sdkDesign = await mcpTool('forge_get_design');
     const sdkBodies = JSON.parse(sdkDesign.content[0].text).bodies;
     assert(sdkBodies.some((body) => body.name === 'Python SDK Body'), 'successful Python SDK command did not update the native document');
+    assert(sdkBodies.some((body) => body.name === 'Python SDK Body 2'), 'second successful Python SDK command did not update the native document');
     assert(!sdkBodies.some((body) => body.name === 'SDK Rollback Probe'), 'failed Python SDK batch left partial geometry in the document');
+    await mcpTool('forge_undo');
+    const sdkUndoDesign = JSON.parse((await mcpTool('forge_get_design')).content[0].text).bodies;
+    pythonSdkSingleUndo = !sdkUndoDesign.some((body) => ['Python SDK Body', 'Python SDK Body 2'].includes(body.name));
+    assert(pythonSdkSingleUndo, 'one Forge undo must remove every body created by the Python SDK script');
+    await mcpTool('forge_redo');
+    const sdkRedoDesign = JSON.parse((await mcpTool('forge_get_design')).content[0].text).bodies;
+    assert(['Python SDK Body', 'Python SDK Body 2'].every((name) => sdkRedoDesign.some((body) => body.name === name)), 'Python SDK redo did not restore the complete submitted batch');
     pythonSdkVerified = true;
   }
 
@@ -474,6 +484,22 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     assert(largeNames.every((name) => largeDesign.bodies.some((body) => body.name === name)), '50 independently named bodies are not present');
     assert(largeDesign.timeline.length >= 50, 'large-model fixture does not contain substantial feature history');
 
+    const largeBeforeEdit = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
+    const volumeBeforeEdit = largeBeforeEdit.bodies.find((body) => body.name === largeNames[0])?.volume_mm3;
+    const parameterEditStarted = performance.now();
+    const editedFeature = await mcpTool('forge_run_commands', { steps: [{
+      command: 'timeline.redefine',
+      params: {
+        feature: `${largeNames[0]} Seed`, command: 'solid.box',
+        params: { length: 20, width: 14, height: 8, corner: [0, 0, 0], operation: 'new_body', name: `${largeNames[0]} Seed`, body_name: largeNames[0] },
+      },
+    }] });
+    assert(!editedFeature.isError, `MCP could not edit a feature in the populated large model: ${editedFeature.content?.[0]?.text}`);
+    const largeAfterEdit = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
+    const volumeAfterEdit = largeAfterEdit.bodies.find((body) => body.name === largeNames[0])?.volume_mm3;
+    const parameterEditMs = performance.now() - parameterEditStarted;
+    assert(typeof volumeBeforeEdit === 'number' && typeof volumeAfterEdit === 'number' && volumeAfterEdit > volumeBeforeEdit, 'MCP timeline edit did not rebuild the first large-model body');
+
     const scrollStarted = performance.now();
     let targetRow;
     for (let attempt = 0; attempt < 12 && !targetRow; attempt++) {
@@ -483,7 +509,12 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     }
     assert(targetRow, 'the browser did not reveal the last named body after scrolling');
     const browserScrollMs = performance.now() - scrollStarted;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 120));
+    const liveRowPoint = await call(port, 'ui.at', { browser: largeNames.at(-1) });
+    targetRow.x = liveRowPoint[0];
+    targetRow.y = liveRowPoint[1];
     const selectionStarted = performance.now();
+    await call(port, 'ui.move', { x: targetRow.x, y: targetRow.y });
     await call(port, 'ui.click', { x: targetRow.x, y: targetRow.y });
     let selected = await call(port, 'ui.selection');
     const selectionDeadline = Date.now() + 3000;
@@ -492,7 +523,11 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
       selected = await call(port, 'ui.selection');
     }
     const rowSelectionMs = performance.now() - selectionStarted;
-    assert(JSON.stringify(selected).includes(largeNames.at(-1)), `scrolled browser row selection failed: ${JSON.stringify(selected)}`);
+    if (!JSON.stringify(selected).includes(largeNames.at(-1))) {
+      const screenshot = join(root, 'large-browser-selection-debug.png');
+      await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
+      throw new Error(`scrolled browser row selection failed: row=${JSON.stringify(targetRow)}, state=${JSON.stringify(selected)}, screenshot=${screenshot}`);
+    }
 
     let menu = await bodyMenu(largeNames.at(-1));
     let action = menu.items?.find((item) => item.id === 'ui.rename' || item.label === 'Rename');
@@ -523,6 +558,8 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     const largeFaceReply = await call(port, 'engine.execute', { command: 'model.faces', params: { body: 'Large Part 050 Renamed' } });
     const largeFace = largeFaceReply.faces.find((face) => face.plane_normal?.[2] > 0.9);
     assert(largeFace?.point?.length === 3, 'last body in the large fixture has no selectable top face');
+    await call(port, 'engine.execute', { command: 'select.clear' });
+    await call(port, 'ui.view', { view: 'fit' });
     await call(port, 'ui.view', { view: 'top' });
     const largeFacePoint = await call(port, 'ui.at', { world: largeFace.point });
     const facePickStarted = performance.now();
@@ -534,16 +571,37 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
       facePicked = await call(port, 'ui.selection');
     }
     const faceSelectionMs = performance.now() - facePickStarted;
-    assert(JSON.stringify(facePicked).toLowerCase().includes('face'), `face selection failed on dense fixture: ${JSON.stringify(facePicked)}`);
+    if (!JSON.stringify(facePicked).toLowerCase().includes('face')) {
+      const screenshot = join(root, 'large-face-selection-debug.png');
+      await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
+      throw new Error(`face selection failed on dense fixture: face=${JSON.stringify(largeFace)}, point=${JSON.stringify(largeFacePoint)}, state=${JSON.stringify(facePicked)}, screenshot=${screenshot}`);
+    }
+
+    const largeEdgeReply = await call(port, 'engine.execute', { command: 'model.edges', params: { body: 'Large Part 050 Renamed' } });
+    const largeEdge = [...largeEdgeReply.edges].sort((a, b) => b.length - a.length)[0];
+    assert(largeEdge?.mid?.length === 3, 'last body in the large fixture has no selectable edge');
+    await call(port, 'engine.execute', { command: 'select.clear' });
+    const largeEdgePoint = await call(port, 'ui.at', { world: largeEdge.mid });
+    const edgePickStarted = performance.now();
+    await call(port, 'ui.click', { x: largeEdgePoint[0], y: largeEdgePoint[1] });
+    let edgePicked = await call(port, 'ui.selection');
+    const edgeDeadline = Date.now() + 3000;
+    while (!JSON.stringify(edgePicked).toLowerCase().includes('edge') && Date.now() < edgeDeadline) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+      edgePicked = await call(port, 'ui.selection');
+    }
+    const edgeSelectionMs = performance.now() - edgePickStarted;
+    assert(JSON.stringify(edgePicked).toLowerCase().includes('edge'), `edge selection failed on dense fixture at ${JSON.stringify(largeEdgePoint)}: ${JSON.stringify(edgePicked)}`);
 
     const largeSave = join(root, 'large-model.solidcraft');
     const saveStarted = performance.now();
     await call(port, 'engine.execute', { command: 'file.save_as', params: { path: largeSave } }, token, [root]);
     await call(port, 'engine.execute', { command: 'doc.open', params: { path: largeSave } }, token, [root]);
-    const reopenedLarge = await call(port, 'engine.execute', { command: 'document.inspect' });
+    const reopenedLarge = await call(port, 'engine.execute', { command: 'document.inspect', params: { measure: true } });
     const saveReopenMs = performance.now() - saveStarted;
     assert(largeNames.slice(0, 49).every((name) => reopenedLarge.bodies.some((body) => body.name === name)), 'large-model save/reopen lost body structure');
     assert(reopenedLarge.bodies.some((body) => body.name === 'Large Part 050 Renamed') && reopenedLarge.timeline.length >= 50, 'large-model save/reopen lost rename or parametric history');
+    assert(reopenedLarge.bodies.find((body) => body.name === largeNames[0])?.volume_mm3 === volumeAfterEdit, 'large-model save/reopen lost the parametric body edit');
 
     const largeStl = join(root, 'large-part-050.stl');
     await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: largeStl, format: 'stl', bodies: ['Large Part 050 Renamed'] } }, token, [root]);
@@ -552,6 +610,12 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
     await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: large3mf, format: '3mf', bodies: renamedLargeNames } }, token, [root]);
     const objectCount = parse3mfObjects(large3mf);
     assert(objectCount === 50, `large-model 3MF export preserved ${objectCount} objects; expected 50`);
+    const viewportBeforePan = await call(port, 'ui.inspect');
+    const navigationStarted = performance.now();
+    await call(port, 'ui.view', { view: 'front' });
+    const viewportAfterPan = await call(port, 'ui.inspect');
+    const cameraNavigationMs = performance.now() - navigationStarted;
+    assert(JSON.stringify(viewportBeforePan.camera) !== JSON.stringify(viewportAfterPan.camera), 'standard front-view navigation did not update the camera');
     largeModelResults = {
       bodies: largeNames.length,
       featureHistory: reopenedLarge.timeline.length,
@@ -560,6 +624,11 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
       browserScrollMs: Math.round(browserScrollMs),
       browserSelectionMs: Math.round(rowSelectionMs),
       faceSelectionMs: Math.round(faceSelectionMs),
+      edgeSelectionMs: Math.round(edgeSelectionMs),
+      parameterEditMs: Math.round(parameterEditMs),
+      cameraPanMs: Math.round(cameraNavigationMs),
+      viewportFrameMs: Math.round(viewportAfterPan.frame_ms),
+      viewportBuildMs: Math.round(viewportAfterPan.build_ms),
       saveReopenMs: Math.round(saveReopenMs),
       exported3mfObjects: objectCount,
       documentInspectBytes: Buffer.byteLength(largeDesignReply.content[0].text),
@@ -570,7 +639,7 @@ print(json.dumps({"success": result.get("isError") is not True, "result": result
   }
 
   await call(port, 'ui.window', { action: 'close' });
-  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, pythonSdkVerified, largeModel: largeModelResults, mcpScreenshot: true })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, pythonSdkVerified, pythonSdkSingleUndo, largeModel: largeModelResults, mcpScreenshot: true })}\n`);
 }
 
 main().catch((error) => {

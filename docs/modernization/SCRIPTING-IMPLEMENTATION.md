@@ -39,9 +39,13 @@ transaction controls, undo/redo, and nested script execution. The runner also re
 while a sketch is being edited. Each actual engine command performs its own document-state checks;
 failures report the 1-based command index, command id, and engine error.
 
-Scripts do not inherit MCP permissions. No script execution tool or unrestricted file access was
-added to Forge's established nine-tool MCP contract. MCP requests that change the design are held
-while a native script is active.
+Scripts do not inherit MCP permissions. The established nine-tool MCP contract and its normal
+`forge_run_commands` behavior remain intact. Callers may explicitly request `single_undo: true`
+on that existing tool; the bridge still validates each step through its modeling allowlist, then
+submits a version 1 script to the authenticated native runner. That opt-in path uses the same
+script-specific permissions, UI progress, failure rollback, and one undo entry as scripts launched
+from the GUI. It does not add arbitrary script execution or filesystem access to MCP. Design-changing
+MCP requests are held while a native script is active.
 
 ## Transaction and undo behavior
 
@@ -54,12 +58,11 @@ restoration itself fails, the UI raises an explicit critical error rather than c
 ## Boundaries
 
 Version 1 has no loops, variables, arbitrary Python execution, add-in loading, or script access to
-filesystem operations. Scripts use explicit engine command parameters and references. The native
-Python SDK is available after runner and MCP acceptance. It generates the same versioned JSON and
-submits at most 200 commands through the existing `forge_run_commands` MCP tool. It never executes
-Python in the CAD process or reads MCP tokens. The MCP bridge validates every command under its
-established allowlist and the engine batch rolls back on the first failure. Add-Ins remain a
-labeled future feature; see the [Python SDK guide](../../prototype/python-sdk/README.md).
+filesystem operations. Scripts use explicit engine command parameters and references. The optional
+Python SDK generates the same versioned JSON and submits at most 200 commands through the existing
+`forge_run_commands` MCP tool with `single_undo: true`. It never executes Python in the CAD process,
+reads MCP tokens, or submits raw control-channel requests. Add-Ins remain a labeled future feature;
+see the [Python SDK guide](../../prototype/python-sdk/README.md).
 
 ## Verification record
 

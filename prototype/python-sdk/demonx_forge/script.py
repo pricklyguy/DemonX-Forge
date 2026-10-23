@@ -198,7 +198,7 @@ def submit(
             raise ScriptError("The configured MCP bridge does not provide Forge's forge_run_commands tool")
         result = client.request("tools/call", {
             "name": "forge_run_commands",
-            "arguments": {"steps": [step.to_dict() for step in script.commands]},
+            "arguments": {"steps": [step.to_dict() for step in script.commands], "single_undo": True, "script_name": script.name},
         }, timeout=timeout)
         if result.get("isError"):
             details = "; ".join(item.get("text", "") for item in result.get("content", []) if item.get("type") == "text")

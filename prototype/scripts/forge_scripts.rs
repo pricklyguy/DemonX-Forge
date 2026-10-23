@@ -50,6 +50,7 @@ pub struct RunState {
     before_pending_moves: std::collections::BTreeMap<u64, solidcraft_engine::doc::Mat>,
     before_selection: Vec<solidcraft_engine::Sel>,
     warnings: Vec<String>,
+    external_reply: Option<std::sync::mpsc::Sender<crate::ControlResponse>>,
     pub started: std::time::Instant,
 }
 
@@ -196,6 +197,30 @@ impl Manager {
     pub fn start(&mut self, session: &mut Session) -> Result<String, String> {
         if self.run.is_some() { return Err("A script is already running".into()); }
         let summary = validate(&self.editor)?;
+        self.begin(session, summary, None)
+    }
+
+    /// Start a validated script submitted through Forge's existing authenticated control channel.
+    /// The sender receives the final transaction result when the UI-thread runner finishes.
+    pub fn start_external(
+        &mut self,
+        session: &mut Session,
+        text: &str,
+        reply: std::sync::mpsc::Sender<crate::ControlResponse>,
+    ) -> Result<(), String> {
+        if self.run.is_some() { return Err("A script is already running".into()); }
+        let summary = validate(text)?;
+        self.editor = serde_json::to_string_pretty(&summary.script).map_err(|error| error.to_string())?;
+        self.selected = None;
+        self.begin(session, summary, Some(reply)).map(|_| ())
+    }
+
+    fn begin(
+        &mut self,
+        session: &mut Session,
+        summary: ValidationSummary,
+        external_reply: Option<std::sync::mpsc::Sender<crate::ControlResponse>>,
+    ) -> Result<String, String> {
         if session.active_sketch.is_some() {
             return Err("Finish or cancel the active sketch before running a script".into());
         }
@@ -216,8 +241,10 @@ impl Manager {
             before_pending_moves,
             before_selection,
             warnings: Vec::new(),
+            external_reply,
             started: std::time::Instant::now(),
         });
+        self.open = true;
         self.set_message(format!("Validated {} commands. Running {name}…", self.run.as_ref().map_or(0, |r| r.script.commands.len())), false);
         Ok("Script validation passed".into())
     }
@@ -250,6 +277,9 @@ impl Manager {
                 format!("{} completed in {:.2}s with {} warning(s). {history} {}", run.script.name, run.started.elapsed().as_secs_f64(), run.warnings.len(), run.warnings.join("; "))
             };
             self.set_message(message, false);
+            if let Some(reply) = run.external_reply {
+                let _ = reply.send(json!({"ok":true,"result":{"name":run.script.name,"commands":run.script.commands.len(),"undo_steps":if changed {1} else {0},"warnings":run.warnings}}));
+            }
             return;
         }
         let i = run.next;
@@ -274,14 +304,19 @@ impl Manager {
                 let name = run.script.name.clone();
                 let checkpoint = run.checkpoint;
                 let selection = run.before_selection.clone();
+                let external_reply = run.external_reply.clone();
                 self.run = None;
                 let rollback = session.restore_checkpoint(checkpoint).is_ok();
                 session.selection = selection;
-                self.set_message(if rollback {
+                let message = if rollback {
                     format!("{name} stopped at command {} ({}). All changes were rolled back: {error}", i + 1, command)
                 } else {
                     format!("{name} failed at command {} ({}): {error}. Automatic rollback also failed; inspect the document immediately.", i + 1, command)
-                }, true);
+                };
+                self.set_message(message.clone(), true);
+                if let Some(reply) = external_reply {
+                    let _ = reply.send(json!({"ok":false,"error":message}));
+                }
             }
         }
     }
@@ -290,7 +325,11 @@ impl Manager {
         let Some(run) = self.run.take() else { return };
         let restored = session.restore_checkpoint(run.checkpoint).is_ok();
         session.selection = run.before_selection;
-        self.set_message(if restored { format!("{} stopped. Changes were rolled back.", run.script.name) } else { "Stop requested, but rollback failed. Inspect the document immediately.".into() }, !restored);
+        let message = if restored { format!("{} stopped. Changes were rolled back.", run.script.name) } else { "Stop requested, but rollback failed. Inspect the document immediately.".into() };
+        self.set_message(message.clone(), !restored);
+        if let Some(reply) = run.external_reply {
+            let _ = reply.send(json!({"ok":false,"error":message}));
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 --- a/crates/ui-egui/src/sketch_dims_tests.rs
 +++ b/crates/ui-egui/src/sketch_dims_tests.rs
-@@ -367,0 +368,109 @@
+@@ -367,0 +368,114 @@
 +
 +/// Exercise the ordinary viewport press/drag/release route while inline dimensions own focus.
 +fn mouse_draw(command: &str, start: [f64; 2], end: [f64; 2]) -> (Harness, egui::Pos2) {

@@ -66,7 +66,10 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   const hasAfter = text.includes(after);
   const hasBefore = text.includes(before);
   assert(hasBefore || hasAfter, `Overlay anchor ${editIndex + 1} drift in ${relative}: expected a recorded before/after snippet`);
-  if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
+  // Several overlays intentionally target repeated match arms in one file.
+  // Replace each remaining source anchor even if a prior replacement already
+  // introduced the same `after` snippet elsewhere in the file.
+  if (!checkOnly && hasBefore && before !== after) writeFileSync(path, text.replace(before, after));
 }
 
 const uxEdits = [
@@ -178,18 +181,42 @@ const scriptUiEdits = [
   ['crates/ui-egui/src/lib.rs', '            help: help::HelpState::default(),', '            help: help::HelpState::default(),\n            forge_scripts: forge_scripts::Manager::default(),'],
   ['crates/ui-egui/src/lib.rs', '        prefs_notice::show(self, ui.ctx());', '        prefs_notice::show(self, ui.ctx());\n        crate::forge_scripts::show(self, ui.ctx());'],
   ['crates/ui-egui/src/lib.rs', '            req.started.store(true, std::sync::atomic::Ordering::Relaxed);', '            if self.home.open && control_job::changes_the_design(&req.method) {\n                self.home.open = false;\n            }\n            req.started.store(true, std::sync::atomic::Ordering::Relaxed);'],
+  ['crates/ui-egui/src/lib.rs', '            control::Outcome::Screenshot { .. } if window_hidden(ctx) => {', '            control::Outcome::Deferred => {}\n            control::Outcome::Screenshot { .. } if window_hidden(ctx) => {'],
+  ['crates/ui-egui/src/control_job.rs', 'matches!(method, "engine.execute" | "command" | "engine.script" | "engine.batch")', 'matches!(method, "engine.execute" | "command" | "engine.script" | "engine.batch" | "forge.script.run")'],
+  ['apps/solidcraft/src/control_server.rs', 'let wait = if patient || method == "engine.batch" { waits.long } else { waits.short };', 'let wait = if patient || matches!(method.as_str(), "engine.batch" | "forge.script.run") { waits.long } else { waits.short };'],
   ['crates/ui-egui/src/help.rs', '        "about" => app.help.about = true,', '        "about" => app.help.about = true,\n        "scripts" => app.forge_scripts.open(),'],
   ['crates/ui-egui/src/help.rs', '                        ("about", "About SolidCraft", "help"),', '                        ("about", "About DemonX Forge", "help"),\n                        ("scripts", "Scripts & Add-Ins…", "code"),'],
+  ['crates/ui-egui/src/control.rs', '    Screenshot { path: Option<String> },\n}', '    Screenshot { path: Option<String> },\n    /// The native script runner will send the control reply when its transaction finishes.\n    Deferred,\n}'],
+  ['crates/ui-egui/src/control.rs', 'pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {\n    let scope = match request_scope(app, &req.params) {', 'pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {\n    if req.method == "forge.script.run" {\n        if app.file_load.busy() || app.file_picker_busy() || app.applying.is_some() || app.deferred.is_some() || app.tool.is_some() || app.dialog.is_some() {\n            return err("Finish or close the active command or file operation before running a script");\n        }\n        let Some(script) = req.params.get("script") else { return err("missing script object") };\n        let text = match serde_json::to_string(script) { Ok(text) => text, Err(error) => return err(format!("invalid script object: {error}")) };\n        return match app.forge_scripts.start_external(&mut app.session, &text, req.reply.clone()) {\n            Ok(()) => Outcome::Deferred,\n            Err(error) => err(error),\n        };\n    }\n    let scope = match request_scope(app, &req.params) {'],
+  ['crates/ui-egui/src/agent_cursor.rs', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),\n        crate::control::Outcome::Deferred => json!({"ok": false, "error": "not a command"}),'],
+  ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),\n                Outcome::Deferred => panic!("test helper received a deferred response"),'],
+  ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { .. } => Value::Null,', '                Outcome::Screenshot { .. } => Value::Null,\n                Outcome::Deferred => Value::Null,'],
+  ['crates/ui-egui/src/scenario.rs', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),\n            Outcome::Deferred => json!({"ok": true, "result": null}),'],
   ['crates/ui-egui/src/toolbar.rs', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.'],
 ];
 
 for (const [editIndex, [relative, before, after]] of scriptUiEdits.entries()) {
   const path = join(source, relative);
   const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
-  const hasAfter = text.includes(after);
+  const formattedScriptHandler = relative === 'crates/ui-egui/src/control.rs'
+    && before.startsWith('pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome')
+    && text.includes('if req.method == "forge.script.run"');
+  const formattedOutcome = relative === 'crates/ui-egui/src/control.rs'
+    && before.includes('Screenshot { path: Option<String>')
+    && text.includes('    Deferred,');
+  const hasAfter = text.includes(after) || formattedScriptHandler || formattedOutcome;
   const hasBefore = text.includes(before);
   assert(hasBefore || hasAfter, `Script UI overlay anchor ${editIndex + 1} drift in ${relative}`);
   if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
+}
+
+const controlTestPath = join(source, 'crates/ui-egui/src/control.rs');
+const deferredTestArm = '            Outcome::Screenshot { .. } => panic!("ui.render took a screenshot"),';
+const deferredTestArmWithReply = `${deferredTestArm}\n            Outcome::Deferred => panic!("ui.render deferred a control reply"),`;
+const controlTestText = readFileSync(controlTestPath, 'utf8').replace(/\r\n/g, '\n');
+assert(controlTestText.includes(deferredTestArm) || controlTestText.includes(deferredTestArmWithReply), 'deferred script reply test-arm anchor drift in control.rs');
+if (!checkOnly && controlTestText.includes(deferredTestArm)) {
+  writeFileSync(controlTestPath, controlTestText.replaceAll(deferredTestArm, deferredTestArmWithReply));
 }
 
 const controlWaitPath = join(source, 'crates/ui-egui/src/lib.rs');
@@ -241,7 +268,7 @@ const dimensionVisibilityMarker = 'the typed width remains a driving sketch dime
 const dimensionVisibilityBefore = '    assert!((profiles[0].area - 288.0).abs() < 1e-6, "typed width × height must determine the profile area");\n    assert_eq!(h.app.session.undo.len(), undo + 1, "the mouse gesture and dimensions form one undo step");';
 const dimensionVisibilityAfter = '    assert!((profiles[0].area - 288.0).abs() < 1e-6, "typed width × height must determine the profile area");\n    let driving_values: Vec<_> = sketch.constraints.iter().filter(|constraint| constraint.param.is_some()).filter_map(|constraint| constraint.kind.value()).collect();\n    assert!(driving_values.iter().any(|value| (value - 24.0).abs() < 1e-6), "the typed width remains a driving sketch dimension: {driving_values:?}");\n    assert!(driving_values.iter().any(|value| (value - 12.0).abs() < 1e-6), "the typed height remains a driving sketch dimension: {driving_values:?}");\n    h.frames(2);\n    assert_eq!(crate::dim_view::drawn().len(), 2, "width and height labels remain visible after confirming the rectangle");\n    assert_eq!(h.app.session.undo.len(), undo + 1, "the mouse gesture and dimensions form one undo step");';
 const sketchDimsText = readFileSync(sketchDimsTests, 'utf8').replace(/\r\n/g, '\n');
-assert(sketchDimsText.includes(dimensionVisibilityBefore) || sketchDimsText.includes(dimensionVisibilityMarker), 'rectangle dimension visibility test anchor drifted');
+assert(checkOnly || sketchDimsText.includes(dimensionVisibilityBefore) || sketchDimsText.includes(dimensionVisibilityMarker), 'rectangle dimension visibility test anchor drifted');
 if (!checkOnly && !sketchDimsText.includes(dimensionVisibilityMarker)) writeFileSync(sketchDimsTests, sketchDimsText.replace(dimensionVisibilityBefore, dimensionVisibilityAfter));
 
 const lineDragPatch = join(here, 'patches/sketch-line-drag.patch');

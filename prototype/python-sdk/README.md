@@ -2,8 +2,8 @@
 
 This optional SDK creates version 1 Forge JSON scripts and submits them through the existing
 authenticated Forge MCP bridge. Python runs outside the CAD application; native SolidCraft
-commands perform all modeling. A submitted script is one `forge_run_commands` batch, inheriting
-the bridge's modeling command allowlist and native all-or-nothing rollback.
+commands perform all modeling. A submitted script is validated and run by the native Forge runner,
+with all-or-nothing rollback and one undo step on success.
 
 ## Configure
 
@@ -27,13 +27,15 @@ script = ForgeScript("Mounting plate", description="Base plate and four mounting
 script.add("solid.box", length=80, width=50, height=8, body_name="Plate")
 script.add("solid.box", length=8, width=8, height=10, corner=[8, 8, 8], operation="join", targets=["Plate"], body_name="Plate")
 script.save("mounting-plate.json")  # Also importable in Help > Scripts & Add-Ins.
-result = submit(script)             # One atomic Forge MCP batch, at most 200 commands.
+result = submit(script)             # One native Forge script transaction, at most 200 commands.
 print(result)
 ```
 
-Forge validates command names and parameters against the existing command registry and its MCP
-permissions. A failed command reports the failing step; the native batch restores the pre-run
-document. Large scripts above 200 commands can be opened in the native Scripts & Add-Ins editor,
+Forge validates command names and parameters against the existing command registry and its
+script-specific permission policy, after the MCP bridge applies its established modeling allowlist.
+A failed command reports the failing step; the native runner restores the pre-run document. One
+Forge undo removes a successfully submitted SDK script, and redo restores it. Large
+scripts above 200 commands can be opened in the native Scripts & Add-Ins editor,
 which supports up to 10,000 steps and its own checkpointed GUI runner.
 
 ## Tests

@@ -25,7 +25,7 @@ export const TOOLS = [
   { name: 'forge_list_commands', description: 'The modelling commands you may run with forge_run_commands: id, label, one-line parameter text. Give a filter (for example "fillet", "sketch", "extrude") to keep the answer short; without one it lists every command.',
     inputSchema: obj({ filter: { type: 'string', description: 'Part of a command id or label' } }) },
   { name: 'forge_run_commands', description: 'Run modelling commands in order, as one batch: if one fails, none of them are kept and the reason is returned. Typical: sketch.create (plane XY, XZ or YZ), sketch.rectangle.two_point, sketch.circle.center, sketch.finish, solid.extrude, solid.fillet, solid.hole. The reply is the design afterwards (summary). The person sees the result in their window within a couple of seconds, and can press Ctrl+Z to take it back.',
-    inputSchema: obj({ steps: { type: 'array', items: stepSchema, minItems: 1, maxItems: 200, description: 'The commands to run' } }, ['steps']) },
+    inputSchema: obj({ steps: { type: 'array', items: stepSchema, minItems: 1, maxItems: 200, description: 'The commands to run' }, single_undo: { type: 'boolean', description: 'Run as a version 1 Forge script with validated permissions, full rollback, visible progress, and one undo step on success' }, script_name: { type: 'string', minLength: 1, maxLength: 120, description: 'Optional name used by the native Scripts & Add-Ins runner when single_undo is true' } }, ['steps']) },
   { name: 'forge_query', description: 'Read something without changing the design: timeline.inspect {feature} (a feature\'s definition), timeline.dependents {feature} (what depends on it), component.list.',
     inputSchema: obj({ command: { type: 'string', enum: ['timeline.inspect', 'timeline.dependents', 'component.list'] }, params: { type: 'object' } }, ['command']) },
   { name: 'forge_measure', description: 'Volume (mm³), surface area, centre of mass and bounding box of one body, or of all bodies.',
@@ -76,7 +76,15 @@ export function createBridge(o: BridgeOptions = {}): Bridge {
     switch (name) {
       case 'forge_get_design': return text(summarize(await json('/api/state'), a.detail === 'full' ? 'full' : 'summary'));
       case 'forge_list_commands': return text((await json(`/api/commands${typeof a.filter === 'string' && a.filter ? `?filter=${encodeURIComponent(a.filter)}` : ''}`)).commands);
-      case 'forge_run_commands': { const s = await json('/api/batch', { steps: a.steps }); return text(summarize(s)); }
+      case 'forge_run_commands': {
+        const batch: Json = { steps: a.steps };
+        if (a.single_undo === true) {
+          batch.single_undo = true;
+          if (typeof a.script_name === 'string') batch.script_name = a.script_name;
+        }
+        const s = await json('/api/batch', batch);
+        return text(summarize(s));
+      }
       case 'forge_query': return text((await json('/api/query', { command: a.command, params: a.params ?? {} })).result);
       case 'forge_measure': return text((await json('/api/measure', { body: a.body })).measure);
       case 'forge_screenshot': {

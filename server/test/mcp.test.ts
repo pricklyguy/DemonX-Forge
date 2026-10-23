@@ -79,6 +79,16 @@ describe('the MCP bridge', () => {
     expect(bad.result.content[0].text).toBe('Command not allowed: bad.command');
   });
 
+  it('requests a native single-undo transaction only when the caller opts in', async () => {
+    const { f, calls } = fake({ '/api/batch': state });
+    const bridge = createBridge({ base: 'http://forge.test', fetch: f });
+    const steps = [{ command: 'solid.box', params: { length: 10, width: 10, height: 10 } }];
+    await bridge.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'forge_run_commands', arguments: { steps } } });
+    expect(calls[0]).toEqual({ path: '/api/batch', body: { steps } });
+    await bridge.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'forge_run_commands', arguments: { steps, single_undo: true, script_name: 'SDK script' } } });
+    expect(calls[1]).toEqual({ path: '/api/batch', body: { steps, single_undo: true, script_name: 'SDK script' } });
+  });
+
   it('passes the other tools on to the right routes', async () => {
     const png = new Uint8Array([137, 80, 78, 71]);
     const { f, calls } = fake({ '/api/commands?filter=fillet': { commands: [{ id: 'solid.fillet', label: 'Fillet', params: 'edges, radius', enabled: true }] }, '/api/query': { result: { a: 1 } }, '/api/measure': { measure: { bodies: [{ volume_mm3: 12000 }] } }, '/api/screenshot': png, '/api/param': state, '/api/undo': state, '/api/redo': state });

@@ -37,7 +37,7 @@ function controlCall(target: Endpoint, method: string, params: Record<string, un
       const error = new Error(`${method} timed out; inspect the native app before retrying.`) as Error & { requestSent?: boolean };
       error.requestSent = requestSent;
       reject(error);
-    }, timeoutMs ?? (method === 'engine.batch' ? 3_600_000 : 90_000));
+    }, timeoutMs ?? (method === 'engine.batch' || method === 'forge.script.run' ? 3_600_000 : 90_000));
     socket.setEncoding('utf8');
     const scoped = allowPaths ? { ...params, allow_paths: allowPaths } : params;
     socket.once('connect', () => {
@@ -227,8 +227,15 @@ async function fetchNative(url: string | URL | Request, init: RequestInit = {}) 
       }
       case '/api/batch': {
         if (!Array.isArray(request.steps) || request.steps.length < 1 || request.steps.length > 200) return badRequest('"steps" must be a list of 1 to 200 commands');
+        if (request.single_undo !== undefined && typeof request.single_undo !== 'boolean') return badRequest('"single_undo" must be a boolean');
+        if (request.script_name !== undefined && (typeof request.script_name !== 'string' || request.script_name.trim().length < 1 || request.script_name.length > 120)) return badRequest('"script_name" must contain 1 to 120 characters');
         let steps;
         try { steps = request.steps.map(checkStep); } catch (error) { return badRequest((error as Error).message); }
+        if (request.single_undo === true) {
+          const script = { schema_version: 1, name: request.script_name ?? 'Forge MCP Script', description: 'Submitted through the authenticated Forge MCP bridge', commands: steps };
+          await native('forge.script.run', { script });
+          return json(await snapshot());
+        }
         const result = await native('engine.batch', { commands: steps, rollback: true });
         if (result.failed) {
           const message = `Step ${Number(result.failed.index) + 1} (${result.failed.command}): ${result.failed.error}${result.rolled_back ? '. Nothing was changed.' : ''}`;
