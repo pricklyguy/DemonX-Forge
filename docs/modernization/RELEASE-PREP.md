@@ -41,3 +41,11 @@ The Forge wordmark remains the existing Forge-owned asset. The application bar r
 - Finish native-only updater channel, signing/provenance, staged install, unsaved-state guard, startup health check, rollback, and GUI acceptance.
 - Run the Windows title-bar matrix and installed-app modeling regression scenario.
 - Linux native package and update behavior remain unverified; native distribution remains preview until that acceptance passes.
+
+## Windows validation — 2026-10-23
+
+- The pinned MSVC release build completed for `solidcraft.exe`, both CLI binaries, and the native `forge-mcp.exe` launcher (358,400 bytes). The isolated build checkout was at SolidCraft commit `75261cd79733fe47cf898b54f865e6bfaffa1129`.
+- The native acceptance harness passed against that newly built executable: three named bodies, 8 history features, fillet/edit/undo/redo, `.dxforge` save/reopen, individual and all-body STL, separate 3MF objects (3), all nine MCP tools, screenshot, and rejection of a save outside the scoped `allow_paths` directory.
+- A 1600×1000 dark-mode screenshot confirmed the larger Forge wordmark/header and preserved modeling layout. High DPI, maximize/restore, narrow-window, and light-mode visual checks were not run.
+- The optional Python SDK test path was not enabled in this run (`pythonSdkVerified: false`); it passed in the earlier scripting acceptance documented in `SCRIPTING-TEST-RESULTS.md`.
+- The complete package/install leg did not finish. Fetching pinned Node 24.19.0 from `nodejs.org` was denied by the shell network sandbox. The build recipe pins the official archive SHA-256 (`57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73`) and fails closed when it cannot obtain and verify the runtime. The stable launcher has therefore not been installed or tested through Codex/Claude stdio clients in this checkpoint.

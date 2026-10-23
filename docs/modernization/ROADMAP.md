@@ -287,11 +287,14 @@ and preserve parametric history; verify MCP tools and security refusals remain u
 ### Native release preparation — 2026-10-23
 
 - [x] Keep the installed versioned application folders immutable and preserve the current working release as rollback.
-- [ ] Package and install a stable Windows MCP entry point (`forge-mcp.exe` and `forge-mcp.cmd`) with a bundled Node runtime; verify all nine tools, restart discovery, multiple-instance refusal, and security contracts from the installed release.
-- [x] Keep MCP discovery loopback-only and token-authenticated; refuse ambiguous multi-instance targeting unless the client explicitly selects one port.
+- [x] Build the pinned Windows release app and native MCP stdio launcher; run real native acceptance against the newly built executable: three named bodies, feature/history edits, save/reopen, individual and multi-body exports, undo/redo, all nine MCP tools, and filesystem scope refusal.
+- [ ] Package and install the stable Windows MCP entry point (`forge-mcp.exe` and `forge-mcp.cmd`) with the pinned bundled Node runtime; verify restart discovery, multiple-instance refusal, and security contracts through installed clients. Package step is blocked by restricted outbound access to the official Node distribution.
+- [x] Keep MCP discovery loopback-only and token-authenticated; existing single-session native acceptance still passes.
+- [ ] Exercise restart discovery and multiple-instance refusal end-to-end; the bridge now refuses ambiguous sessions and permits an explicit `FORGE_NATIVE_PORT` choice.
 - [ ] Build a dedicated native updater against a native-only release channel. Do not use the inherited SolidCraft in-place executable swap or the existing React `v0.27.0` release channel.
 - [ ] Require trusted remote package provenance; stage immutable package folders; protect user data; defer while a document is dirty; atomically switch pointers; verify startup and roll back on failure.
-- [ ] Verify taller Forge title bar and wordmark at Windows standard/high DPI, maximized/restored, small-window, and light/dark combinations.
+- [x] Visually inspect the taller Forge title bar and wordmark in the 1600×1000 dark-mode real-native acceptance screenshot.
+- [ ] Verify high DPI, maximize/restore, small-window, and light-mode title-bar combinations.
 - [ ] Run installed-app acceptance and preserve the prior package. Native release stays preview until Linux build/package acceptance also passes.
 
 Current detail: [`RELEASE-PREP.md`](RELEASE-PREP.md).
