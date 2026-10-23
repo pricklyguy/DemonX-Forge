@@ -128,7 +128,7 @@ const MAX_BODY = 1_000_000;
 
 async function snapshot() {
   const info = await native('document.inspect', { measure: true });
-  const bodies = await Promise.all((info.bodies ?? []).map(async (body: any) => {
+  const bodies = await mapLimit(info.bodies ?? [], 3, async (body: any) => {
     const bbox = body.bbox;
     const positions: number[] = [];
     if (bbox?.min?.length === 3 && bbox?.max?.length === 3) {
@@ -151,7 +151,7 @@ async function snapshot() {
       };
     }
     return { name: body.name, positions, indices: [], faceIds: [], faces: topology.faces, edges: topology.edges, mesh };
-  }));
+  });
   const sketches = await Promise.all((info.sketches ?? []).map(async (sketch: any) => {
     const detail = await native('engine.execute', { command: 'sketch.inspect', params: { sketch: sketch.id } });
     const plane = detail.plane ?? {};
@@ -192,6 +192,21 @@ async function snapshot() {
     ms: 0,
     warnings: [],
   };
+}
+
+/// Keep topology inspection responsive on large designs instead of opening two control-channel
+/// requests for every body at once. Each body still gets both face and edge details in parallel.
+async function mapLimit<T, R>(items: T[], limit: number, visit: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await visit(items[index], index);
+    }
+  }));
+  return results;
 }
 
 async function fetchNative(url: string | URL | Request, init: RequestInit = {}) {

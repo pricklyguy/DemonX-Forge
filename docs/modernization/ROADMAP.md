@@ -221,12 +221,15 @@ separate compatibility surface.
   or Stop restores the pre-run document and history. Success groups all modeling changes as one
   undo/redo step.
 - [x] Keep the user script library outside versioned app folders and separate from MCP permissions.
-- [ ] Verify all nine MCP tools against the newly installed application and complete stable
+- [x] Verify all nine MCP tools against the newly installed application and complete stable
   endpoint discovery/launcher changes.
-- [ ] Package, install beside the prior release, and validate Windows GUI/engine acceptance.
-- [ ] Run save/reopen, rollback, stop, undo/redo and GUI interaction acceptance in the packaged
-  application; record Linux build compatibility.
-- [ ] Implement the optional Python SDK only after native runner and MCP acceptance pass.
+- [x] Package, install beside the prior release, and validate Windows GUI/engine acceptance.
+- [x] Run save/reopen, rollback, Stop, undo/redo and GUI interaction acceptance in the packaged
+  Windows application.
+- [ ] Verify Linux build and package compatibility; no Linux runner was available in this local
+  acceptance pass.
+- [x] Implement the optional Python SDK after native runner and MCP acceptance pass. It generates
+  schema v1 scripts and submits one MCP-validated, all-or-nothing `forge_run_commands` batch.
 
 **Acceptance:** create a multi-body model from a reusable script; deliberately fail a later feature
 and verify no partial geometry or history remains; run successfully and undo/redo once; save/reopen

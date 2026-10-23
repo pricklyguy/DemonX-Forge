@@ -413,8 +413,164 @@ async function main() {
   }
   assert(escaped, 'control channel wrote a design outside its explicit allow_paths scope');
 
+  let pythonSdkVerified = false;
+  if (process.env.FORGE_TEST_PYTHON_SDK === '1') {
+    const sdkRoot = resolve('prototype/python-sdk');
+    const sdkProbe = String.raw`
+import json, sys
+from demonx_forge import ForgeScript, ScriptError, submit
+launcher, node = sys.argv[1], sys.argv[2]
+failed = ForgeScript("Python SDK rollback probe")
+failed.add("solid.box", length=5, width=5, height=5, corner=[60, 0, 0], operation="new_body", body_name="SDK Rollback Probe")
+failed.add("solid.fillet", edges=[[999, 999, 999]], radius=1)
+try:
+    submit(failed, launcher=launcher, node=node, timeout=120)
+except ScriptError as error:
+    print(json.dumps({"rollback_error": str(error)}))
+else:
+    raise SystemExit("the invalid fillet unexpectedly succeeded")
+success = ForgeScript("Python SDK success")
+success.add("solid.box", length=5, width=5, height=5, corner=[70, 0, 0], operation="new_body", body_name="Python SDK Body")
+result = submit(success, launcher=launcher, node=node, timeout=120)
+print(json.dumps({"success": result.get("isError") is not True, "result": result}))
+`;
+    const python = process.env.FORGE_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+    const sdkEnv = { ...process.env, LOCALAPPDATA: localAppData, PYTHONPATH: [sdkRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':') };
+    const sdkOutput = execFileSync(python, ['-c', sdkProbe, packagedMcpAdapter ?? '', process.execPath], { env: sdkEnv, encoding: 'utf8', timeout: 360000 });
+    const sdkLines = sdkOutput.trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    assert(sdkLines.some((row) => row.rollback_error?.includes('solid.fillet')), `Python SDK failure did not report the failing feature: ${sdkOutput}`);
+    const sdkSuccess = sdkLines.find((row) => row.success === true);
+    assert(sdkSuccess, `Python SDK did not submit a successful native command batch: ${sdkOutput}`);
+    const sdkDesign = await mcpTool('forge_get_design');
+    const sdkBodies = JSON.parse(sdkDesign.content[0].text).bodies;
+    assert(sdkBodies.some((body) => body.name === 'Python SDK Body'), 'successful Python SDK command did not update the native document');
+    assert(!sdkBodies.some((body) => body.name === 'SDK Rollback Probe'), 'failed Python SDK batch left partial geometry in the document');
+    pythonSdkVerified = true;
+  }
+
+  let largeModelResults;
+  if (process.env.FORGE_TEST_LARGE_MODEL === '1') {
+    const largeNames = Array.from({ length: 50 }, (_, index) => `Large Part ${String(index + 1).padStart(3, '0')}`);
+    const steps = largeNames.map((body_name, index) => ({
+      command: 'solid.box',
+      params: {
+        length: 18 + (index % 3), width: 14 + (index % 5), height: 8 + (index % 4),
+        corner: [(index % 10) * 24, Math.floor(index / 10) * 24, 0], operation: 'new_body',
+        body_name, name: `${body_name} Seed`,
+      },
+    }));
+    const generationStarted = performance.now();
+    for (let offset = 0; offset < steps.length; offset += 10) {
+      let generated;
+      try { generated = await mcpTool('forge_run_commands', { steps: steps.slice(offset, offset + 10) }); }
+      catch (error) { throw new Error(`50-body fixture batch ${Math.floor(offset / 10) + 1} transport error: ${error}; native_exit=${appProcess?.exitCode}; native_stderr=${stderr.slice(-3000)}`); }
+      assert(!generated.isError, `50-body fixture batch ${Math.floor(offset / 10) + 1} failed: ${generated.content?.[0]?.text}; native_exit=${appProcess?.exitCode}; native_stderr=${stderr.slice(-3000)}`);
+    }
+    const generationMs = performance.now() - generationStarted;
+    const inspectStarted = performance.now();
+    const largeDesignReply = await mcpTool('forge_get_design');
+    const largeDesign = JSON.parse(largeDesignReply.content[0].text);
+    const inspectionMs = performance.now() - inspectStarted;
+    assert(largeNames.every((name) => largeDesign.bodies.some((body) => body.name === name)), '50 independently named bodies are not present');
+    assert(largeDesign.timeline.length >= 50, 'large-model fixture does not contain substantial feature history');
+
+    const scrollStarted = performance.now();
+    let targetRow;
+    for (let attempt = 0; attempt < 12 && !targetRow; attempt++) {
+      await call(port, 'ui.scroll', { x: 110, y: 420, delta: -900 });
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+      targetRow = (await browserRow(largeNames.at(-1)));
+    }
+    assert(targetRow, 'the browser did not reveal the last named body after scrolling');
+    const browserScrollMs = performance.now() - scrollStarted;
+    const selectionStarted = performance.now();
+    await call(port, 'ui.click', { x: targetRow.x, y: targetRow.y });
+    let selected = await call(port, 'ui.selection');
+    const selectionDeadline = Date.now() + 3000;
+    while (!JSON.stringify(selected).includes(largeNames.at(-1)) && Date.now() < selectionDeadline) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+      selected = await call(port, 'ui.selection');
+    }
+    const rowSelectionMs = performance.now() - selectionStarted;
+    assert(JSON.stringify(selected).includes(largeNames.at(-1)), `scrolled browser row selection failed: ${JSON.stringify(selected)}`);
+
+    let menu = await bodyMenu(largeNames.at(-1));
+    let action = menu.items?.find((item) => item.id === 'ui.rename' || item.label === 'Rename');
+    assert(action, 'large-model body context menu did not offer Rename');
+    await call(port, 'ui.menuPick', { item: action.id ?? action.label });
+    await call(port, 'ui.rename', { text: 'Large Part 050 Renamed', commit: true });
+    assert(await browserRow('Large Part 050 Renamed'), 'large-model browser rename did not update the body row');
+    menu = await bodyMenu('Large Part 050 Renamed');
+    action = menu.items?.find((item) => item.id === 'ui.hide' || item.label === 'Show/Hide');
+    await call(port, 'ui.menuPick', { item: action?.id ?? action?.label });
+    let visibleState = (await call(port, 'ui.inspect')).visibility;
+    assert(visibleState.hidden_bodies.includes('Large Part 050 Renamed'), 'large-model body Hide failed');
+    menu = await bodyMenu('Large Part 050 Renamed');
+    action = menu.items?.find((item) => item.id === 'ui.show' || item.label === 'Show/Hide');
+    await call(port, 'ui.menuPick', { item: action?.id ?? action?.label });
+    visibleState = (await call(port, 'ui.inspect')).visibility;
+    assert(!visibleState.hidden_bodies.includes('Large Part 050 Renamed'), 'large-model body Show failed');
+    menu = await bodyMenu('Large Part 050 Renamed');
+    action = menu.items?.find((item) => item.id === 'ui.isolate' || item.label === 'Isolate');
+    assert(action, 'large-model body context menu did not offer Isolate');
+    await call(port, 'ui.menuPick', { item: action.id });
+    const isolateState = (await call(port, 'ui.inspect')).visibility;
+    assert(isolateState.hidden_bodies.filter((name) => name.startsWith('Large Part ')).length === 49, 'large-model Isolate did not hide the other 49 fixture bodies');
+    await call(port, 'ui.menu', { close: true });
+    const renamedLargeNames = [...largeNames.slice(0, 49), 'Large Part 050 Renamed'];
+    await call(port, 'engine.execute', { command: 'browser.visibility', params: { items: renamedLargeNames, visible: true } });
+
+    const largeFaceReply = await call(port, 'engine.execute', { command: 'model.faces', params: { body: 'Large Part 050 Renamed' } });
+    const largeFace = largeFaceReply.faces.find((face) => face.plane_normal?.[2] > 0.9);
+    assert(largeFace?.point?.length === 3, 'last body in the large fixture has no selectable top face');
+    await call(port, 'ui.view', { view: 'top' });
+    const largeFacePoint = await call(port, 'ui.at', { world: largeFace.point });
+    const facePickStarted = performance.now();
+    await call(port, 'ui.click', { x: largeFacePoint[0], y: largeFacePoint[1] });
+    let facePicked = await call(port, 'ui.selection');
+    const faceDeadline = Date.now() + 3000;
+    while (!JSON.stringify(facePicked).toLowerCase().includes('face') && Date.now() < faceDeadline) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+      facePicked = await call(port, 'ui.selection');
+    }
+    const faceSelectionMs = performance.now() - facePickStarted;
+    assert(JSON.stringify(facePicked).toLowerCase().includes('face'), `face selection failed on dense fixture: ${JSON.stringify(facePicked)}`);
+
+    const largeSave = join(root, 'large-model.solidcraft');
+    const saveStarted = performance.now();
+    await call(port, 'engine.execute', { command: 'file.save_as', params: { path: largeSave } }, token, [root]);
+    await call(port, 'engine.execute', { command: 'doc.open', params: { path: largeSave } }, token, [root]);
+    const reopenedLarge = await call(port, 'engine.execute', { command: 'document.inspect' });
+    const saveReopenMs = performance.now() - saveStarted;
+    assert(largeNames.slice(0, 49).every((name) => reopenedLarge.bodies.some((body) => body.name === name)), 'large-model save/reopen lost body structure');
+    assert(reopenedLarge.bodies.some((body) => body.name === 'Large Part 050 Renamed') && reopenedLarge.timeline.length >= 50, 'large-model save/reopen lost rename or parametric history');
+
+    const largeStl = join(root, 'large-part-050.stl');
+    await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: largeStl, format: 'stl', bodies: ['Large Part 050 Renamed'] } }, token, [root]);
+    assert(statSync(largeStl).size > 84, 'individual STL export from the large fixture is empty');
+    const large3mf = join(root, 'large-model.3mf');
+    await call(port, 'engine.execute', { command: 'file.save_mesh', params: { path: large3mf, format: '3mf', bodies: renamedLargeNames } }, token, [root]);
+    const objectCount = parse3mfObjects(large3mf);
+    assert(objectCount === 50, `large-model 3MF export preserved ${objectCount} objects; expected 50`);
+    largeModelResults = {
+      bodies: largeNames.length,
+      featureHistory: reopenedLarge.timeline.length,
+      generationBatchMs: Math.round(generationMs),
+      mcpInspectionMs: Math.round(inspectionMs),
+      browserScrollMs: Math.round(browserScrollMs),
+      browserSelectionMs: Math.round(rowSelectionMs),
+      faceSelectionMs: Math.round(faceSelectionMs),
+      saveReopenMs: Math.round(saveReopenMs),
+      exported3mfObjects: objectCount,
+      documentInspectBytes: Buffer.byteLength(largeDesignReply.content[0].text),
+    };
+    const largeScreenshot = join(root, 'demonx-forge-50-body.png');
+    await call(port, 'ui.screenshot', { path: largeScreenshot }, token, [root]);
+    largeModelResults.screenshot = largeScreenshot;
+  }
+
   await call(port, 'ui.window', { action: 'close' });
-  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, mcpScreenshot: true })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: 'passed', root, screenshot, bodies: reopened.bodies.map((b) => b.name), historyFeatures: reopened.timeline.length, threeMfObjects: 3, stlBytes: statSync(stl).size, allBodiesStlBytes: statSync(allStl).size, forgeMcpTools: toolNames.length, pythonSdkVerified, largeModel: largeModelResults, mcpScreenshot: true })}\n`);
 }
 
 main().catch((error) => {

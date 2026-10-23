@@ -55,9 +55,11 @@ restoration itself fails, the UI raises an explicit critical error rather than c
 
 Version 1 has no loops, variables, arbitrary Python execution, add-in loading, or script access to
 filesystem operations. Scripts use explicit engine command parameters and references. The native
-Python SDK is a follow-on after runner and compatibility acceptance; it will generate versioned
-JSON and submit it through a separately scoped interface rather than executing Python in the CAD
-process. Add-ins remain a labeled future feature.
+Python SDK is available after runner and MCP acceptance. It generates the same versioned JSON and
+submits at most 200 commands through the existing `forge_run_commands` MCP tool. It never executes
+Python in the CAD process or reads MCP tokens. The MCP bridge validates every command under its
+established allowlist and the engine batch rolls back on the first failure. Add-Ins remain a
+labeled future feature; see the [Python SDK guide](../../prototype/python-sdk/README.md).
 
 ## Verification record
 
