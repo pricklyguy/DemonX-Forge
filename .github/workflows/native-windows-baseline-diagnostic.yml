@@ -1,0 +1,93 @@
+name: Native Windows baseline diagnostic
+
+on:
+  push:
+    branches: [codex/fusion-parity]
+    paths:
+      - .github/workflows/native-windows-baseline-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-pinned-baseline:
+    name: Compare pinned SolidCraft tests before and after Forge overlay
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require private SolidCraft source access
+        shell: pwsh
+        env:
+          SOLIDCRAFT_READ_TOKEN: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SOLIDCRAFT_READ_TOKEN)) {
+            throw 'Configure SOLIDCRAFT_READ_TOKEN with read-only Contents access to pricklyguy/DemonX-Solidcraft.'
+          }
+
+      - uses: actions/checkout@v7
+        with:
+          repository: pricklyguy/DemonX-Solidcraft
+          ref: 75261cd79733fe47cf898b54f865e6bfaffa1129
+          token: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+          path: prototype/solidcraft
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prototype/solidcraft
+
+      - name: Compare focused tests on pristine and overlaid source
+        shell: pwsh
+        env:
+          SOLIDCRAFT_GPU: software
+          SOLIDCRAFT_REQUIRE_GPU: '1'
+          WGPU_BACKEND: dx12
+          WGPU_DX12_COMPILER: fxc
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item Env:ROBUSTNESS_GOLDENS_BLESS -ErrorAction SilentlyContinue
+          $tests = @(
+            'recovery::tests::recovery_dirs_and_their_legacy_names',
+            'tests::robustness_goldens::seed_13',
+            'tests::robustness_goldens::seed_23',
+            'tests::robustness_goldens::seed_36',
+            'tests::robustness_goldens::seed_67'
+          )
+          $baseline = @{}
+          foreach ($testName in $tests) {
+            Write-Host "PRISTINE pinned source: $testName"
+            cargo test --manifest-path prototype/solidcraft/Cargo.toml --profile ci --locked -p solidcraft-engine --lib -- $testName --exact --nocapture
+            $baseline[$testName] = $LASTEXITCODE
+            Write-Host "PRISTINE_RESULT $testName exit=$($baseline[$testName])"
+          }
+
+          node prototype/apply-overlay.mjs prototype/solidcraft
+          if ($LASTEXITCODE -ne 0) { throw 'Forge overlay failed before the comparison tests.' }
+
+          $overlaid = @{}
+          foreach ($testName in $tests) {
+            Write-Host "FORGE overlay: $testName"
+            cargo test --manifest-path prototype/solidcraft/Cargo.toml --profile ci --locked -p solidcraft-engine --lib -- $testName --exact --nocapture
+            $overlaid[$testName] = $LASTEXITCODE
+            Write-Host "OVERLAY_RESULT $testName exit=$($overlaid[$testName])"
+          }
+
+          $regressions = @()
+          foreach ($testName in $tests) {
+            $basePassed = $baseline[$testName] -eq 0
+            $overlayPassed = $overlaid[$testName] -eq 0
+            Write-Host "COMPARISON $testName pristine=$basePassed overlay=$overlayPassed"
+            if ($basePassed -and -not $overlayPassed) { $regressions += $testName }
+          }
+          if ($regressions.Count -gt 0) {
+            throw "Forge overlay introduced focused Windows test failures: $($regressions -join ', ')"
+          }
