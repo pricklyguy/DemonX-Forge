@@ -41,6 +41,22 @@ function replaceNextUnpatched(text, before, after) {
 const head = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 assert(head === PIN, `SolidCraft source must be pinned at ${PIN}; found ${head}`);
 
+// Apply unified patches before text replacements normalize touched files to LF. This keeps
+// git-apply's context matching exact on Windows checkouts with CRLF working trees.
+const pinnedPatches = [
+  ['patches/sketch-live-input-ui-tests.patch', 'crates/ui-egui/src/sketch_dims_tests.rs', 'mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape'],
+  ['patches/sketch-line-drag.patch', 'crates/ui-egui/src/viewport.rs', '|| t.cmd == "sketch.line") && t.pts.is_empty()'],
+  ['patches/sketch-plane-selection.patch', 'crates/ui-egui/src/dialogs.rs', 'dialog:origin-plane:dropdown'],
+  ['patches/sketch-release-to-confirm.patch', 'crates/ui-egui/src/viewport.rs', 'A real drag leaves the second point as a live'],
+];
+for (const [patchRelative, targetRelative, marker] of pinnedPatches) {
+  const target = join(source, targetRelative);
+  if (readFileSync(target, 'utf8').includes(marker)) continue;
+  const patch = join(here, patchRelative);
+  execFileSync('git', ['-C', source, 'apply', '--check', patch]);
+  if (!checkOnly) execFileSync('git', ['-C', source, 'apply', patch]);
+}
+
 const edits = [
   ['crates/io/src/lib.rs',
     'pub const LEGACY_DESIGN_EXT: &str = "solvecraft";\n/// Every extension a design file may have, current first.\npub const DESIGN_EXTS: [&str; 2] = [DESIGN_EXT, LEGACY_DESIGN_EXT];',
@@ -122,7 +138,7 @@ const edits = [
   ['apps/solidcraft/src/main.rs', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),\n            "--forge-mcp" => {\n                forge_control = true;\n                control_port = Some(0);\n            }'],
   ['apps/solidcraft/src/main.rs', 'if files.is_empty() && !sample && control_port.is_none() {', 'if files.is_empty() && !sample && (control_port.is_none() || forge_control) {'],
   ['apps/solidcraft/src/main.rs', '                take_focus_unwanted: control_port.is_some(),', '                take_focus_unwanted: control_port.is_some() && !forge_control,'],
-  ['apps/solidcraft/src/main.rs', 'usage: solidcraft [--control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]', 'usage: solidcraft [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]'],
+  ['apps/solidcraft/src/main.rs', 'usage: solidcraft [--control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]', 'usage: DemonXForge.exe [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.dxforge | part.step]'],
   ['apps/solidcraft/src/main.rs',
     '#[cfg(not(target_os = "macos"))]\n#[path = "../../../assets/icons/app/shared/source/app_icon.rs"]\nmod app_icon;',
     '// Forge-owned window icon; supplied by this prototype overlay.'],
@@ -400,7 +416,7 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
 
 const uxEdits = [
   ['crates/ui-egui/src/toolbar.rs', 'pub const APP_BAR_HEIGHT: f32 = 34.0;', 'pub const APP_BAR_HEIGHT: f32 = 42.0;'],
-  ['crates/ui-egui/src/toolbar.rs', 'let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };', 'let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };'],
+  // Wordmark dimensions are introduced by the anchored branding replacement below.
   ['crates/ui-egui/src/update.rs', 'pub const REPO: &str = "bherbruck/solidcraft";', 'pub const REPO: &str = "pricklyguy/DemonX-Forge";'],
   ['crates/ui-egui/src/update.rs', 'pub const APP_ID: &str = "ai.storyteller.solidcraft";', 'pub const APP_ID: &str = "com.pricklyguy.demonxforge";'],
   ['crates/ui-egui/src/update.rs', 'pub const RELEASES_PAGE: &str = "https://github.com/bherbruck/solidcraft/releases/latest";', 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases";'],
@@ -573,7 +589,6 @@ const scriptUiEdits = [
   ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft window: no native resize border;', 'eprintln!("DemonX Forge window: no native resize border;'],
   ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft graphics:', 'eprintln!("DemonX Forge graphics:'],
   ['apps/solidcraft/src/main.rs', 'println!("solidcraft {}", env!("CARGO_PKG_VERSION"));', 'println!("DemonX Forge {} (engine {})", solidcraft_ui_egui::help::VERSION, env!("CARGO_PKG_VERSION"));'],
-  ['apps/solidcraft/src/main.rs', 'println!("usage: solidcraft [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]");', 'println!("usage: DemonXForge.exe [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.dxforge | part.step]");'],
   ['apps/solidcraft/src/startup.rs', '"the SolidCraft settings folder"', '"the DemonX Forge settings folder"'],
   ['apps/solidcraft/src/startup.rs', '"SolidCraft could not open its window.\\n\\n{error}\\n\\n\\', '"DemonX Forge could not open its window.\\n\\n{error}\\n\\n\\'],
   ['apps/solidcraft/src/startup.rs', '`solidcraft --safe-mode`', '`DemonXForge.exe --safe-mode`'],
