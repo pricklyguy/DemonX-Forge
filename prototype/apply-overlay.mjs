@@ -13,6 +13,29 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function replaceNextUnpatched(text, before, after) {
+  const replacedRanges = [];
+  if (after.includes(before)) {
+    let cursor = 0;
+    while (true) {
+      const start = text.indexOf(after, cursor);
+      if (start < 0) break;
+      replacedRanges.push([start, start + after.length]);
+      cursor = start + after.length;
+    }
+  }
+  let cursor = 0;
+  while (true) {
+    const start = text.indexOf(before, cursor);
+    if (start < 0) return text;
+    const end = start + before.length;
+    if (!replacedRanges.some(([rangeStart, rangeEnd]) => start >= rangeStart && end <= rangeEnd)) {
+      return text.slice(0, start) + after + text.slice(end);
+    }
+    cursor = end;
+  }
+}
+
 const head = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 assert(head === PIN, `SolidCraft source must be pinned at ${PIN}; found ${head}`);
 
@@ -69,7 +92,10 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   // Several overlays intentionally target repeated match arms in one file.
   // Replace each remaining source anchor even if a prior replacement already
   // introduced the same `after` snippet elsewhere in the file.
-  if (!checkOnly && hasBefore && before !== after) writeFileSync(path, text.replace(before, after));
+  if (!checkOnly && hasBefore && before !== after) {
+    const updated = replaceNextUnpatched(text, before, after);
+    if (updated !== text) writeFileSync(path, updated);
+  }
 }
 
 const uxEdits = [
@@ -207,7 +233,10 @@ for (const [editIndex, [relative, before, after]] of scriptUiEdits.entries()) {
   const hasAfter = text.includes(after) || formattedScriptHandler || formattedOutcome;
   const hasBefore = text.includes(before);
   assert(hasBefore || hasAfter, `Script UI overlay anchor ${editIndex + 1} drift in ${relative}`);
-  if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
+  if (!checkOnly && hasBefore && before !== after) {
+    const updated = replaceNextUnpatched(text, before, after);
+    if (updated !== text) writeFileSync(path, updated);
+  }
 }
 
 const controlTestPath = join(source, 'crates/ui-egui/src/control.rs');
@@ -224,11 +253,12 @@ const waitVariants = [
   'let waits = self.file_load.busy() || self.file_picker.is_some() || self.control_job.is_some() || self.agent.busy();',
   'let waits = self.file_load.busy()\n                || self.file_picker.is_some()\n                || self.control_job.is_some()\n                || self.agent.busy();',
   'let waits = self.file_load.busy()\n                || self.file_picker.is_some()\n                || self.control_job.is_some()\n                || self.agent.busy()\n                || self.forge_scripts.run.is_some();',
+  'let waits = self.file_load.busy() || self.file_picker.is_some() || self.control_job.is_some() || self.agent.busy() || self.forge_scripts.run.is_some();',
 ];
 const waitText = readFileSync(controlWaitPath, 'utf8').replace(/\r\n/g, '\n');
 assert(waitVariants.some((variant) => waitText.includes(variant)), 'Script runner control-serialization anchor drift in crates/ui-egui/src/lib.rs');
-if (!checkOnly && !waitText.includes(waitVariants[2])) {
-  const before = waitVariants.find((variant) => waitText.includes(variant));
+if (!checkOnly && ![waitVariants[2], waitVariants[3]].some((variant) => waitText.includes(variant))) {
+  const before = waitVariants.slice(0, 2).find((variant) => waitText.includes(variant));
   const after = before.includes(' || ')
     ? before.replace(' || self.agent.busy();', ' || self.agent.busy() || self.forge_scripts.run.is_some();')
     : before.replace('                || self.agent.busy();', '                || self.agent.busy()\n                || self.forge_scripts.run.is_some();');
@@ -241,7 +271,10 @@ for (const [editIndex, [relative, before, after]] of uxEdits.entries()) {
   const hasAfter = text.includes(after);
   const hasBefore = text.includes(before);
   assert(hasBefore || hasAfter, `UX overlay anchor ${editIndex + 1} drift in ${relative}`);
-  if (!checkOnly && hasBefore && !hasAfter) writeFileSync(path, text.replace(before, after));
+  if (!checkOnly && hasBefore && before !== after) {
+    const updated = replaceNextUnpatched(text, before, after);
+    if (updated !== text) writeFileSync(path, updated);
+  }
 }
 
 for (const [editIndex, [relative, before, after]] of scenarioEdits.entries()) {
@@ -250,7 +283,15 @@ for (const [editIndex, [relative, before, after]] of scenarioEdits.entries()) {
   const hasAfter = text.includes(after);
   const hasBefore = text.includes(before);
   assert(hasBefore || hasAfter, `Scenario overlay anchor ${editIndex + 1} drift in ${relative}`);
-  if (!checkOnly && hasBefore) writeFileSync(path, text.replaceAll(before, after));
+  if (!checkOnly && hasBefore && before !== after) {
+    let updated = text;
+    while (true) {
+      const next = replaceNextUnpatched(updated, before, after);
+      if (next === updated) break;
+      updated = next;
+    }
+    writeFileSync(path, updated);
+  }
 }
 
 const interactionTestPatch = join(here, 'patches/sketch-live-input-ui-tests.patch');
