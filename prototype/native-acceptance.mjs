@@ -6,7 +6,7 @@ import { connect } from 'node:net';
 import { inflateRawSync } from 'node:zlib';
 import { buildNativeMcp } from './build-mcp-native.mjs';
 
-const exe = resolve(process.argv[2] ?? 'prototype/solidcraft/target/release/solidcraft.exe');
+const exe = resolve(process.argv[2] ?? 'prototype/solidcraft/target/release/solidcraft.exe'); // Cargo's upstream build output is renamed by the package step.
 const packagedMcpAdapter = process.argv[3] ? resolve(process.argv[3]) : null;
 const root = mkdtempSync(join(tmpdir(), 'demonx-forge-native-acceptance-'));
 const dataDir = join(root, 'data');

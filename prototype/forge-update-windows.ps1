@@ -70,7 +70,7 @@ $versions = Join-Path $root 'versions'
 $currentFile = Join-Path $root 'current.txt'
 $previousFile = Join-Path $root 'previous.txt'
 if (-not (Test-Path -LiteralPath $currentFile -PathType Leaf)) { throw 'No current native Forge release pointer exists.' }
-$runningApps = @(Get-Process -Name 'solidcraft' -ErrorAction SilentlyContinue | Where-Object {
+$runningApps = @(Get-Process -Name @('DemonXForge', 'solidcraft') -ErrorAction SilentlyContinue | Where-Object {
   try { $_.Path -and $_.Path.StartsWith(($root.TrimEnd('\') + '\versions\'), [StringComparison]::OrdinalIgnoreCase) } catch { $false }
 })
 if ($runningApps.Count -gt 0) { throw 'Close every DemonX Forge window before applying the staged update.' }
@@ -78,7 +78,9 @@ $oldRelease = (Get-Content -LiteralPath $currentFile -Raw).Trim()
 $originalPrevious = if (Test-Path -LiteralPath $previousFile -PathType Leaf) { (Get-Content -LiteralPath $previousFile -Raw).Trim() } else { '' }
 if ($oldRelease -notmatch '^[A-Za-z0-9._-]{1,120}$') { throw 'Current release pointer contains an invalid version id.' }
 $oldDirectory = Join-Path $versions $oldRelease
-if (-not (Test-Path -LiteralPath (Join-Path $oldDirectory 'solidcraft.exe') -PathType Leaf)) { throw "Current release is incomplete: $oldRelease" }
+$oldExe = Join-Path $oldDirectory 'DemonXForge.exe'
+if (-not (Test-Path -LiteralPath $oldExe -PathType Leaf)) { $oldExe = Join-Path $oldDirectory 'solidcraft.exe' }
+if (-not (Test-Path -LiteralPath $oldExe -PathType Leaf)) { throw "Current release is incomplete: $oldRelease" }
 
 $staging = Join-Path $versions ('.staging-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $staging | Out-Null
@@ -127,7 +129,7 @@ $expectedFiles = @($manifest.files.PSObject.Properties.Name) + 'manifest.json'
 $expectedFiles = @($expectedFiles | ForEach-Object { $_.Replace('\', '/') } | Sort-Object -Unique)
 $actualFiles = @($extractedFiles | Sort-Object -Unique)
 if (Compare-Object -ReferenceObject $expectedFiles -DifferenceObject $actualFiles) { throw 'The archive contains files that are missing from or absent in its package manifest.' }
-foreach ($required in 'solidcraft.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe') {
+foreach ($required in 'DemonXForge.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe') {
   if ($required.Replace('\', '/') -notin @($manifest.files.PSObject.Properties.Name)) { throw "Native package is missing required file: $required" }
 }
 
@@ -143,7 +145,7 @@ try {
   Write-AtomicText $currentFile $manifest.releaseId
   $newPointerWritten = $true
   $env:DEMONX_FORGE_NATIVE_MANAGED = '1'
-  $newExe = Join-Path $releaseDirectory 'solidcraft.exe'
+  $newExe = Join-Path $releaseDirectory 'DemonXForge.exe'
   $healthStartedUtc = [DateTime]::UtcNow
   $newProcess = Start-Process -FilePath $newExe -ArgumentList @('--forge-mcp') -WorkingDirectory $releaseDirectory -PassThru
   $controlDir = Join-Path $env:LOCALAPPDATA 'DemonX Forge\control'
@@ -169,7 +171,7 @@ try {
   }
   if (-not $NoRelaunchOnRollback) {
     $env:DEMONX_FORGE_NATIVE_MANAGED = '1'
-    Start-Process -FilePath (Join-Path $oldDirectory 'solidcraft.exe') -ArgumentList @('--forge-mcp') -WorkingDirectory $oldDirectory | Out-Null
+    Start-Process -FilePath $oldExe -ArgumentList @('--forge-mcp') -WorkingDirectory $oldDirectory | Out-Null
   }
   throw "Native update rolled back to ${oldRelease}: $($_.Exception.Message)"
 } finally {

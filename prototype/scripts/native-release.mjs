@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
-const ASSET = 'solidcraft-windows-x64-portable.zip';
+const ASSET = 'DemonX-Forge-native-windows-x64-portable.zip';
 const MANIFEST = 'DemonX-Forge-release.json';
 const SUMS = 'SHA256SUMS.txt';
 const digest = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');

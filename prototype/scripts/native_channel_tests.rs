@@ -27,8 +27,8 @@ fn release_list_ignores_react_channel_and_selects_native_forge_release() {
             "prerelease": true,
             "html_url": "https://github.com/pricklyguy/DemonX-Forge/releases/tag/native-v0.20.0-preview.1",
             "assets": [{
-                "name": "solidcraft-windows-x64-portable.zip",
-                "browser_download_url": "https://github.com/pricklyguy/DemonX-Forge/releases/download/native-v0.20.0-preview.1/solidcraft-windows-x64-portable.zip",
+                "name": "DemonX-Forge-native-windows-x64-portable.zip",
+                "browser_download_url": "https://github.com/pricklyguy/DemonX-Forge/releases/download/native-v0.20.0-preview.1/DemonX-Forge-native-windows-x64-portable.zip",
                 "size": 1024
             }]
         }
@@ -36,7 +36,7 @@ fn release_list_ignores_react_channel_and_selects_native_forge_release() {
     let release = Release::parse(body.to_string().as_bytes()).unwrap();
     assert_eq!(release.tag, "native-v0.20.0-preview.1");
     assert_eq!(release.version(), "0.20.0-preview.1");
-    assert_eq!(release.asset_for(&InstallKind::WindowsPortable, "x86_64").map(|a| a.name.as_str()), Some("solidcraft-windows-x64-portable.zip"));
+    assert_eq!(release.asset_for(&InstallKind::WindowsPortable, "x86_64").map(|a| a.name.as_str()), Some("DemonX-Forge-native-windows-x64-portable.zip"));
     assert!(is_newer(&release.tag, "0.19.0"));
     assert!(!is_newer("native-v0.19.9-preview.2", "0.20.0-preview.1"), "a native downgrade is not offered");
     assert!(!is_newer("native-v0.20.0-preview.1", "0.20.0-preview.1"), "an equal version is not offered");

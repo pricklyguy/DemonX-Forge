@@ -23,7 +23,7 @@ $candidate = Join-Path $archives $releaseId
 New-Item -ItemType Directory -Path $candidate | Out-Null
 Copy-Item -Path (Join-Path $versionDir '*') -Destination $candidate -Recurse
 # A valid executable which exits without opening Forge's authenticated control endpoint.
-Copy-Item -LiteralPath (Join-Path $versionDir 'solidcraft-cli.exe') -Destination (Join-Path $candidate 'solidcraft.exe') -Force
+Copy-Item -LiteralPath (Join-Path $versionDir 'solidcraft-cli.exe') -Destination (Join-Path $candidate 'DemonXForge.exe') -Force
 $manifest = Get-Content -LiteralPath (Join-Path $candidate 'manifest.json') -Raw | ConvertFrom-Json
 $manifest.releaseId = $releaseId
 $manifest.version = '0.19.0-test-failed-startup'

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: New numeric preview version, for example 0.20.0-preview.1
+        description: New DemonX Forge preview version, for example 0.1.0-preview.1
         required: true
         type: string
       publish:
@@ -103,15 +103,15 @@ jobs:
           & prototype/package-windows.ps1 -Arch x64 -OutputDirectory $packageRoot -BuildSource (Join-Path $PWD 'prototype\solidcraft') -VsDevCmdPath '${{ steps.vs.outputs.path }}' -ReleaseVersion $env:RELEASE_VERSION
           $archive = Get-ChildItem -LiteralPath $packageRoot -Filter '*.zip' | Select-Object -First 1
           if (-not $archive) { throw 'Package script did not produce a ZIP archive.' }
-          Copy-Item -LiteralPath $archive.FullName -Destination (Join-Path $packageRoot 'solidcraft-windows-x64-portable.zip')
+          Copy-Item -LiteralPath $archive.FullName -Destination (Join-Path $packageRoot 'DemonX-Forge-native-windows-x64-portable.zip')
           "package_root=$packageRoot" >> $env:GITHUB_OUTPUT
         id: package
       - name: Run packaged GUI, native command, and MCP acceptance
-        run: node prototype/native-acceptance.mjs "${{ steps.package.outputs.package_root }}\solidcraft.exe" "${{ steps.package.outputs.package_root }}\forge-mcp-native.mjs"
+        run: node prototype/native-acceptance.mjs "${{ steps.package.outputs.package_root }}\DemonXForge.exe" "${{ steps.package.outputs.package_root }}\forge-mcp-native.mjs"
       - uses: actions/upload-artifact@v4
         with:
           name: native-windows-preview-${{ inputs.version }}
-          path: ${{ runner.temp }}/demonx-forge-package/solidcraft-windows-x64-portable.zip
+          path: ${{ runner.temp }}/demonx-forge-package/DemonX-Forge-native-windows-x64-portable.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -194,7 +194,7 @@ jobs:
             if ($trustedKeys -cnotcontains $keyBase64) { throw 'Signing secret is not one of the public keys embedded in the build.' }
             Copy-Item -LiteralPath $derivedPub -Destination $pubFile
             $tag = "native-v$($env:RELEASE_VERSION)"
-            node prototype/scripts/native-release.mjs create "--version=$($env:RELEASE_VERSION)" "--tag=$tag" "--archive=$(Join-Path $releaseDir 'solidcraft-windows-x64-portable.zip')" "--out=$releaseDir"
+            node prototype/scripts/native-release.mjs create "--version=$($env:RELEASE_VERSION)" "--tag=$tag" "--archive=$(Join-Path $releaseDir 'DemonX-Forge-native-windows-x64-portable.zip')" "--out=$releaseDir"
             if ($LASTEXITCODE -ne 0) { throw 'Could not generate native release metadata.' }
             & $env:MINISIGN -S -s $keyFile -m (Join-Path $releaseDir 'SHA256SUMS.txt') -x (Join-Path $releaseDir 'SHA256SUMS.txt.minisig') -t $tag -W
             if ($LASTEXITCODE -ne 0) { throw 'Could not sign native release checksums.' }
@@ -223,7 +223,7 @@ jobs:
           "@
           Set-Content -LiteralPath (Join-Path $releaseDir 'release-notes.txt') -Value $notes -Encoding utf8
           gh release create $tag `
-            (Join-Path $releaseDir 'solidcraft-windows-x64-portable.zip') `
+            (Join-Path $releaseDir 'DemonX-Forge-native-windows-x64-portable.zip') `
             (Join-Path $releaseDir 'DemonX-Forge-release.json') `
             (Join-Path $releaseDir 'SHA256SUMS.txt') `
             (Join-Path $releaseDir 'SHA256SUMS.txt.minisig') `

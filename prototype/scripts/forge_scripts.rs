@@ -83,7 +83,7 @@ pub fn validate(text: &str) -> Result<ValidationSummary, String> {
             return Err(format!("Command {} ({}) is outside Forge script permissions", index + 1, step.command));
         }
         let Some(spec) = cmd::find_command(&step.command) else {
-            return Err(format!("Command {} is not in the SolidCraft command registry", step.command));
+            return Err(format!("Command {} is not available in the native command registry", step.command));
         };
         if spec.planned.is_some() {
             return Err(format!("Command {} is registered but not implemented", step.command));
@@ -345,7 +345,7 @@ pub fn show(app: &mut crate::SolveApp, ctx: &egui::Context) {
         ui.set_min_width(680.0);
         ui.set_max_width(860.0);
         ui.heading(RichText::new("Scripts & Add-Ins").color(Color32::from_rgb(35, 190, 202)));
-        ui.label("Forge scripts use the native SolidCraft command registry and run as one transaction.");
+        ui.label("Forge scripts use the native modeling command registry and run as one transaction.");
         ui.separator();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {

@@ -19,7 +19,7 @@ foreach ($name in $manifest.files.PSObject.Properties.Name) {
   $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $manifest.files.$name) { throw "Package integrity check failed: $name" }
 }
-foreach ($required in 'solidcraft.exe', 'solidcraft-cli.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe', 'forge-update-windows.ps1', 'DemonX Forge.ico', 'LICENSE-GPL-3.0-or-later', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt') {
+foreach ($required in 'DemonXForge.exe', 'solidcraft-cli.exe', 'forge-mcp-native.mjs', 'forge-mcp.exe', 'runtime\node.exe', 'forge-update-windows.ps1', 'DemonX Forge.ico', 'LICENSE-GPL-3.0-or-later', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ATTRIBUTION.md', 'THIRD-PARTY-LICENSES.txt') {
   $manifestName = $required.Replace('\', '/')
   if ($manifestName -notin @($manifest.files.PSObject.Properties.Name)) { throw "Package is missing required file: $required" }
 }
@@ -48,7 +48,8 @@ if not defined FORGE_RELEASE (
   echo DemonX Forge has no active release. Run install-windows.ps1 again.
   exit /b 2
 )
-set "FORGE_EXE=%FORGE_ROOT%versions\%FORGE_RELEASE%\solidcraft.exe"
+set "FORGE_EXE=%FORGE_ROOT%versions\%FORGE_RELEASE%\DemonXForge.exe"
+if not exist "%FORGE_EXE%" set "FORGE_EXE=%FORGE_ROOT%versions\%FORGE_RELEASE%\solidcraft.exe"
 if not exist "%FORGE_EXE%" (
   echo The active DemonX Forge files are incomplete: "%FORGE_EXE%"
   exit /b 2

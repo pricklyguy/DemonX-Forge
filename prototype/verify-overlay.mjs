@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, 'solidcraft'));
@@ -15,6 +15,20 @@ const sketchDimensionTests = read('crates/ui-egui/src/sketch_dims_tests.rs');
 const viewport = read('crates/ui-egui/src/viewport.rs');
 const updater = read('crates/ui-egui/src/update.rs');
 const updaterInstall = read('crates/ui-egui/src/update/install.rs');
+const help = read('crates/ui-egui/src/help.rs');
+const issueReport = read('crates/ui-egui/src/issue_report.rs');
+const forgeLicensePath = join(root, 'LICENSE-GPL-3.0-or-later');
+const forgeDesktop = read('assets/platforms/linux/com.pricklyguy.demonxforge.desktop');
+const forgeMetainfo = read('assets/platforms/linux/com.pricklyguy.demonxforge.metainfo.xml.in');
+const forgeMime = read('assets/platforms/linux/com.pricklyguy.demonxforge.mime.xml');
+const linuxEnv = read('packaging/env.sh');
+const appIcons = read('xtask/src/app_icons.rs');
+const keymap = read('crates/ui-egui/src/keymap.rs');
+const toolbarCustom = read('crates/ui-egui/src/toolbar_custom.rs');
+const appMain = read('apps/solidcraft/src/main.rs');
+const agentAcp = read('crates/ui-egui/src/agent_chat/acp.rs');
+const agentApi = read('crates/ui-egui/src/agent_chat/api_client.rs');
+const forgeScripts = read('crates/ui-egui/src/forge_scripts.rs');
 const keys = new Set([...themeSource.matchAll(/\b(?:one|many): \[([\s\S]*?)\]/g)].flatMap(([, block]) => [...block.matchAll(/\b[a-z][a-z0-9_]*\b/g)].map(([name]) => name)));
 
 function requireMatch(value, pattern, label) {
@@ -45,6 +59,31 @@ requireMatch(updaterInstall, /DemonX-Forge-release\.json/, 'signed native releas
 requireMatch(updaterInstall, /native-preview/, 'strict native preview channel validation');
 requireMatch(updaterInstall, /exactly one windows-x64 artifact/, 'unique signed Windows x64 artifact requirement');
 requireMatch(updaterInstall, /not signed by any pinned native Forge release key/, 'signature verification against pinned key set');
+requireMatch(updater, /option_env!\("DEMONX_FORGE_VERSION"\)/, 'independent Forge product version');
+requireMatch(updater, /APP_ID: &str = "com\.pricklyguy\.demonxforge"/, 'independent Forge application id');
+requireMatch(help, /option_env!\("DEMONX_FORGE_VERSION"\)/, 'About uses the independent Forge version');
+requireMatch(help, /SolidCraft engine \{ENGINE_VERSION\}/, 'engine version appears in copied diagnostics');
+requireMatch(help, /DemonX Forge GPL-3\.0-or-later/, 'About identifies the Forge license');
+requireMatch(help, /LICENSE_GPL/, 'About displays the Forge GPL text');
+requireMatch(help, /https:\/\/github\.com\/pricklyguy\/DemonX-Forge/, 'Help links to the Forge repository');
+requireMatch(issueReport, /https:\/\/github\.com\/pricklyguy\/DemonX-Forge\/issues\/new/, 'bug reports target Forge support');
+requireMatch(keymap, /used by DemonX Forge itself/, 'Forge-branded shortcut validation errors');
+requireMatch(toolbarCustom, /not a DemonX Forge shortcuts file/, 'Forge-branded shortcut file errors');
+requireMatch(appMain, /DemonX Forge could not start/, 'Forge-branded startup failure dialog');
+requireMatch(appMain, /DemonX Forge \{\} \(engine \{\}\)/, 'Forge version in command diagnostics');
+requireMatch(agentAcp, /You are running inside DemonX Forge/, 'Forge identity in the embedded assistant prompt');
+requireMatch(agentApi, /no DemonX Forge modeling tools in this session/, 'Forge-branded modeling assistant errors');
+requireMatch(forgeScripts, /not available in the native command registry/, 'Forge script validation errors without upstream branding');
+requireMatch(forgeDesktop, /Name=DemonX Forge/, 'Linux desktop product name');
+requireMatch(forgeDesktop, /Icon=com\.pricklyguy\.demonxforge/, 'Linux desktop Forge icon identity');
+requireMatch(forgeMetainfo, /<id>com\.pricklyguy\.demonxforge<\/id>/, 'Linux app metadata identity');
+requireMatch(forgeMetainfo, /https:\/\/github\.com\/pricklyguy\/DemonX-Forge\/issues/, 'Linux metadata Forge support link');
+requireMatch(forgeMime, /<comment>DemonX Forge design<\/comment>/, 'Linux project MIME description');
+requireMatch(linuxEnv, /APP_ID=com\.pricklyguy\.demonxforge/, 'Linux package app id');
+requireMatch(appIcons, /apps\/com\.pricklyguy\.demonxforge\.png/, 'Forge-named Linux icon export');
+if (!existsSync(join(root, 'ATTRIBUTION.md'))) throw new Error('Missing upstream ATTRIBUTION.md in the overlaid source.');
+if (!existsSync(forgeLicensePath)) throw new Error('Missing GPL-3.0-or-later source notice for Forge changes.');
+requireMatch(readFileSync(forgeLicensePath, 'utf8'), /GNU GENERAL PUBLIC LICENSE[\s\S]*Version 3/, 'Forge GPL source notice');
 requireMatch(sketchDimensionTests, /mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape/, 'mouse gesture/live dimension regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_circle_accepts_an_exact_diameter_without_a_dimension_tool/, 'mouse circle diameter regression test');
 requireMatch(sketchDimensionTests, /mouse_drag_line_accepts_length_and_angle_and_escape_cancels_a_following_draw/, 'mouse line angle and cancellation regression test');

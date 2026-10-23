@@ -40,7 +40,7 @@ $sourceHead = (& git -C $Submodule rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceHead -ne $Pinned) { throw "SolidCraft submodule must be at pinned commit $Pinned (found $sourceHead)." }
 $cargoVersion = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $Submodule 'Cargo.toml')), '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
 if (-not $cargoVersion) { throw 'Could not determine the native engine version from Cargo.toml.' }
-$packageVersion = if ($ReleaseVersion) { $ReleaseVersion } else { $cargoVersion }
+$packageVersion = if ($ReleaseVersion) { $ReleaseVersion } else { '0.1.0-preview.0' }
 if ($ReleaseVersion -and $ReleaseVersion -notmatch '^\d+\.\d+\.\d+-preview\.\d+$') {
   throw "Native preview version must use numeric semver with a -preview.N suffix: $ReleaseVersion"
 }
@@ -84,7 +84,7 @@ if errorlevel 1 exit /b %errorlevel%
 set PATH=$cargoBin;%PATH%
 set CARGO_TARGET_DIR=$targetDir
 set CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=-C target-feature=+crt-static
-set SOLIDCRAFT_VERSION=$packageVersion
+set DEMONX_FORGE_VERSION=$packageVersion
 $updatePublicKeyAssignment
 cd /d "$BuildSource"
 rustc -vV | findstr /c:"host: x86_64-pc-windows-msvc" >nul
@@ -123,9 +123,10 @@ foreach ($file in 'solidcraft.exe', 'solidcraft-cli.exe', 'solvecraft-cli.exe') 
   if ($header.Subsystem -ne $expectedSubsystem) { throw "$file has PE subsystem $($header.Subsystem); expected $expectedSubsystem." }
   Copy-Item -LiteralPath $binary -Destination $stage
 }
+Move-Item -LiteralPath (Join-Path $stage 'solidcraft.exe') -Destination (Join-Path $stage 'DemonXForge.exe')
 $mcpHeader = Get-PeHeader (Join-Path $stage 'forge-mcp.exe')
 if ($mcpHeader.Machine -ne 0x8664 -or $mcpHeader.Subsystem -ne 3) { throw 'forge-mcp.exe is not a Windows x64 console executable.' }
-foreach ($file in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt', 'README.md') { Copy-Item -LiteralPath (Join-Path $BuildSource $file) -Destination $stage }
+foreach ($file in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ATTRIBUTION.md', 'THIRD-PARTY-LICENSES.txt', 'README.md') { Copy-Item -LiteralPath (Join-Path $BuildSource $file) -Destination $stage }
 Copy-Item -LiteralPath (Join-Path $Repo 'LICENSE') -Destination (Join-Path $stage 'LICENSE-GPL-3.0-or-later')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'branding\demonx-forge-wordmark.png') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'forge-update-windows.ps1') -Destination (Join-Path $stage 'forge-update-windows.ps1')
@@ -173,6 +174,8 @@ try {
 @'
 DemonX Forge native Windows package
 
+Application executable: DemonXForge.exe. Product version is recorded in manifest.json.
+
 Install or update from the Forge checkout:
   powershell -ExecutionPolicy Bypass -File prototype\install-windows.ps1 -PackageDirectory <this-folder>
 
@@ -197,19 +200,21 @@ instruction if no endpoint is available. If multiple app sessions are detected, 
 set `FORGE_NATIVE_PORT` only when deliberately selecting one session. Do not copy tokens into client
 configuration. Filesystem scopes and unsafe-command refusals are unchanged.
 
-This package preserves SolidCraft MIT/Apache and third-party notices. The Forge bridge is covered
+This package preserves SolidCraft MIT/Apache notices, NOTICE, ATTRIBUTION.md, and third-party
+licenses. Forge-authored changes are covered
 by the included GNU GPL-3.0-or-later license.
 '@ | Set-Content -LiteralPath (Join-Path $stage 'INSTALL.txt') -Encoding utf8
 
 $forgeCommit = (& git -C $Repo rev-parse HEAD).Trim()
 $forgeCommitTime = (& git -C $Repo show -s --format=%cI $forgeCommit).Trim()
-$releaseId = "${packageVersion}-forge-$($forgeCommit.Substring(0,12))-engine-$($Pinned.Substring(0,12))"
+$releaseId = "${packageVersion}-forge-$($forgeCommit.Substring(0,12))"
 Write-Host '==> Hash package files and write manifest'
 $manifest = [ordered]@{
   product = 'DemonX Forge'
   version = $packageVersion
   releaseId = $releaseId
   architecture = $Arch
+  engineVersion = $cargoVersion
   forgeCommit = $forgeCommit
   solidcraftCommit = $Pinned
   sourceCommitTime = $forgeCommitTime

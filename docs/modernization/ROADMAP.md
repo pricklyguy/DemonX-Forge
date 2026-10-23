@@ -300,3 +300,41 @@ and preserve parametric history; verify MCP tools and security refusals remain u
 - [ ] Build and exercise the native Linux package/update path. Keep Linux as a preview-release blocker, not a blocker for continued Windows development.
 
 Current detail: [`RELEASE-PREP.md`](RELEASE-PREP.md).
+
+## DemonX Forge product identity and public-release preparation
+
+**Decision:** `pricklyguy/DemonX-Forge` remains the eventual official Forge repository. Native
+Windows packages use an independent Forge version and `native-v*` release tags. Existing React
+Forge commits, tags, GitHub releases, and assets remain archival history in this repository. This
+milestone does not authorize a public release, visibility change, merge to `main`, or replacement
+of the installed application.
+
+The native overlay already provides the Forge window identity, Forge-owned icon and wordmark,
+`.dxforge` default extension, isolated profile paths, Forge-owned update repository, signed update
+manifest checks, and managed immutable Windows install/rollback. The remaining audit and gates are
+tracked in [`PRODUCT-IDENTITY-AND-PUBLIC-RELEASE.md`](PRODUCT-IDENTITY-AND-PUBLIC-RELEASE.md).
+
+1. **Identity and versioning:** use `DEMONX_FORGE_VERSION` in About and update logic, independent
+   of the pinned engine's Cargo version. Keep engine provenance only in copied technical
+   diagnostics. Brand the installed executable, artifact names, About/Help, support links, crash
+   reports, package output, and user-visible errors.
+2. **Licenses and attribution:** preserve Forge GPL-3.0-or-later terms and upstream MIT/Apache
+   notices, attribution, vendored-code records, the third-party inventory, fonts/assets credits,
+   and bundled Node license. Complete a per-release legal/dependency review before recommending
+   public redistribution.
+3. **React archive:** preserve existing history, tags, releases, and assets without rewriting or
+   deleting them. Create a Git bundle/mirror and an asset/tag inventory before any visibility
+   change. Add a named archive branch only if a stable browseable React snapshot is useful.
+4. **Security gate:** audit all reachable and dangling Git history, refs, tags, releases, assets,
+   Actions artifacts/caches, packages, Pages, wiki, forks, LFS objects, submodules, and metadata.
+   Removing a secret from the current tree does not remove it from old commits or release assets.
+5. **Release gate:** keep signed release testing private/access-controlled until the installed GUI
+   has verified a real signed release through discovery, dirty-document deferral, installation,
+   failure rollback, and MCP reconnection. Keep the working installation as rollback. Make
+   Windows preview readiness and Linux readiness separate owner decisions.
+
+**Completion:** user-facing native surfaces and artifacts use DemonX Forge identity and independent
+versions; legal notices remain complete; the React archive is recoverable; security/history and
+GPL/dependency gates pass; a real signed Windows update passes installed-app acceptance; and the
+owner approves the exact repository state and artifact for public preview. No automatic publishing
+or update installation is enabled by this milestone.

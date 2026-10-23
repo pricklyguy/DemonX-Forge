@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -8,6 +8,8 @@ const PIN = '75261cd79733fe47cf898b54f865e6bfaffa1129';
 const checkOnly = process.argv.includes('--check');
 const sourceArg = process.argv.find((arg) => !arg.startsWith('--') && arg !== process.argv[0] && arg !== process.argv[1]);
 const source = resolve(sourceArg ?? join(here, 'solidcraft'));
+const forgeLicense = join(source, 'LICENSE-GPL-3.0-or-later');
+if (!checkOnly && existsSync(join(here, '..', 'LICENSE'))) cpSync(join(here, '..', 'LICENSE'), forgeLicense);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -64,10 +66,10 @@ const edits = [
     '                        io::FORGE_DESIGN_EXT,\n                        io::DESIGN_EXT,\n                        io::LEGACY_DESIGN_EXT,\n                        "json",'],
   ['apps/solidcraft/src/main.rs',
     '.add_filter("SolidCraft design (container or JSON)", &[io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])',
-    '.add_filter("DemonX Forge and SolidCraft designs (container or JSON)", &[io::FORGE_DESIGN_EXT, io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])'],
+    '.add_filter("DemonX Forge designs (including compatible legacy containers or JSON)", &[io::FORGE_DESIGN_EXT, io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])'],
   ['apps/solidcraft/src/main.rs',
     'if exts == [io::DESIGN_EXT, "json"] {\n                if name.ends_with(".json") {\n                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("SolidCraft container", &[io::DESIGN_EXT])\n                } else {\n                    dialog.add_filter("SolidCraft container", &[io::DESIGN_EXT]).add_filter("Plain JSON design", &["json"])\n                }',
-    'if exts == [io::FORGE_DESIGN_EXT, io::DESIGN_EXT, "json"] {\n                let container_filter = &[io::FORGE_DESIGN_EXT, io::DESIGN_EXT];\n                if name.ends_with(".json") {\n                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("DemonX Forge / SolidCraft container", container_filter)\n                } else {\n                    dialog.add_filter("DemonX Forge / SolidCraft container", container_filter).add_filter("Plain JSON design", &["json"])\n                }'],
+    'if exts == [io::FORGE_DESIGN_EXT, io::DESIGN_EXT, "json"] {\n                let container_filter = &[io::FORGE_DESIGN_EXT, io::DESIGN_EXT];\n                if name.ends_with(".json") {\n                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("DemonX Forge compatible container", container_filter)\n                } else {\n                    dialog.add_filter("DemonX Forge compatible container", container_filter).add_filter("Plain JSON design", &["json"])\n                }'],
   ['crates/ui-egui/src/toolbar.rs',
     'save_as_with_extension(app, solidcraft_engine::io::DESIGN_EXT);',
     'save_as_with_extension(app, solidcraft_engine::io::FORGE_DESIGN_EXT);'],
@@ -176,6 +178,20 @@ const edits = [
   ['assets/platforms/linux/ai.storyteller.solidcraft.desktop',
     'MimeType=application/x-solidcraft;model/step;',
     'MimeType=application/x-demonxforge;application/x-solidcraft;model/step;'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.desktop', 'Icon=ai.storyteller.solidcraft', 'Icon=com.pricklyguy.demonxforge'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.desktop', 'StartupWMClass=ai.storyteller.solidcraft', 'StartupWMClass=com.pricklyguy.demonxforge'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.mime.xml', '<comment>SolidCraft design</comment>\n    <icon name="ai.storyteller.solidcraft"/>', '<comment>DemonX Forge design</comment>\n    <icon name="com.pricklyguy.demonxforge"/>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<id>ai.storyteller.solidcraft</id>', '<id>com.pricklyguy.demonxforge</id>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<project_license>MIT OR Apache-2.0</project_license>', '<project_license>GPL-3.0-or-later</project_license>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<developer id="io.github.bherbruck">\n    <name>SolidCraft contributors</name>', '<developer id="com.pricklyguy.demonxforge">\n    <name>DemonX Forge contributors</name>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '      SolidCraft is an open-source parametric 3D CAD application written in Rust.', '      DemonX Forge is a native parametric 3D CAD application written in Rust and based on the SolidCraft engine.'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<icon type="stock">ai.storyteller.solidcraft</icon>', '<icon type="stock">com.pricklyguy.demonxforge</icon>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<url type="homepage">https://docs.solidcraft.io/</url>', '<url type="homepage">https://github.com/pricklyguy/DemonX-Forge</url>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<url type="bugtracker">https://github.com/bherbruck/solidcraft/issues</url>', '<url type="bugtracker">https://github.com/pricklyguy/DemonX-Forge/issues</url>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '<url type="help">https://docs.solidcraft.io/</url>', '<url type="help">https://github.com/pricklyguy/DemonX-Forge</url>'],
+  ['assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in', '      <image>https://raw.githubusercontent.com/bherbruck/solidcraft/main/docs/screenshots/sample-plate.png</image>\n', ''],
+  ['packaging/env.sh', 'APP_ID=ai.storyteller.solidcraft', 'APP_ID=com.pricklyguy.demonxforge'],
+  ['xtask/src/app_icons.rs', 'linux/exports/hicolor/{size}x{size}/apps/ai.storyteller.solidcraft.png', 'linux/exports/hicolor/{size}x{size}/apps/com.pricklyguy.demonxforge.png'],
   ['assets/platforms/linux/ai.storyteller.solidcraft.mime.xml',
     '  <mime-type type="application/x-solidcraft">',
     '  <mime-type type="application/x-demonxforge">\n    <comment>DemonX Forge design</comment>\n    <icon name="ai.storyteller.solidcraft"/>\n    <sub-class-of type="application/json"/>\n    <glob pattern="*.dxforge"/>\n  </mime-type>\n  <mime-type type="application/x-solidcraft">'],
@@ -386,7 +402,27 @@ const uxEdits = [
   ['crates/ui-egui/src/toolbar.rs', 'pub const APP_BAR_HEIGHT: f32 = 34.0;', 'pub const APP_BAR_HEIGHT: f32 = 42.0;'],
   ['crates/ui-egui/src/toolbar.rs', 'let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };', 'let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };'],
   ['crates/ui-egui/src/update.rs', 'pub const REPO: &str = "bherbruck/solidcraft";', 'pub const REPO: &str = "pricklyguy/DemonX-Forge";'],
+  ['crates/ui-egui/src/update.rs', 'pub const APP_ID: &str = "ai.storyteller.solidcraft";', 'pub const APP_ID: &str = "com.pricklyguy.demonxforge";'],
   ['crates/ui-egui/src/update.rs', 'pub const RELEASES_PAGE: &str = "https://github.com/bherbruck/solidcraft/releases/latest";', 'pub const RELEASES_PAGE: &str = "https://github.com/pricklyguy/DemonX-Forge/releases";'],
+  ['crates/ui-egui/src/update.rs', `/// This build's version: the release workflow's \`SOLIDCRAFT_VERSION\` (with any nightly suffix)
+/// when it built this binary, else the crate version.
+pub fn current_version() -> &'static str {
+    option_env!("SOLIDCRAFT_VERSION").filter(|v| !v.is_empty()).unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+/// The release workflow built this binary (\`SOLIDCRAFT_VERSION\` is set there). Anything else is a
+/// development build, which never checks for updates.
+pub fn release_build() -> bool {
+    option_env!("SOLIDCRAFT_VERSION").is_some_and(|v| !v.is_empty()) && !cfg!(debug_assertions)
+}`, `/// Independent DemonX Forge product version, separate from the pinned engine crate version.
+pub fn current_version() -> &'static str {
+    option_env!("DEMONX_FORGE_VERSION").filter(|v| !v.is_empty()).unwrap_or("0.0.0-dev")
+}
+
+/// Only builds with an explicit Forge release version may check the native release channel.
+pub fn release_build() -> bool {
+    option_env!("DEMONX_FORGE_VERSION").is_some_and(|v| !v.is_empty()) && !cfg!(debug_assertions)
+}`],
   ['crates/ui-egui/src/update.rs', 'let v = v.trim();\n    semver::Version::parse(v.strip_prefix(\'v\').unwrap_or(v)).ok()', 'let v = v.trim();\n    let v = v.strip_prefix("native-").unwrap_or(v);\n    semver::Version::parse(v.strip_prefix(\'v\').unwrap_or(v)).ok()'],
   ['crates/ui-egui/src/update.rs', 'pub fn is_newer(latest: &str, current: &str) -> bool {\n    let (Some(latest), Some(current)) = (parse_version(latest), parse_version(current)) else { return false };\n    latest.pre.is_empty() && latest > comparable(&current)\n}', 'pub fn is_newer(latest: &str, current: &str) -> bool {\n    let native = latest.starts_with("native-v");\n    let (Some(latest), Some(current)) = (parse_version(latest), parse_version(current)) else { return false };\n    (latest.pre.is_empty() || native) && latest > comparable(&current)\n}'],
   ['crates/ui-egui/src/update.rs', 'if app.updater.rx.is_none() && app.preferences.check_updates && app.preferences.update.due(now, launch) && available(app) {', 'if app.updater.rx.is_none() && option_env!("DEMONX_FORGE_AUTO_UPDATES") == Some("1") && app.preferences.check_updates && app.preferences.update.due(now, launch) && available(app) {'],
@@ -519,6 +555,47 @@ const scriptUiEdits = [
   ['apps/solidcraft/src/control_server.rs', 'let wait = if patient || method == "engine.batch" { waits.long } else { waits.short };', 'let wait = if patient || matches!(method.as_str(), "engine.batch" | "forge.script.run") { waits.long } else { waits.short };'],
   ['crates/ui-egui/src/help.rs', '        "about" => app.help.about = true,', '        "about" => app.help.about = true,\n        "scripts" => app.forge_scripts.open(),'],
   ['crates/ui-egui/src/help.rs', '                        ("about", "About SolidCraft", "help"),', '                        ("about", "About DemonX Forge", "help"),\n                        ("scripts", "Scripts & Add-Ins…", "code"),'],
+  ['crates/ui-egui/src/help.rs', 'pub const VERSION: &str = env!("CARGO_PKG_VERSION");', 'pub const VERSION: &str = match option_env!("DEMONX_FORGE_VERSION") { Some(version) if !version.is_empty() => version, _ => "0.0.0-dev" };\npub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");'],
+  ['crates/ui-egui/src/help.rs', 'pub const DOCS_URL: &str = "https://docs.solidcraft.io/";', 'pub const DOCS_URL: &str = "https://github.com/pricklyguy/DemonX-Forge";'],
+  ['crates/ui-egui/src/help.rs', '        "SolidCraft {VERSION} ({COMMIT}, built {BUILD_DATE})\\nOS: {} {}\\nRenderer: {renderer}{}\\nWindow: {}\\nDesign: {} ({} features, {} bodies)",', '        "DemonX Forge {VERSION} (SolidCraft engine {ENGINE_VERSION}; {COMMIT}, built {BUILD_DATE})\\nOS: {} {}\\nRenderer: {renderer}{}\\nWindow: {}\\nDesign: {} ({} features, {} bodies)",'],
+  ['crates/ui-egui/src/help.rs', 'crate::i18n::tr_label("About SolidCraft")', 'crate::i18n::tr_label("About DemonX Forge")'],
+  ['crates/ui-egui/src/help.rs', 'crate::i18n::tr_label("Open-source parametric 3D CAD in Rust. Licensed MIT OR Apache-2.0.")', 'crate::i18n::tr_label("DemonX Forge native parametric CAD. Forge changes are GPL-3.0-or-later with no warranty; see the license and notices below.")'],
+  ['crates/ui-egui/src/help.rs', 'use solidcraft_engine::licences::{LICENSE_APACHE, LICENSE_MIT, NOTICE, THIRD_PARTY};', 'use solidcraft_engine::licences::{LICENSE_APACHE, LICENSE_MIT, NOTICE, THIRD_PARTY};\nconst LICENSE_GPL: &str = include_str!("../../../LICENSE-GPL-3.0-or-later");'],
+  ['crates/ui-egui/src/help.rs', '[("notice", "help.notice", NOTICE), ("mit", "help.mit", LICENSE_MIT), ("apache", "help.apache", LICENSE_APACHE)]', '[ ("forge_gpl", "DemonX Forge GPL-3.0-or-later", LICENSE_GPL), ("notice", "help.notice", NOTICE), ("mit", "help.mit", LICENSE_MIT), ("apache", "help.apache", LICENSE_APACHE) ]'],
+  ['crates/ui-egui/src/home.rs', 'app.tr_label("About SolidCraft")', 'app.tr_label("About DemonX Forge")'],
+  ['apps/solidcraft/src/main.rs', '.user_agent("SolidCraft")', '.user_agent("DemonX Forge")'],
+  ['apps/solidcraft/src/main.rs', '.user_agent("SolidCraft-update-check")', '.user_agent("DemonX-Forge-update-check")'],
+  ['apps/solidcraft/src/main.rs', 'keyring::Entry::new("SolidCraft agent chat", id)', 'keyring::Entry::new("DemonX Forge agent chat", id)'],
+  ['apps/solidcraft/src/main.rs', '"SolidCraft could not start"', '"DemonX Forge could not start"'],
+  ['apps/solidcraft/src/main.rs', '        "SolidCraft",\n        options,', '        "DemonX Forge",\n        options,'],
+  ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft: the window could not open: {error}");', 'eprintln!("DemonX Forge: the window could not open: {error}");'],
+  ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft: trying again with the software renderer', 'eprintln!("DemonX Forge: trying again with the software renderer'],
+  ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft window: no native resize border;', 'eprintln!("DemonX Forge window: no native resize border;'],
+  ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft graphics:', 'eprintln!("DemonX Forge graphics:'],
+  ['apps/solidcraft/src/main.rs', 'println!("solidcraft {}", env!("CARGO_PKG_VERSION"));', 'println!("DemonX Forge {} (engine {})", solidcraft_ui_egui::help::VERSION, env!("CARGO_PKG_VERSION"));'],
+  ['apps/solidcraft/src/main.rs', 'println!("usage: solidcraft [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]");', 'println!("usage: DemonXForge.exe [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.dxforge | part.step]");'],
+  ['apps/solidcraft/src/startup.rs', '"the SolidCraft settings folder"', '"the DemonX Forge settings folder"'],
+  ['apps/solidcraft/src/startup.rs', '"SolidCraft could not open its window.\\n\\n{error}\\n\\n\\', '"DemonX Forge could not open its window.\\n\\n{error}\\n\\n\\'],
+  ['apps/solidcraft/src/startup.rs', '`solidcraft --safe-mode`', '`DemonXForge.exe --safe-mode`'],
+  ['apps/solidcraft/src/startup.rs', 'More: https://docs.solidcraft.io/guide/troubleshooting.html', 'More: https://github.com/pricklyguy/DemonX-Forge/issues'],
+  ['apps/solidcraft/src/space_mouse.rs', '        "SolidCraft",\n        move |event| match event {', '        "DemonX Forge",\n        move |event| match event {'],
+  ['crates/ui-egui/src/agent_chat/acp.rs', '"name": "solidcraft", "title": "SolidCraft"', '"name": "demonx-forge", "title": "DemonX Forge"'],
+  ['crates/ui-egui/src/agent_chat/acp.rs', 'You are running inside SolidCraft, a parametric 3D CAD application', 'You are running inside DemonX Forge, a parametric 3D CAD application'],
+  ['crates/ui-egui/src/agent_chat/acp.rs', 'work through the SolidCraft tools.', 'work through the DemonX Forge modeling tools.'],
+  ['crates/ui-egui/src/agent_chat/api_client.rs', '"no SolidCraft tools in this session"', '"no DemonX Forge modeling tools in this session"'],
+  ['crates/ui-egui/src/agent_chat/api_client.rs', '"the SolidCraft tools stopped"', '"the DemonX Forge modeling tools stopped"'],
+  ['crates/ui-egui/src/agent_chat/api_client.rs', '"the SolidCraft tools did not answer"', '"the DemonX Forge modeling tools did not answer"'],
+  ['crates/ui-egui/src/agent_chat/api_client.rs', '"name": "solidcraft-agent-chat"', '"name": "demonx-forge-agent-chat"'],
+  ['crates/ui-egui/src/keymap.rs', 'app.pick_save("SolidCraft shortcuts.json"', 'app.pick_save("DemonX Forge shortcuts.json"'],
+  ['crates/ui-egui/src/issue_report.rs', 'const ISSUE_URL: &str = "https://github.com/tangency-labs/solidcraft/issues/new";', 'const ISSUE_URL: &str = "https://github.com/pricklyguy/DemonX-Forge/issues/new";'],
+  ['crates/ui-egui/src/issue_report.rs', '"SolidCraft hit an internal error"', '"DemonX Forge encountered an internal error"'],
+  ['crates/ui-egui/src/issue_report.rs', '"An earlier SolidCraft session ended without recording a clean exit"', '"An earlier DemonX Forge session ended without recording a clean exit"'],
+  ['crates/ui-egui/src/issue_report.rs', '"SolidCraft {} ({}, built {})\\nOS: {} {}\\n{}"', '"DemonX Forge {} (SolidCraft engine {}, commit {}, built {})\\nOS: {} {}\\n{}"'],
+  ['crates/ui-egui/src/issue_report.rs', '            field(app, "version"),\n            field(app, "commit"),\n            field(app, "built"),', '            crate::update::current_version(),\n            env!("CARGO_PKG_VERSION"),\n            field(app, "commit"),\n            field(app, "built"),'],
+  ['crates/ui-egui/src/keymap.rs', 'return Err(format!("{key} is used by SolidCraft itself"));', 'return Err(format!("{key} is used by DemonX Forge itself"));'],
+  ['crates/ui-egui/src/toolbar_custom.rs', 'return Err("not a SolidCraft shortcuts file".into());', 'return Err("not a DemonX Forge shortcuts file".into());'],
+  ['crates/ui-egui/src/agent_chat/acp_client.rs', 'SolidCraft does not serve `{method}`', 'DemonX Forge does not serve `{method}`'],
+  ['crates/ui-egui/src/issue_report.rs', 'the design as it was before the crash (design.solidcraft) and the commands that crash it (replay.json)', 'the design as it was before the crash (design.dxforge or legacy design.solidcraft) and the commands that crash it (replay.json)'],
   ['crates/ui-egui/src/control.rs', '    Screenshot { path: Option<String> },\n}', '    Screenshot { path: Option<String> },\n    /// The native script runner will send the control reply when its transaction finishes.\n    Deferred,\n}'],
   ['crates/ui-egui/src/control.rs', 'pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {\n    let scope = match request_scope(app, &req.params) {', 'pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {\n    if req.method == "forge.script.run" {\n        if app.file_load.busy() || app.file_picker_busy() || app.applying.is_some() || app.deferred.is_some() || app.tool.is_some() || app.dialog.is_some() {\n            return err("Finish or close the active command or file operation before running a script");\n        }\n        let Some(script) = req.params.get("script") else { return err("missing script object") };\n        let text = match serde_json::to_string(script) { Ok(text) => text, Err(error) => return err(format!("invalid script object: {error}")) };\n        return match app.forge_scripts.start_external(&mut app.session, &text, req.reply.clone()) {\n            Ok(()) => Outcome::Deferred,\n            Err(error) => err(error),\n        };\n    }\n    let scope = match request_scope(app, &req.params) {'],
   ['crates/ui-egui/src/agent_cursor.rs', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),\n        crate::control::Outcome::Deferred => json!({"ok": false, "error": "not a command"}),'],
@@ -703,6 +780,25 @@ if (!checkOnly) {
   cpSync(join(here, 'branding/demonx-forge-light.json'), join(themes, 'demonx-forge-light.json'));
   cpSync(join(here, '..', 'assets/DemonX_Emblem.png'), join(source, 'assets/icons/app/shared/source/demonx-forge-icon.png'));
   cpSync(join(here, 'branding/demonx-forge-wordmark.png'), join(source, 'assets/icons/app/shared/source/demonx-forge-wordmark.png'));
+  for (const suffix of ['desktop', 'mime.xml', 'metainfo.xml.in']) {
+    const oldMetadata = join(source, `assets/platforms/linux/ai.storyteller.solidcraft.${suffix}`);
+    const forgeMetadata = join(source, `assets/platforms/linux/com.pricklyguy.demonxforge.${suffix}`);
+    if (existsSync(oldMetadata)) cpSync(oldMetadata, forgeMetadata);
+  }
+  const localeDir = join(source, 'assets/locales');
+  const rebrandLocaleValue = (value) => {
+    if (typeof value === 'string') return value.replaceAll('SolidCraft', 'DemonX Forge');
+    if (Array.isArray(value)) return value.map(rebrandLocaleValue);
+    if (value && typeof value === 'object') {
+      for (const key of Object.keys(value)) value[key] = rebrandLocaleValue(value[key]);
+    }
+    return value;
+  };
+  for (const name of readdirSync(localeDir).filter((name) => name.endsWith('.json'))) {
+    const path = join(localeDir, name);
+    const locale = rebrandLocaleValue(JSON.parse(readFileSync(path, 'utf8')));
+    writeFileSync(path, `${JSON.stringify(locale, null, 2)}\n`);
+  }
   cpSync(join(here, 'scripts/forge_scripts.rs'), join(source, 'crates/ui-egui/src/forge_scripts.rs'));
   cpSync(join(here, 'scripts/native_channel_tests.rs'), join(source, 'crates/ui-egui/src/update/native_channel_tests.rs'));
   cpSync(join(here, 'forge-update-windows.ps1'), join(source, 'forge-update-windows.ps1'));

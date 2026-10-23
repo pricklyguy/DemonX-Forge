@@ -40,7 +40,7 @@ function New-TestArchive([string] $ReleaseId, [bool] $BreakStartup) {
   if ($BreakStartup) {
     # This is a real PE executable but not the GUI app; it exits without opening the private
     # authenticated control socket, allowing the health failure/rollback path to be tested.
-    Copy-Item -LiteralPath (Join-Path $source 'solidcraft-cli.exe') -Destination (Join-Path $directory 'solidcraft.exe') -Force
+    Copy-Item -LiteralPath (Join-Path $source 'solidcraft-cli.exe') -Destination (Join-Path $directory 'DemonXForge.exe') -Force
   }
   $manifest = Get-Content -LiteralPath (Join-Path $directory 'manifest.json') -Raw | ConvertFrom-Json
   $manifest.releaseId = $ReleaseId
