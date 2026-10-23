@@ -245,7 +245,7 @@ async function main() {
   await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [0, 0], p1: [4, 4] } });
   await call(port, 'engine.execute', { command: 'sketch.finish' });
 
-  await call(port, 'ui.view', { view: 'fit' });
+  await call(port, 'ui.view', { view: 'top' });
   await call(port, 'ui.start', { command: 'sketch.create' });
   const sketchFacePoint = await call(port, 'ui.at', { world: top.point });
   await call(port, 'ui.click', { x: sketchFacePoint[0], y: sketchFacePoint[1] });
@@ -256,7 +256,12 @@ async function main() {
     if (faceSketch.active_sketch != null) break;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
   }
-  assert(faceSketch?.active_sketch != null, `viewport face picking did not start a sketch on Plate; face point=${JSON.stringify(sketchFacePoint)}, selection=${JSON.stringify(await call(port, 'ui.selection'))}`);
+  if (faceSketch?.active_sketch == null) {
+    const selection = await call(port, 'ui.selection');
+    const screenshot = join(root, 'face-picker-debug.png');
+    await call(port, 'ui.screenshot', { path: screenshot }, token, [root]);
+    throw new Error(`viewport face picking did not start a sketch on Plate; face point=${JSON.stringify(sketchFacePoint)}, selection=${JSON.stringify(selection)}, screenshot=${screenshot}`);
+  }
   await call(port, 'engine.execute', { command: 'sketch.rectangle.two_point', params: { p0: [-2, -2], p1: [2, 2] } });
   await call(port, 'engine.execute', { command: 'sketch.finish' });
   const faceSketchDocument = await call(port, 'engine.execute', { command: 'document.inspect' });

@@ -25,7 +25,7 @@ const edits = [
     '        let mut x = left + if compact_actions { 140.0 } else { 172.0 };'],
   ['apps/solidcraft/src/main.rs', '.with_title("SolidCraft")', '.with_title("DemonX Forge")'],
   ['apps/solidcraft/src/main.rs', '    let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());', '    let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());\n    let mut forge_control = false;'],
-  ['apps/solidcraft/src/main.rs', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),\n            "--forge-mcp" => { forge_control = true; control_port = Some(0); },'],
+  ['apps/solidcraft/src/main.rs', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),', '            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),\n            "--forge-mcp" => {\n                forge_control = true;\n                control_port = Some(0);\n            }'],
   ['apps/solidcraft/src/main.rs', 'if files.is_empty() && !sample && control_port.is_none() {', 'if files.is_empty() && !sample && (control_port.is_none() || forge_control) {'],
   ['apps/solidcraft/src/main.rs', '                take_focus_unwanted: control_port.is_some(),', '                take_focus_unwanted: control_port.is_some() && !forge_control,'],
   ['apps/solidcraft/src/main.rs', 'usage: solidcraft [--control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]', 'usage: solidcraft [--forge-mcp | --control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]'],
