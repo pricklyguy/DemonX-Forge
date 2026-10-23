@@ -7,6 +7,11 @@ on:
         description: New numeric preview version, for example 0.20.0-preview.1
         required: true
         type: string
+      publish:
+        description: Sign and publish a GitHub prerelease (leave false for validation runs)
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -112,6 +117,7 @@ jobs:
 
   sign-and-publish:
     name: Sign manifest and publish native preview release
+    if: ${{ inputs.publish }}
     needs: build-test-package
     runs-on: windows-latest
     environment: native-preview
