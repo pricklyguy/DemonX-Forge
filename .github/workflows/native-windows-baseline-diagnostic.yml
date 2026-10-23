@@ -94,3 +94,7 @@ jobs:
           if ($regressions.Count -gt 0) {
             throw "Forge overlay introduced focused Windows test failures: $($regressions -join ', ')"
           }
+          # GitHub's pwsh wrapper exits with the last native command's status.
+          # The baseline intentionally contains known failing tests, so clear
+          # cargo's non-zero status after proving the overlay adds no failures.
+          $global:LASTEXITCODE = 0
