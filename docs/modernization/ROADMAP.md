@@ -182,4 +182,4 @@ package, Linux, display-matrix, or owner usability criteria. See `PROTOTYPE-RESU
 - [x] Rerun the icon audit after normalizing manifest line endings for Windows: 4 passed.
 - [x] Build and install `0.19.0-forge-a92a977068ed-engine-75261cd79733` under `C:\DemonX-Forge-Native`; the prior release remains in `previous.txt` for rollback.
 - [x] Rerun installed-app modeling and MCP acceptance: three independent bodies, history edits, save/reopen, STL and separated 3MF export, undo/redo, all nine Forge MCP tools, security refusals, and GUI screenshot passed.
-- [ ] Rerun the adjusted broader scenario target. Last executed run had three failures for legacy theme expectations and the circle’s release-to-confirm interaction; scenario overlay adjustments are recorded but unverified.
+- [x] Rerun the adjusted broader scenario target: 121 passed, 0 failed, 1 ignored.

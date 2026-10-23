@@ -307,12 +307,11 @@ UI library unit tests: 1855 passed, 0 failed, 6 ignored
 Windows icon audit after CRLF normalization in its test copy: 4 passed
 ```
 
-The broader scenario integration target was also run. Its first run had five old expectations for
-the previous SolidCraft axes default, theme ID, and immediate commit-on-release behavior. The Forge
-overlay was updated to account for the cube default, branded theme ID, and Enter-to-confirm drag
-workflow. At the last completed scenario run, three assertions still failed (two preferences
-expectations and the circle drag confirmation); those scenario adjustments have not yet been
-rerun. The current source was packaged and installed as
+The scenario integration target first exposed outdated assertions for the former axes default,
+theme ID, and commit-on-release behavior. The Forge test overlay now selects axes explicitly for
+axes scenarios, expects the branded theme, and confirms both rectangle and circle drags with Enter.
+The adjusted scenario target passed 121 tests, with 1 intentionally ignored. The current source was
+packaged and installed as
 `0.19.0-forge-a92a977068ed-engine-75261cd79733` under `C:\DemonX-Forge-Native`; the prior known-good
 release remains in `previous.txt`. Installed acceptance against the bundled executable and MCP
 bridge passed:
