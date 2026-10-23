@@ -588,6 +588,8 @@ const scriptUiEdits = [
   ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft: trying again with the software renderer', 'eprintln!("DemonX Forge: trying again with the software renderer'],
   ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft window: no native resize border;', 'eprintln!("DemonX Forge window: no native resize border;'],
   ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft graphics:', 'eprintln!("DemonX Forge graphics:'],
+  // Keep both graphics diagnostics branded in one overlay pass.
+  ['apps/solidcraft/src/main.rs', 'eprintln!("SolidCraft graphics:', 'eprintln!("DemonX Forge graphics:'],
   ['apps/solidcraft/src/main.rs', 'println!("solidcraft {}", env!("CARGO_PKG_VERSION"));', 'println!("DemonX Forge {} (engine {})", solidcraft_ui_egui::help::VERSION, env!("CARGO_PKG_VERSION"));'],
   ['apps/solidcraft/src/startup.rs', '"the SolidCraft settings folder"', '"the DemonX Forge settings folder"'],
   ['apps/solidcraft/src/startup.rs', '"SolidCraft could not open its window.\\n\\n{error}\\n\\n\\', '"DemonX Forge could not open its window.\\n\\n{error}\\n\\n\\'],
