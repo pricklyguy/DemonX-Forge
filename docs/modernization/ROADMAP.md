@@ -97,13 +97,13 @@ installed release and user documents remain available for rollback.
 
 ### Native branding task — `.dxforge` project extension (after scripting and large-model baseline)
 
-**Status:** implementation and focused source tests pass; installed Windows round-trip and association checks are pending before this milestone is called complete. The existing SolidCraft container and `.solidcraft` compatibility are preserved.
+**Status:** passed on the installed Windows native app. Linux desktop/MIME/icon metadata validates, while an actual Linux native package/runtime test remains unverified. The existing SolidCraft container and `.solidcraft` compatibility are preserved.
 
 - Add `.dxforge` as the preferred Forge save/open extension while retaining read/write compatibility with existing `.solidcraft` projects.
 - Update Save/Save As/Open dialogs, recent files, project icons, Windows and Linux desktop/file associations, component links, and command-line open behavior together.
 - Preserve the current underlying project bytes unless a separate format change is justified by a tested migration and rollback plan.
 
-**Completion:** create/save/open/reopen both extensions, confirm recent-file behavior and native history integrity, and verify Windows associations plus Linux metadata without changing `.solidcraft` projects. Linux package execution is reported separately from metadata validation.
+**Completion:** Windows IO, Save As, recent-file, installed save/reopen for both extensions, history preservation, and per-user file association checks passed. Linux desktop/MIME/AppStream XML and generated icon-size checks passed; Linux package/runtime acceptance remains open and is reported separately.
 
 The React-focused Phases 2–8 below are retained as the verified incumbent-app backlog and regression reference. They are deferred as the primary product path while the approved native prototype gates are active.
 

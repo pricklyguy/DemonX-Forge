@@ -29,17 +29,32 @@ which recognize that container but do not know Forge's extension; those older bu
 the file in their filtered Open dialog. Users can continue opening `.solidcraft` copies with older
 SolidCraft releases.
 
-## Verification record
+## Verification record — 2026-10-23
 
-Implementation and acceptance status is tracked in [ROADMAP.md](ROADMAP.md) and the feature
-matrix. Required checks are:
+- `cargo test --locked -p solidcraft-io step_and_design`: 1 passed; extension classification
+  includes `.dxforge`, `.solidcraft`, and `.solvecraft`.
+- `cargo test --locked -p solidcraft-ui-egui --lib
+  save_as_defaults_to_dxforge_and_writes_native_container`: 1 passed; Save As proposes
+  `Untitled.dxforge`, offers `.solidcraft` and JSON, and writes a native container.
+- `cargo test --locked -p solidcraft-ui-egui --lib recent_list_is_newest_first_and_bounded`:
+  1 passed; recent entries retain a `.dxforge` path without rewriting it.
+- `cargo test --locked -p solidcraft-engine
+  relink_repairs_a_moved_source_for_every_instance_in_one_undo_step`: 1 passed; a linked source
+  saved as `.dxforge` is inserted, relinked, and reopened through an assembly with the path intact.
+- `cargo check --locked -p solidcraft -p xtask`: passed on Windows MSVC. The package build also
+  succeeded from pinned engine commit `75261cd79733fe47cf898b54f865e6bfaffa1129`.
+- The pinned-source overlay applied twice and its check mode passed. The repeat-application check
+  also confirmed the deferred control test arm is not duplicated.
+- The installed release `0.19.0-forge-437c4651a50b-engine-75261cd79733` passed
+  `prototype/native-acceptance.mjs`: three-body sketch/extrude/fillet/history workflow, save/reopen
+  of `.dxforge` and `.solidcraft`, mesh exports, all nine MCP tools, security refusals, MCP
+  screenshot, and Python SDK success/rollback plus single-undo behavior.
+- The signed-in Windows user hive contains the `.dxforge` Forge ProgID, stable launcher command,
+  and installed Forge icon. `.solidcraft` and `.solvecraft` have Forge Open With entries; the
+  installer does not assign their default handler.
+- Linux desktop entry, MIME XML, AppStream metadata, and all eight generated Forge icon dimensions
+  (16–512 px) validate in the overlaid source. A Linux native build/package/runtime was not run.
 
-1. IO tests classify all three extensions and map each to native design format.
-2. Native Save As presents `.dxforge` by default and writes the same native container.
-3. Installed real-engine acceptance saves and reopens `.dxforge`, then saves and reopens
-   `.solidcraft` while preserving bodies and parametric history.
-4. Windows installation writes `.dxforge` ProgID/open/icon values while preserving existing
-   `.solidcraft` defaults; Linux desktop and MIME metadata validate with both types present.
-5. The source overlay can be checked and applied twice to a fresh pinned clone.
-
-Checks not run on the current host are explicitly left unverified in the roadmap.
+The prior Windows release remains retained at
+`C:\DemonX-Forge-Native\versions\0.19.0-forge-bcbe72dcbc90-engine-75261cd79733` and is the
+current rollback pointer.
