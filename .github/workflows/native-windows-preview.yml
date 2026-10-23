@@ -19,16 +19,19 @@ permissions:
 jobs:
   build-test-package:
     name: Build and test native Windows x64 package
-    runs-on: windows-latest
+    # The package script requires the VS 2022 MSVC environment. Pin this instead of
+    # windows-latest, which now tracks the VS 2026 runner image.
+    runs-on: windows-2022
     timeout-minutes: 180
     steps:
       - name: Require the approved fusion parity branch
         shell: pwsh
         run: |
           if ($env:GITHUB_REF -ne 'refs/heads/codex/fusion-parity') { throw 'Native preview builds may run only from codex/fusion-parity.' }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: false
+          persist-credentials: false
       - name: Require read-only SolidCraft source access
         shell: pwsh
         env:
@@ -37,7 +40,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:SOLIDCRAFT_READ_TOKEN)) {
             throw 'Configure SOLIDCRAFT_READ_TOKEN with read-only Contents access to pricklyguy/DemonX-Solidcraft.'
           }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: pricklyguy/DemonX-Solidcraft
           ref: 75261cd79733fe47cf898b54f865e6bfaffa1129
@@ -45,7 +48,7 @@ jobs:
           path: prototype/solidcraft
           submodules: recursive
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -108,7 +111,7 @@ jobs:
         id: package
       - name: Run packaged GUI, native command, and MCP acceptance
         run: node prototype/native-acceptance.mjs "${{ steps.package.outputs.package_root }}\DemonXForge.exe" "${{ steps.package.outputs.package_root }}\forge-mcp-native.mjs"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: native-windows-preview-${{ inputs.version }}
           path: ${{ runner.temp }}/demonx-forge-package/DemonX-Forge-native-windows-x64-portable.zip
@@ -117,20 +120,21 @@ jobs:
 
   sign-and-publish:
     name: Sign manifest and publish native preview release
-    if: ${{ inputs.publish }}
+    if: ${{ inputs.publish == true && github.ref == 'refs/heads/codex/fusion-parity' }}
     needs: build-test-package
-    runs-on: windows-latest
+    runs-on: windows-2022
     environment: native-preview
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: native-windows-preview-${{ inputs.version }}
           path: ${{ runner.temp }}/native-release
