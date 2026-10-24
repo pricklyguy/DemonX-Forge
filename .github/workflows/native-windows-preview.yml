@@ -17,8 +17,174 @@ permissions:
   contents: read
 
 jobs:
+  build-native-test-archive:
+    name: Build complete native Windows test archive
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - name: Require the approved fusion parity branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/codex/fusion-parity') { throw 'Native preview builds may run only from codex/fusion-parity.' }
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Require read-only SolidCraft source access
+        shell: pwsh
+        env:
+          SOLIDCRAFT_READ_TOKEN: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SOLIDCRAFT_READ_TOKEN)) {
+            throw 'Configure SOLIDCRAFT_READ_TOKEN with read-only Contents access to pricklyguy/DemonX-Solidcraft.'
+          }
+      - uses: actions/checkout@v7
+        with:
+          repository: pricklyguy/DemonX-Solidcraft
+          ref: 75261cd79733fe47cf898b54f865e6bfaffa1129
+          token: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+          path: prototype/solidcraft
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run Forge MCP regression tests
+        run: npm run test --workspace server -- test/mcp.test.ts
+      - name: Type-check Forge MCP transport
+        run: node_modules/.bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --skipLibCheck --types node prototype/mcp-native.ts
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.145
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prototype/solidcraft
+          shared-key: native-windows-x64
+          cache-on-failure: true
+      - name: Require pinned release verification key
+        shell: pwsh
+        env:
+          DEMONX_FORGE_UPDATE_PUBLIC_KEY: ${{ vars.DEMONX_FORGE_UPDATE_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DEMONX_FORGE_UPDATE_PUBLIC_KEY)) {
+            throw 'Set the repository Actions variable DEMONX_FORGE_UPDATE_PUBLIC_KEY to the minisign public key base64 line.'
+          }
+          $keys = $env:DEMONX_FORGE_UPDATE_PUBLIC_KEY -split ';'
+          if ($keys.Count -eq 0 -or @($keys | Where-Object { $_ -notmatch '^R[WS][A-Za-z0-9+/=]+$' }).Count -gt 0) {
+            throw 'DEMONX_FORGE_UPDATE_PUBLIC_KEY must contain minisign base64 public keys separated by semicolons.'
+          }
+      - name: Record known pinned upstream Windows baseline
+        continue-on-error: true
+        shell: pwsh
+        working-directory: prototype/solidcraft
+        run: |
+          $filters = @(
+            'recovery::tests::recovery_dirs_and_their_legacy_names',
+            'robustness_goldens::seed_13',
+            'robustness_goldens::seed_23',
+            'robustness_goldens::seed_36',
+            'robustness_goldens::seed_67'
+          )
+          $failed = @()
+          foreach ($filter in $filters) {
+            Write-Host "::group::Pinned upstream baseline: $filter"
+            & cargo test --profile ci --locked -p solidcraft-engine --lib $filter
+            $code = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            if ($code -ne 0) { $failed += $filter }
+          }
+          "## Pinned unmodified SolidCraft Windows baseline" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          if ($failed.Count -eq 0) {
+            'All five focused baseline tests passed.' | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          } else {
+            "Focused baseline failures: $($failed -join ', ')" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+            Write-Host "::warning::Pinned upstream baseline failures: $($failed -join ', ')"
+            exit 1
+          }
+      - name: Check overlay anchors
+        run: node prototype/apply-overlay.mjs --check prototype/solidcraft
+      - name: Apply Forge identity and secure updater overlay
+        run: node prototype/apply-overlay.mjs prototype/solidcraft
+      - name: Build complete native test archive
+        working-directory: prototype/solidcraft
+        env:
+          SOLIDCRAFT_GPU: software
+          SOLIDCRAFT_REQUIRE_GPU: '1'
+          WGPU_BACKEND: dx12
+          WGPU_DX12_COMPILER: fxc
+        run: cargo nextest archive --workspace --cargo-profile ci --locked --archive-file "${{ runner.temp }}\native-windows-tests.tar.zst"
+      - name: Verify complete, disjoint test-shard union
+        run: node prototype/verify-nextest-shards.mjs "${{ runner.temp }}\native-windows-tests.tar.zst" 4
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-windows-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/native-windows-tests.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  native-source-test:
+    name: Run native source and UI shard ${{ matrix.shard }}/4
+    needs: build-native-test-archive
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Require the approved fusion parity branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/codex/fusion-parity') { throw 'Native preview builds may run only from codex/fusion-parity.' }
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Require read-only SolidCraft source access
+        shell: pwsh
+        env:
+          SOLIDCRAFT_READ_TOKEN: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SOLIDCRAFT_READ_TOKEN)) {
+            throw 'Configure SOLIDCRAFT_READ_TOKEN with read-only Contents access to pricklyguy/DemonX-Solidcraft.'
+          }
+      - uses: actions/checkout@v7
+        with:
+          repository: pricklyguy/DemonX-Solidcraft
+          ref: 75261cd79733fe47cf898b54f865e6bfaffa1129
+          token: ${{ secrets.SOLIDCRAFT_READ_TOKEN }}
+          path: prototype/solidcraft
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.145
+      - name: Apply Forge identity and secure updater overlay
+        run: node prototype/apply-overlay.mjs prototype/solidcraft
+      - uses: actions/download-artifact@v7
+        with:
+          name: native-windows-tests-${{ github.sha }}
+          path: ${{ runner.temp }}\native-windows-tests
+      - name: Run complete test shard
+        working-directory: prototype/solidcraft
+        env:
+          SOLIDCRAFT_GPU: software
+          SOLIDCRAFT_REQUIRE_GPU: '1'
+          WGPU_BACKEND: dx12
+          WGPU_DX12_COMPILER: fxc
+        run: cargo nextest run --archive-file "${{ runner.temp }}\native-windows-tests\native-windows-tests.tar.zst" --workspace-remap "$env:GITHUB_WORKSPACE\prototype\solidcraft" --partition "slice:${{ matrix.shard }}/4" --no-fail-fast
+
   build-test-package:
     name: Build and test native Windows x64 package
+    needs: native-source-test
     # The package script requires the VS 2022 MSVC environment. Pin this instead of
     # windows-latest, which now tracks the VS 2026 runner image.
     runs-on: windows-2022
@@ -79,14 +245,6 @@ jobs:
         run: node prototype/apply-overlay.mjs --check prototype/solidcraft
       - name: Apply Forge identity and secure updater overlay
         run: node prototype/apply-overlay.mjs prototype/solidcraft
-      - name: Run native source and UI suite
-        working-directory: prototype/solidcraft
-        env:
-          SOLIDCRAFT_GPU: software
-          SOLIDCRAFT_REQUIRE_GPU: '1'
-          WGPU_BACKEND: dx12
-          WGPU_DX12_COMPILER: fxc
-        run: cargo test --workspace --profile ci --locked
       - name: Verify branding and updater policy
         run: |
           node prototype/verify-overlay.mjs prototype/solidcraft

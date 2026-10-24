@@ -2,8 +2,6 @@ name: Native DemonX Forge prototype
 
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/fusion-parity]
 
 permissions:
   contents: read
