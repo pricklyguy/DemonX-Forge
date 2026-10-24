@@ -80,6 +80,21 @@ async function sketchScreen(point) {
   return call('ui.at', { sketch: point });
 }
 
+async function movePointerAcrossFrames(from, to, steps = 12) {
+  await call('ui.pointer', { action: 'down', x: from[0], y: from[1] });
+  await nextUiFrame();
+  for (let step = 1; step <= steps; step += 1) {
+    const t = step / steps;
+    await call('ui.move', { x: from[0] + (to[0] - from[0]) * t, y: from[1] + (to[1] - from[1]) * t });
+    await nextUiFrame();
+  }
+}
+
+async function releasePointerAt(point) {
+  await call('ui.pointer', { action: 'up', x: point[0], y: point[1] });
+  await nextUiFrame();
+}
+
 async function startSketchSegment(a, b) {
   const [x0, y0] = await sketchScreen(a);
   const [x1, y1] = await sketchScreen(b);
@@ -157,9 +172,25 @@ async function main() {
   await pressKey('A', { cmd: true });
   await call('ui.text', { text: '8' });
   await nextUiFrame();
+  const startDraft = await call('ui.inspect');
+  assert(Math.abs(startDraft.sketch_draft?.length - 8) < 1e-6, `the in-progress line preview is not locked to 8 mm after typing: ${JSON.stringify(startDraft.sketch_draft)}`);
+  const pointerMovedTo = await sketchScreen([-15, 20]);
+  await call('ui.move', { x: pointerMovedTo[0], y: pointerMovedTo[1] });
+  await nextUiFrame();
+  const lengthLockedDraft = await call('ui.inspect');
+  assert(Math.abs(lengthLockedDraft.sketch_draft?.length - 8) < 1e-6, `mouse movement changed the locked 8 mm preview: ${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
+  assert(Math.hypot(lengthLockedDraft.sketch_draft.end[0] - startDraft.sketch_draft.end[0], lengthLockedDraft.sketch_draft.end[1] - startDraft.sketch_draft.end[1]) > 1, `with angle unlocked, moving the cursor should rotate the fixed-length preview: before=${JSON.stringify(startDraft.sketch_draft)} after=${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
+  const lengthLockedShot = await screenshot('numeric-line-length-locked-preview.png');
   await pressKey('Tab');
   await call('ui.text', { text: '30 deg' });
   await nextUiFrame();
+  const lockedEnd = await sketchScreen([-20, -25]);
+  await call('ui.move', { x: lockedEnd[0], y: lockedEnd[1] });
+  await nextUiFrame();
+  const fullyLockedDraft = await call('ui.inspect');
+  const expectedDraft = [fullyLockedDraft.sketch_draft.start[0] + 8 * Math.cos(Math.PI / 6), fullyLockedDraft.sketch_draft.start[1] + 8 * Math.sin(Math.PI / 6)];
+  assert(Math.hypot(fullyLockedDraft.sketch_draft.end[0] - expectedDraft[0], fullyLockedDraft.sketch_draft.end[1] - expectedDraft[1]) < 1e-6, `mouse movement changed the endpoint after length and angle locked: ${JSON.stringify(fullyLockedDraft.sketch_draft)}`);
+  const bothLockedShot = await screenshot('numeric-line-length-angle-locked-preview.png');
   await pressKey('Enter');
   try {
     await waitFor('the first viewport line to commit', async () => {
@@ -186,7 +217,7 @@ async function main() {
   const dx = committedLine.end_at[0] - committedLine.start_at[0];
   const dy = committedLine.end_at[1] - committedLine.start_at[1];
   assert(Math.abs(Math.hypot(dx, dy) - 8) < 1e-6 && Math.abs(Math.atan2(dy, dx) - Math.PI / 6) < 1e-6, `the resulting line geometry does not measure 8 mm at 30 degrees: ${JSON.stringify(committedLine)}`);
-  process.stderr.write('Midpoint and numeric line acceptance passed.\n');
+  process.stderr.write(`Midpoint and numeric line acceptance passed; locked previews=${lengthLockedShot}, ${bothLockedShot}.\n`);
 
   // Draw through an analytic crossing and require the endpoint to remain constrained to both
   // source curves after the UI gesture is committed.
@@ -257,20 +288,29 @@ async function main() {
   await call('ui.click', { x: bodyRow.x, y: bodyRow.y });
   const beforeMove = await engine('document.inspect');
   const beforeMoveHistory = beforeMove.timeline?.length;
+  const sourceEdgesBefore = (await engine('model.edges', { body: 'Acceptance Body' })).edges;
+  const bounds = (edges) => {
+    const points = edges.flatMap((candidate) => [candidate.start, candidate.end]).filter((point) => point?.length === 3);
+    return [0, 1, 2].map((axis) => [Math.min(...points.map((point) => point[axis])), Math.max(...points.map((point) => point[axis]))]);
+  };
+  const sourceBoundsBefore = bounds(sourceEdgesBefore);
   await call('ui.start', { command: 'solid.move' });
   const copyToggle = await call('ui.at', { handle: 'dialog:Create Copy' });
   await call('ui.click', { x: copyToggle[0], y: copyToggle[1] });
   const dragStart = await call('ui.at', { gizmo: 'x' });
   const dragEnd = await call('ui.at', { gizmo: 'x', by: [20, 0, 0] });
-  await call('ui.drag', { x0: dragStart[0], y0: dragStart[1], x1: dragEnd[0], y1: dragEnd[1], steps: 12 });
+  await movePointerAcrossFrames(dragStart, dragEnd, 12);
   await waitFor('a visible Move/Copy preview', async () => {
     const state = await call('ui.inspect');
-    return state.preview.active && !state.preview.busy && state;
+    return state.preview.active && !state.preview.busy && state.preview.bounds?.max?.[0] >= sourceBoundsBefore[0][1] + 19 && state;
   }, 30000);
+  const previewState = await call('ui.inspect');
+  assert(previewState.preview.bounds.max[0] >= sourceBoundsBefore[0][1] + 19, `the visible Move/Copy preview does not reach the dragged destination: source=${JSON.stringify(sourceBoundsBefore)} preview=${JSON.stringify(previewState.preview.bounds)}`);
   const beforeAccept = await engine('document.inspect');
   assert(sameDocumentModel(beforeAccept, beforeMove), `Move/Copy preview mutated the document before acceptance: before=${JSON.stringify(beforeMove)} after=${JSON.stringify(beforeAccept)}`);
   const moveShot = await screenshot('move-copy-live-preview.png');
-  process.stderr.write('Move/Copy preview acceptance passed.\n');
+  await releasePointerAt(dragEnd);
+  process.stderr.write(`Move/Copy live geometry preview accepted before pointer release; preview bounds=${JSON.stringify(previewState.preview.bounds)} screenshot=${moveShot}.\n`);
   const cancelButtons = await call('ui.handles', { prefix: 'dialog:' });
   const cancelButton = cancelButtons.find((handle) => /^(dialog:)?Cancel$/i.test(handle.name));
   assert(cancelButton, `Move/Copy cancel button was not exposed: ${JSON.stringify(cancelButtons)}`);
@@ -289,11 +329,12 @@ async function main() {
   await call('ui.click', { x: copyToggleAgain[0], y: copyToggleAgain[1] });
   const dragStartAgain = await call('ui.at', { gizmo: 'x' });
   const dragEndAgain = await call('ui.at', { gizmo: 'x', by: [20, 0, 0] });
-  await call('ui.drag', { x0: dragStartAgain[0], y0: dragStartAgain[1], x1: dragEndAgain[0], y1: dragEndAgain[1], steps: 12 });
+  await movePointerAcrossFrames(dragStartAgain, dragEndAgain, 12);
   await waitFor('the second Move/Copy preview', async () => {
     const state = await call('ui.inspect');
-    return state.preview.active && !state.preview.busy && state;
+    return state.preview.active && !state.preview.busy && state.preview.bounds?.max?.[0] >= sourceBoundsBefore[0][1] + 19 && state;
   }, 30000);
+  await releasePointerAt(dragEndAgain);
   const buttons = await call('ui.handles', { prefix: 'dialog:' });
   const acceptButton = buttons.find((handle) => /^(dialog:)?(OK|Accept|Apply)$/i.test(handle.name));
   assert(acceptButton, `Move/Copy acceptance button was not exposed: ${JSON.stringify(buttons)}`);
@@ -308,10 +349,6 @@ async function main() {
 
   const sourceEdges = (await engine('model.edges', { body: 'Acceptance Body' })).edges;
   const copyEdges = (await engine('model.edges', { body: 'Acceptance Body (2)' })).edges;
-  const bounds = (edges) => {
-    const points = edges.flatMap((candidate) => [candidate.start, candidate.end]).filter((point) => point?.length === 3);
-    return [0, 1, 2].map((axis) => [Math.min(...points.map((point) => point[axis])), Math.max(...points.map((point) => point[axis]))]);
-  };
   const sourceBounds = bounds(sourceEdges);
   const copyBounds = bounds(copyEdges);
   assert(sourceEdges.length === copyEdges.length && sourceEdges.every((candidate, index) => Math.abs(candidate.length - copyEdges[index].length) < 1e-5), 'Move/Copy geometry does not preserve the source edge lengths');
