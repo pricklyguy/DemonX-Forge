@@ -181,7 +181,27 @@ const preserveTest = `    #[test]
 `;
 text = text.slice(0, preserveStart) + preserveTest + text.slice(preserveEnd);
 
+// The upstream hover regression enumerates title-bar buttons by their automation handles.
+// Migrate that assertion along with the removed Assistant and report buttons so the native
+// title-bar behavior remains covered without preserving dead controls in the test fixture.
+const titlebarPath = join(source, 'crates/ui-egui/src/titlebar.rs');
+let titlebar = readFileSync(titlebarPath, 'utf8').replace(/\r\n/g, '\n');
+const oldHoverControls = `                "tab:close:0",
+                "titlebar:assistant",
+                "titlebar:preferences",
+                "appbar:help",
+                "titlebar:report",`;
+const forgeHoverControls = `                "tab:close:0",
+                "titlebar:preferences",
+                "titlebar:forge_help",`;
+if (titlebar.includes(oldHoverControls)) {
+  if (!checkOnly) titlebar = titlebar.replace(oldHoverControls, forgeHoverControls);
+} else if (!titlebar.includes(forgeHoverControls)) {
+  throw new Error('Forge titlebar hover-control test anchor drift');
+}
+
 if (!checkOnly) writeFileSync(path, text);
+if (!checkOnly) writeFileSync(titlebarPath, titlebar);
 if (!checkOnly && (!text.includes(marker) || !text.includes(testsMarker) || !text.includes('fn forge_header_controls_fit_at_supported_widths()'))) {
   throw new Error('DemonX Forge header overlay verification failed');
 }

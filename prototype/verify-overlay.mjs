@@ -11,6 +11,7 @@ const io = read('crates/io/src/legacy_dir.rs');
 const lock = read('Cargo.lock');
 const themeSource = read('crates/ui-egui/src/theme_files.rs');
 const toolbar = read('crates/ui-egui/src/toolbar.rs');
+const titlebar = read('crates/ui-egui/src/titlebar.rs');
 const sketchDimensionTests = read('crates/ui-egui/src/sketch_dims_tests.rs');
 const sketchDimensions = read('crates/ui-egui/src/sketch_dims.rs');
 const control = read('crates/ui-egui/src/control.rs');
@@ -63,6 +64,8 @@ requireMatch(toolbar, /demonx-forge-header\.png/, 'approved transparent Suite DX
 requireMatch(toolbar, /Forge Help/, 'Forge-owned Help control replaces inherited header actions');
 requireMatch(toolbar, /titlebar:version/, 'Forge version is measured and reserved against the window controls');
 requireMatch(toolbar, /titlebar:forge_help/, 'Forge Help remains a named accessible header action');
+requireMatch(titlebar, /"titlebar:preferences",\n\s+"titlebar:forge_help",/, 'title-bar hover test covers Forge Help after upstream controls are removed');
+if (/"titlebar:assistant"[\s\S]{0,180}"titlebar:report"/.test(titlebar)) throw new Error('Title-bar hover test still requires removed upstream controls');
 requireMatch(toolbar, /APP_BAR_HEIGHT: f32 = 50\.0/, 'taller Forge title bar');
 requireMatch(updater, /api\.github\.com\/repos\/pricklyguy\/DemonX-Forge\/releases\?per_page=100/, 'native-only Forge release listing');
 requireMatch(updater, /tag\.starts_with\("native-v"\)/, 'native Forge updater channel filtering');
