@@ -1,6 +1,9 @@
 --- a/crates/ui-egui/src/sketch_dims_tests.rs
 +++ b/crates/ui-egui/src/sketch_dims_tests.rs
-@@ -367,0 +368,114 @@
+@@ -365,3 +365,153 @@
+     let tiny = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 30.0));
+     assert!(tiny.contains_rect(egui::Rect::from_min_size(in_view(egui::pos2(-200.0, -200.0), Some(tiny), Some(egui::pos2(40.0, 15.0))), BOX)));
+ }
 +
 +/// Exercise the ordinary viewport press/drag/release route while inline dimensions own focus.
 +fn mouse_draw(command: &str, start: [f64; 2], end: [f64; 2]) -> (Harness, egui::Pos2) {
@@ -114,4 +117,40 @@
 +    assert_eq!(h.app.session.doc.to_json(), before_cancel, "cancel preserves the existing sketch exactly");
 +    assert_eq!(h.app.session.undo.len(), undo, "cancelling an in-progress drag changes no history");
 +    assert!(h.app.tool.as_ref().is_some_and(|tool| tool.pts.is_empty()), "Escape clears staged geometry before the tool is reused");
++}
++#[test]
++fn mouse_drag_line_with_midpoint_snap_accepts_length_and_angle() {
++    use egui::Event;
++    use solidcraft_engine::sketch::ConstraintKind;
++
++    let mut h = Harness::new();
++    h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
++    h.app.run("sketch.line", json!({"points":[[0,0],[20,0]],"ids":["base"]})).unwrap();
++    h.step(&json!({"start":"sketch.line"})).unwrap();
++    let start = h.at(&json!({"sketch":[10.1,0.1]})).unwrap();
++    let end = h.at(&json!({"sketch":[10,8]})).unwrap();
++    let (start, end) = (egui::pos2(start[0] as f32, start[1] as f32), egui::pos2(end[0] as f32, end[1] as f32));
++    h.app.synthetic.push(Event::PointerMoved(start));
++    h.app.synthetic.push(Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
++    for step in 1..=8 {
++        h.app.synthetic.push(Event::PointerMoved(start + (end - start) * (step as f32 / 8.0)));
++    }
++    crate::test_support::play(&mut h);
++    h.app.synthetic.push(Event::PointerMoved(end));
++    h.app.synthetic.push(Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
++    crate::test_support::play(&mut h);
++    type_value(&mut h, "8");
++    tab(&mut h, false);
++    type_value(&mut h, "30 deg");
++    h.step(&json!({"key":"Enter"})).unwrap();
++
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    assert_eq!(sketch.curves.len(), 2, "the dimensioned segment must commit");
++    assert!(
++        sketch.constraints.iter().any(|constraint| matches!(constraint.kind, ConstraintKind::Midpoint { .. })),
++        "the start must retain its midpoint inference"
++    );
++    let dimensioned = sketch.constraints.iter().filter_map(|constraint| constraint.kind.value()).collect::<Vec<_>>();
++    assert!(dimensioned.iter().any(|value| (*value - 8.0).abs() < 1e-6), "length must remain a driving dimension: {dimensioned:?}");
++    assert!(dimensioned.iter().any(|value| (*value - 30f64.to_radians()).abs() < 1e-6), "angle must remain a driving dimension: {dimensioned:?}");
 +}

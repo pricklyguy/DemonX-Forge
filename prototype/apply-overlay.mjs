@@ -48,6 +48,7 @@ const pinnedPatches = [
   ['patches/sketch-line-drag.patch', 'crates/ui-egui/src/viewport.rs', '|| t.cmd == "sketch.line") && t.pts.is_empty()'],
   ['patches/sketch-plane-selection.patch', 'crates/ui-egui/src/dialogs.rs', 'dialog:origin-plane:dropdown'],
   ['patches/sketch-release-to-confirm.patch', 'crates/ui-egui/src/viewport.rs', 'A real drag leaves the second point as a live'],
+  ['patches/cad-usability.patch', 'crates/ui-egui/src/sketch_tools.rs', 'mod intersection_ui_tests;'],
 ];
 for (const [patchRelative, targetRelative, marker] of pinnedPatches) {
   const target = join(source, targetRelative);
@@ -750,6 +751,70 @@ for (const [editIndex, [relative, before, after]] of scenarioEdits.entries()) {
   }
 }
 
+// Keep Enter on the live dimension editor deterministic across egui focus wrappers. The
+// floating Area's TextEdit response can report no focus even when egui owns the field id.
+{
+  const relative = 'crates/ui-egui/src/sketch_dims.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const beforeCapture = '    let focus = std::mem::take(&mut t.dims_focus);\n    // Egui processes ordinary Tab navigation';
+  const afterCapture = '    let focus = std::mem::take(&mut t.dims_focus);\n    // Capture Enter before TextEdit may consume it to validate its expression.\n    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));\n    // Egui processes ordinary Tab navigation';
+  const beforeFocus = '                    any_focused |= r.has_focus() || r.lost_focus();';
+  const afterFocus = '                    // The floating area can leave the Response reporting no focus even while\n                    // egui\'s memory correctly retains this TextEdit\'s id. Read the owner id\n                    // directly so Enter remains bound to the active dimension field.\n                    any_focused |= ui.ctx().memory(|memory| memory.has_focus(id)) || r.lost_focus();';
+  const beforeCommit = '    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));\n    let nothing = ui.ctx().memory(|m| m.focused().is_none());\n    (enter && (any_focused || nothing)).then_some(e)';
+  const afterCommit = '    // Other focusable controls (for example a canvas host) need not own text input. Only defer\n    // placement when a different text editor is active; inline dimensions are tracked above.\n    let no_text_editor = !ui.ctx().egui_wants_keyboard_input();\n    (enter && (any_focused || no_text_editor)).then_some(e)';
+  for (const [before, after, label] of [
+    [beforeCapture, afterCapture, 'Enter capture'],
+    [beforeFocus, afterFocus, 'dimension focus ownership'],
+    [beforeCommit, afterCommit, 'Enter commit priority'],
+  ]) {
+    assert(text.includes(before) || text.includes(after), `Sketch dimension ${label} anchor drift in ${relative}`);
+  }
+  if (!checkOnly) {
+    const updated = text
+      .replace(beforeCapture, afterCapture)
+      .replace(beforeFocus, afterFocus)
+      .replace(beforeCommit, afterCommit);
+    if (updated !== text) writeFileSync(path, updated);
+  }
+}
+
+// Keep native key edges in separate GUI frames when acceptance tools request them. Calls that
+// omit action retain the established press-and-release behavior.
+{
+  const relative = 'crates/ui-egui/src/control.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const beforeDoc = 'points (zooms); `ui.key {key, cmd?, shift?}`, `ui.text {text}`';
+  const afterDoc = 'points (zooms); `ui.key {key, action?: down|up, cmd?, shift?}`, `ui.text {text}`';
+  const beforeKey = `            app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+            app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers });
+            ok(Value::Null)`;
+  const afterKey = `            match s("action") {
+                Some("down") => app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }),
+                Some("up") => app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers }),
+                Some(_) => return err("action must be down or up"),
+                None => {
+                    app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+                    app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers });
+                }
+            }
+            ok(Value::Null)`;
+  assert(text.includes(beforeDoc) || text.includes(afterDoc), `ui.key action documentation anchor drift in ${relative}`);
+  assert(text.includes(beforeKey) || text.includes(afterKey), `ui.key action dispatch anchor drift in ${relative}`);
+  if (!checkOnly) writeFileSync(path, text.replace(beforeDoc, afterDoc).replace(beforeKey, afterKey));
+}
+
+{
+  const relative = 'docs/control-protocol.md';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const before = '| `ui.key` | `key` (egui key name, `Enter`, `Escape`…), `cmd?`, `shift?` | |';
+  const after = '| `ui.key` | `key` (egui key name, `Enter`, `Escape`…), `action?: down|up`, `cmd?`, `shift?` | |';
+  assert(text.includes(before) || text.includes(after), `ui.key action protocol documentation anchor drift in ${relative}`);
+  if (!checkOnly && !text.includes(after)) writeFileSync(path, text.replace(before, after));
+}
+
 const interactionTestPatch = join(here, 'patches/sketch-live-input-ui-tests.patch');
 const interactionTests = join(source, 'crates/ui-egui/src/sketch_dims_tests.rs');
 const interactionTestMarker = 'mouse_drag_rectangle_accepts_exact_live_dimensions_and_undoes_as_one_shape';
@@ -758,6 +823,18 @@ if (checkOnly) {
   if (!hasInteractionTests) execFileSync('git', ['-C', source, 'apply', '--check', interactionTestPatch]);
 } else if (!hasInteractionTests) {
   execFileSync('git', ['-C', source, 'apply', interactionTestPatch]);
+}
+
+// The interaction test must send a real Enter down frame followed by an up frame, matching the
+// behavior of a physical key and the native GUI acceptance harness.
+{
+  const relative = 'crates/ui-egui/src/sketch_dims_tests.rs';
+  const path = join(source, relative);
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const before = '    h.step(&json!({"key": "Enter"})).unwrap();\n    let state = h.app.session.world_state();';
+  const after = '    h.call("ui.key", json!({"key":"Enter","action":"down"}));\n    h.call("ui.key", json!({"key":"Enter","action":"up"}));\n    let state = h.app.session.world_state();';
+  assert(text.includes(before) || text.includes(after), `line dimension Enter regression-test anchor drift in ${relative}`);
+  if (!checkOnly && !text.includes(after)) writeFileSync(path, text.replace(before, after));
 }
 
 const sketchDimsTests = join(source, 'crates/ui-egui/src/sketch_dims_tests.rs');

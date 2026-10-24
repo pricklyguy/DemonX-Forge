@@ -1,0 +1,470 @@
+diff --git a/crates/engine/src/cmd/sketch_project.rs b/crates/engine/src/cmd/sketch_project.rs
+index 07a3ee92..f3c60486 100644
+--- a/crates/engine/src/cmd/sketch_project.rs
++++ b/crates/engine/src/cmd/sketch_project.rs
+@@ -451,7 +451,19 @@ pub(super) fn snap_points(s: &mut Session, p: &Value, cmd: &str) -> Result<Value
+                 _ => None,
+             }
+         });
+-        if vertex.is_none() && edge.is_none() && mid.is_none() && on.is_none() {
++        // "intersection:<curve-a>:<curve-b>:x,y": an endpoint kept on both sketch curves.
++        let intersection = v.as_str().and_then(|x| x.strip_prefix("intersection:")).and_then(|t| {
++            let mut parts = t.splitn(3, ':');
++            let a = parts.next()?.to_string();
++            let b = parts.next()?.to_string();
++            let xy = parts.next()?;
++            let n: Vec<f64> = xy.split(',').filter_map(|x| x.trim().parse().ok()).collect();
++            match n[..] {
++                [x, y] if x.is_finite() && y.is_finite() => Some((a, b, solidcraft_geom::Vec2::new(x, y))),
++                _ => None,
++            }
++        });
++        if vertex.is_none() && edge.is_none() && mid.is_none() && on.is_none() && intersection.is_none() {
+             return Ok(());
+         }
+         if doc.is_none() {
+@@ -462,7 +474,17 @@ pub(super) fn snap_points(s: &mut Session, p: &Value, cmd: &str) -> Result<Value
+         }
+         let Some((d, sk)) = doc.as_mut() else { return Ok(()) };
+         let body = str_(v, "body").unwrap_or("").to_string();
+-        let pid = if let Some((curve, near)) = on {
++        let pid = if let Some((a, b, at)) = intersection {
++            let a = sk.curve_index(&a).ok_or_else(|| bad(cmd, "unknown first intersection curve"))?;
++            let b = sk.curve_index(&b).ok_or_else(|| bad(cmd, "unknown second intersection curve"))?;
++            if a == b {
++                return Err(bad(cmd, "an intersection snap needs two different curves"));
++            }
++            let pi = sk.add_point(at, None)?;
++            sk.add_constraint(ConstraintKind::PointOnCurve { p: pi, c: a }, None)?;
++            sk.add_constraint(ConstraintKind::PointOnCurve { p: pi, c: b }, None)?;
++            sk.points.get(pi).map(|q| q.id.clone()).unwrap_or_default()
++        } else if let Some((curve, near)) = on {
+             let c = sk.curve_index(&curve).ok_or_else(|| bad(cmd, format!("unknown curve `{curve}`")))?;
+             let at = match sk.shape(c) {
+                 Some(sh) => sh.project(near),
+diff --git a/crates/ui-egui/src/canvas.rs b/crates/ui-egui/src/canvas.rs
+index e338c854..439eb2b2 100644
+--- a/crates/ui-egui/src/canvas.rs
++++ b/crates/ui-egui/src/canvas.rs
+@@ -281,6 +281,7 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui, painter: &egui::Painter, proj
+     if app.applying.is_some() {
+         return;
+     }
++    selected_edge_measurements(app, ui, proj);
+     if app.dialog.is_none() && app.tool.is_none() {
+         crate::browser::occurrence_triad(app, ui, painter, proj);
+     }
+@@ -336,6 +337,35 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui, painter: &egui::Painter, proj
+     app.dialog = Some(d);
+ }
+ 
++/// Show the exact length beside each selected model edge, without opening the Measure dialog.
++fn selected_edge_measurements(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj) {
++    let state = app.session.world_state();
++    for (slot, selection) in app.session.selection.iter().enumerate() {
++        let Sel::Edge { body, point, .. } = selection else { continue };
++        let Some(model_body) = state.body(body) else { continue };
++        let tolerance = (model_body.body.size() * 2e-3).max(1e-3);
++        let Ok(edges) = model_body.body.edges(tolerance) else { continue };
++        let Some(edge) = edges.iter().min_by(|a, b| a.mid.dist(*point).total_cmp(&b.mid.dist(*point))) else { continue };
++        let Some(at) = proj.to_screen(edge.mid) else { continue };
++        let mut length = format!("{:.3}", edge.length);
++        while length.contains('.') && length.ends_with('0') {
++            length.pop();
++        }
++        if length.ends_with('.') {
++            length.pop();
++        }
++        let text = format!("{}  {} mm", crate::i18n::tr_label("Length"), length);
++        egui::Area::new(egui::Id::new(("sc_selected_edge_measurement", slot))).fixed_pos(at + vec2(12.0, -22.0)).order(egui::Order::Foreground).show(
++            ui.ctx(),
++            |ui| {
++                Container::popup_frame(ui.style()).inner_margin(egui::Margin::symmetric(7, 4)).show(ui, |ui| {
++                    ui.label(egui::RichText::new(&text).color(Tokens::get().text));
++                });
++            },
++        );
++    }
++}
++
+ /// A round step for dragged values at this zoom (1, 2 or 5 times a power of ten).
+ pub fn snap_step(half_height: f64) -> f64 {
+     let raw = (half_height / 40.0).max(1e-4);
+@@ -1412,6 +1442,10 @@ mod tests {
+     }
+ }
+ 
++#[cfg(test)]
++#[path = "canvas_edge_measure_tests.rs"]
++mod edge_measure_tests;
++
+ #[cfg(test)]
+ mod taper_limit_tests {
+     use super::taper_limits;
+diff --git a/crates/ui-egui/src/canvas_edge_measure_tests.rs b/crates/ui-egui/src/canvas_edge_measure_tests.rs
+new file mode 100644
+index 00000000..9b05f39f
+--- /dev/null
++++ b/crates/ui-egui/src/canvas_edge_measure_tests.rs
+@@ -0,0 +1,14 @@
++use serde_json::json;
++use solidcraft_engine::{Sel, geom::Vec3};
++
++#[test]
++fn selecting_a_solid_edge_shows_its_exact_length_in_the_viewport() {
++    let mut h = crate::scenario::Harness::new();
++    h.app.run("solid.box", json!({"length":20,"width":10,"height":5})).unwrap();
++    let reply = h.app.run("model.edges", json!({"body":"Body1"})).unwrap();
++    let edge = reply["edges"].as_array().unwrap().iter().find(|edge| (edge["length"].as_f64().unwrap() - 20.0).abs() < 1e-9).unwrap();
++    let mid: Vec3 = serde_json::from_value(edge["mid"].clone()).unwrap();
++    h.app.session.selection = vec![Sel::Edge { body: "Body1".into(), index: edge["index"].as_u64().unwrap() as usize, point: mid }];
++    h.frames(3);
++    assert!(h.widget("Length  20 mm").is_some(), "the selected edge length should be visible as a viewport label");
++}
+diff --git a/crates/ui-egui/src/control.rs b/crates/ui-egui/src/control.rs
+index 058815d7..eb2e11be 100644
+--- a/crates/ui-egui/src/control.rs
++++ b/crates/ui-egui/src/control.rs
+@@ -13,6 +13,8 @@
+ //! - `ui.inspect`: UI state, viewport rect, camera, tool and dialog
+ //! - `ui.drag {x0, y0, x1, y1, button?, shift?, ctrl?, steps?, hold?}` (box selection, navigation;
+ //!   `hold` keeps the button down that many frames before moving);
++//! - `ui.pointer {action: down|up, x, y, button?, shift?, ctrl?}`: one pointer-button edge per
++//!   control request, for gestures that need the app to render between press, motion and release;
+ //!   `ui.selection` (selection, dialog inputs, hover, drawn sketch dimensions);
+ //!   `ui.sketchToScreen {points: [[x,y]…]}` (screen points of active-sketch coordinates); `ui.editFeature {feature}` (edit dialog)
+ //! - `ui.set {...UiState fields}`; `ui.view {view: front|back|top|bottom|left|right|iso|home|fit, animate?: bool}` (snaps unless animate)
+@@ -69,7 +71,11 @@ impl ControlRequest {
+ 
+ pub enum Outcome {
+     Done(Value),
+-    Screenshot { path: Option<String> },
++    Screenshot {
++        path: Option<String>,
++    },
++    /// The native script runner will send the control reply when its transaction finishes.
++    Deferred,
+ }
+ 
+ fn ok(v: Value) -> Outcome {
+@@ -243,6 +249,26 @@ pub fn view_png(app: &SolveApp, w: u32, h: u32) -> Result<Vec<u8>, String> {
+ }
+ 
+ pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
++    if req.method == "forge.script.run" {
++        if app.file_load.busy()
++            || app.file_picker_busy()
++            || app.applying.is_some()
++            || app.deferred.is_some()
++            || app.tool.is_some()
++            || app.dialog.is_some()
++        {
++            return err("Finish or close the active command or file operation before running a script");
++        }
++        let Some(script) = req.params.get("script") else { return err("missing script object") };
++        let text = match serde_json::to_string(script) {
++            Ok(text) => text,
++            Err(error) => return err(format!("invalid script object: {error}")),
++        };
++        return match app.forge_scripts.start_external(&mut app.session, &text, req.reply.clone()) {
++            Ok(()) => Outcome::Deferred,
++            Err(error) => err(error),
++        };
++    }
+     let scope = match request_scope(app, &req.params) {
+         Ok(Some(scope)) => scope,
+         Ok(None) => return dispatch(app, ctx, &req.method, &req.params),
+@@ -480,6 +506,29 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
+             }
+             ok(Value::Null)
+         }
++        "ui.pointer" => {
++            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err("missing x/y") };
++            if x.abs() > 1e6 || y.abs() > 1e6 {
++                return err("x/y must be within ±1000000 screen points");
++            }
++            let Some(action) = s("action") else { return err("missing action (down or up)") };
++            let pressed = match action {
++                "down" => true,
++                "up" => false,
++                _ => return err("action must be down or up"),
++            };
++            let button = match s("button") {
++                Some("right") => egui::PointerButton::Secondary,
++                Some("middle") => egui::PointerButton::Middle,
++                _ => egui::PointerButton::Primary,
++            };
++            let pos = egui::pos2(x as f32, y as f32);
++            let modifiers = egui::Modifiers { shift: b("shift"), ctrl: b("ctrl"), command: b("ctrl"), alt: false, ..Default::default() };
++            app.synthetic.push(egui::Event::ModifiersChanged(modifiers));
++            app.synthetic.push(egui::Event::PointerMoved(pos));
++            app.synthetic.push(egui::Event::PointerButton { pos, button, pressed, modifiers });
++            ok(Value::Null)
++        }
+         "ui.drag" => {
+             let (Some(x0), Some(y0), Some(x1), Some(y1)) = (f("x0"), f("y0"), f("x1"), f("y1")) else { return err("missing x0/y0/x1/y1") };
+             let button = match s("button") {
+@@ -1029,6 +1078,7 @@ mod tests {
+         match handle(app, &crate::fonts::test_context(), &req) {
+             Outcome::Done(v) => assert_eq!(v["ok"], true, "{v}"),
+             Outcome::Screenshot { .. } => panic!("ui.render took a screenshot"),
++            Outcome::Deferred => panic!("ui.render deferred a control reply"),
+         }
+         std::fs::read(path).unwrap()
+     }
+@@ -1099,6 +1149,7 @@ mod tests {
+         match handle(app, &crate::fonts::test_context(), &req) {
+             Outcome::Done(v) => assert_eq!(v["ok"], true, "{v}"),
+             Outcome::Screenshot { .. } => panic!("ui.render took a screenshot"),
++            Outcome::Deferred => panic!("ui.render deferred a control reply"),
+         }
+         std::fs::read(path).unwrap()
+     }
+@@ -1374,6 +1425,7 @@ mod tests {
+             match handle(&mut app, &crate::fonts::test_context(), &req) {
+                 Outcome::Done(v) => v,
+                 Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),
++                Outcome::Deferred => panic!("test helper received a deferred response"),
+             }
+         };
+         let export = |p: String| json!({"command": "file.export", "params": {"path": p}});
+@@ -1421,6 +1473,7 @@ mod tests {
+             match handle(&mut h.app, &h.ctx, &req) {
+                 Outcome::Done(v) => v,
+                 Outcome::Screenshot { .. } => Value::Null,
++                Outcome::Deferred => Value::Null,
+             }
+         }
+         raw(&mut h, "ui.view", json!({"view": "top", "animate": true}));
+@@ -1521,4 +1574,43 @@ mod tests {
+             assert!(h.app.dialog.is_none() && h.app.tool.is_none() && h.app.session.analysis.is_none(), "{command} started nothing");
+         }
+     }
++
++    #[test]
++    fn key_button_edges_can_be_delivered_in_separate_frames() {
++        let mut app = SolveApp::new(Session::default(), Services::default());
++        let ctx = crate::fonts::test_context();
++        let deliver = |app: &mut SolveApp, ctx: &egui::Context| {
++            let mut raw = egui::RawInput::default();
++            app.raw_input_hook(&mut raw);
++            let events = raw.events.clone();
++            let mut out = ctx.run_ui(raw, |_| {});
++            out.textures_delta.clear();
++            events
++        };
++        let (req, _) = ControlRequest::new("ui.key", json!({"key":"Enter","action":"down"}));
++        assert!(matches!(handle(&mut app, &ctx, &req), Outcome::Done(reply) if reply["ok"] == true));
++        assert!(deliver(&mut app, &ctx).iter().any(|event| matches!(event, egui::Event::Key { key: egui::Key::Enter, pressed: true, .. })));
++        let (req, _) = ControlRequest::new("ui.key", json!({"key":"Enter","action":"up"}));
++        assert!(matches!(handle(&mut app, &ctx, &req), Outcome::Done(reply) if reply["ok"] == true));
++        assert!(deliver(&mut app, &ctx).iter().any(|event| matches!(event, egui::Event::Key { key: egui::Key::Enter, pressed: false, .. })));
++        for action in ["hold", "repeat"] {
++            let (req, _) = ControlRequest::new("ui.key", json!({"key":"Enter","action":action}));
++            assert!(matches!(handle(&mut app, &ctx, &req), Outcome::Done(reply) if reply["ok"] == false));
++        }
++    }
++
++    #[test]
++    fn pointer_button_edges_are_delivered_in_separate_frames() {
++        let mut h = crate::scenario::Harness::new();
++        h.call("ui.pointer", json!({"action":"down","x":800,"y":500}));
++        assert!(h.ctx.input(|input| input.pointer.primary_down()), "down remains held after its frame");
++        h.call("ui.move", json!({"x":820,"y":510}));
++        assert!(h.ctx.input(|input| input.pointer.primary_down()), "motion between button edges must keep the button held");
++        h.call("ui.pointer", json!({"action":"up","x":820,"y":510}));
++        assert!(!h.ctx.input(|input| input.pointer.any_down()), "up releases the button in its own frame");
++        for params in [json!({"action":"hold","x":0,"y":0}), json!({"action":"down","y":0}), json!({"action":"up","x":0})] {
++            let (req, _) = ControlRequest::new("ui.pointer", params);
++            assert!(matches!(handle(&mut h.app, &h.ctx, &req), Outcome::Done(reply) if reply["ok"] == false));
++        }
++    }
+ }
+diff --git a/crates/ui-egui/src/preview_drag_tests.rs b/crates/ui-egui/src/preview_drag_tests.rs
+index d6a62e68..c5b0195e 100644
+--- a/crates/ui-egui/src/preview_drag_tests.rs
++++ b/crates/ui-egui/src/preview_drag_tests.rs
+@@ -175,3 +175,28 @@ fn fillet_preview_keeps_moving_while_its_radius_changes() {
+         assert!(pv.running.is_none());
+     }
+ }
++
++#[test]
++fn move_copy_drag_builds_a_visible_preview_without_changing_the_design() {
++    use crate::gizmo::{Change, Drag, Handle};
++    use solidcraft_engine::{Sel, geom::Vec3};
++
++    let mut h = crate::scenario::Harness::new();
++    h.app.run("solid.box", json!({"length":10,"width":10,"height":10})).unwrap();
++    let original = serde_json::to_value(&*h.app.session.doc).unwrap();
++    let undo = h.app.session.undo.len();
++    let mut dialog = crate::dialogs::Dialog::for_command(&h.app, "solid.move").unwrap();
++    dialog.inputs[0].items = vec![Sel::Body { name: "Body1".into() }];
++    dialog.extra.insert("copy".into(), json!(true));
++    crate::dialogs_move::drag(
++        &h.app,
++        &mut dialog,
++        Drag { handle: Handle::Axis(0), change: Change::Translate(Vec3::new(25.0, 0.0, 0.0)), started: true, done: false },
++    );
++    let commands = crate::dialogs::preview_commands(&h.app, &dialog).unwrap();
++    let built = compute(&h.app.session, &commands, colors()).unwrap();
++    assert!(built.bounds.max.x >= 35.0 - 1e-6, "the copied body should follow the dragged 25 mm offset: {:?}", built.bounds);
++    assert!(!built.scene.tris.is_empty(), "the dragged copy must have visible preview geometry");
++    assert_eq!(serde_json::to_value(&*h.app.session.doc).unwrap(), original, "preview must leave the saved design unchanged");
++    assert_eq!(h.app.session.undo.len(), undo, "preview must not append a history feature");
++}
+diff --git a/crates/ui-egui/src/sketch_intersection_ui_tests.rs b/crates/ui-egui/src/sketch_intersection_ui_tests.rs
+new file mode 100644
+index 00000000..ad2dcf5d
+--- /dev/null
++++ b/crates/ui-egui/src/sketch_intersection_ui_tests.rs
+@@ -0,0 +1,56 @@
++use egui::{Pos2, Rect, Vec2 as EguiVec2, pos2};
++use serde_json::json;
++use solidcraft_engine::sketch::ConstraintKind;
++
++fn snapped_at(h: &mut crate::scenario::Harness, point: [f64; 2]) -> (solidcraft_engine::geom::Vec2, Option<String>) {
++    let screen = h.at(&json!({"sketch": point})).unwrap();
++    let rect = h.app.viewport.rect.unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, EguiVec2::new(1600.0, 1000.0)));
++    let proj = crate::viewport::projection(&h.app, rect);
++    crate::viewport::sketch_point_at(&h.app, &proj, pos2(screen[0] as f32, screen[1] as f32)).unwrap()
++}
++
++#[test]
++fn drawing_endpoint_snaps_to_a_line_midpoint_and_keeps_the_constraint() {
++    let mut h = crate::scenario::Harness::new();
++    h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
++    h.app.run("sketch.line", json!({"points":[[0,0],[20,0]],"ids":["base"]})).unwrap();
++    h.step(&json!({"start":"sketch.line"})).unwrap();
++    let start = snapped_at(&mut h, [10.1, 0.1]);
++    assert_eq!(start.1.as_deref(), Some("mid:base"));
++    h.app.run("sketch.line", json!({"points":[start.1.unwrap(),[10,10]],"ids":["from_mid"]})).unwrap();
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    let endpoint = sketch.resolve_point("from_mid.start").unwrap();
++    assert!(
++        sketch.constraints.iter().any(
++            |constraint| matches!(constraint.kind, ConstraintKind::Midpoint { p, l } if p == endpoint && l == sketch.curve_index("base").unwrap())
++        )
++    );
++}
++
++#[test]
++fn drawing_endpoint_snaps_to_curve_intersection_and_stays_on_both_curves() {
++    let mut h = crate::scenario::Harness::new();
++    h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
++    h.app.run("sketch.line", json!({"points":[[32,0],[50,18]],"ids":["rise"]})).unwrap();
++    h.app.run("sketch.line", json!({"points":[[30,22],[52,0]],"ids":["fall"]})).unwrap();
++    h.step(&json!({"start":"sketch.line"})).unwrap();
++    let start = snapped_at(&mut h, [42.1, 10.1]);
++    assert!((start.0.dist(solidcraft_engine::geom::Vec2::new(42.0, 10.0))) < 1e-9);
++    let reference = start.1.expect("crossing should carry both curve references");
++    assert!(reference.starts_with("intersection:rise:fall:"), "wrong snap reference: {reference:?}");
++    h.app.run("sketch.line", json!({"points":[reference,[55,10]],"ids":["from_crossing"]})).unwrap();
++    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
++    let endpoint = sketch.resolve_point("from_crossing.start").unwrap();
++    let constrained: Vec<_> = sketch
++        .constraints
++        .iter()
++        .filter_map(|constraint| match constraint.kind {
++            ConstraintKind::PointOnCurve { p, c } if p == endpoint => Some(sketch.curves[c].id.as_str()),
++            _ => None,
++        })
++        .collect();
++    assert!(
++        constrained.contains(&"rise") && constrained.contains(&"fall"),
++        "intersection endpoint should follow both source curves: {constrained:?}"
++    );
++}
+diff --git a/crates/ui-egui/src/sketch_tools.rs b/crates/ui-egui/src/sketch_tools.rs
+index a0fc473c..9259b700 100644
+--- a/crates/ui-egui/src/sketch_tools.rs
++++ b/crates/ui-egui/src/sketch_tools.rs
+@@ -388,6 +388,7 @@ pub fn refine_snap(
+     let mid_tol = if mid_only { tol * 1.5 } else { tol };
+     let mut best: Option<(f64, &'static str, Vec2)> = None;
+     let mut mid_of: Option<String> = None;
++    let mut explicit_arg: Option<String> = None;
+     for (i, c) in sk.curves.iter().enumerate() {
+         if let solidcraft_engine::sketch::CurveKind::Line { .. } = c.kind
+             && let Some(solidcraft_engine::sketch::Shape::Line { a, b }) = sk.shape(i)
+@@ -397,6 +398,30 @@ pub fn refine_snap(
+             if d < mid_tol && best.is_none_or(|x| d < x.0) {
+                 best = Some((d, "Mid", m));
+                 mid_of = Some(c.id.clone());
++                explicit_arg = None;
++            }
++        }
++    }
++    // A line endpoint can land at an analytic crossing of two sketch curves. Only strict
++    // interior crossings qualify: shared endpoints already have a point to snap to, and
++    // coincident/overlapping curves have no unique intersection point.
++    if !mid_only {
++        for a in 0..sk.curves.len() {
++            let Some(sa) = sk.shape(a) else { continue };
++            for b in a + 1..sk.curves.len() {
++                let Some(sb) = sk.shape(b) else { continue };
++                for q in solidcraft_engine::sketch::intersections_within(&sa, &sb, 1e-10 * (1.0 + tol)) {
++                    if sa.param_on(q, tol).is_none() || sb.param_on(q, tol).is_none() {
++                        continue;
++                    }
++                    let d = q.dist(lp);
++                    if d < tol && best.is_none_or(|x| d < x.0) {
++                        best = Some((d, "Int", q));
++                        mid_of = None;
++                        let (ca, cb) = (&sk.curves[a].id, &sk.curves[b].id);
++                        explicit_arg = Some(format!("intersection:{ca}:{cb}:{},{}", q.x, q.y));
++                    }
++                }
+             }
+         }
+     }
+@@ -425,10 +450,11 @@ pub fn refine_snap(
+         for (i, c) in sk.curves.iter().enumerate() {
+             let Some(sh) = sk.shape(i) else { continue };
+             let d = sh.dist(lp);
+-            if d < tol * 0.8 && best.is_none_or(|x| d < x.0) {
++            if d < tol * 0.8 && best.is_none_or(|x| x.1 != "Int" && d < x.0) {
+                 let q = sh.project(lp);
+                 best = Some((d, "On", q));
+                 mid_of = Some(format!("{}:{},{}", c.id, q.x, q.y));
++                explicit_arg = None;
+             }
+         }
+     }
+@@ -458,11 +484,11 @@ pub fn refine_snap(
+     SNAP.with(|s| *s.borrow_mut() = best.map(|(_, l, p)| (l, p)));
+     // A midpoint snap is a point argument the commands understand ("mid:<line>").
+     best.map(|(_, l, p)| {
+-        let arg = match l {
++        let arg = explicit_arg.or_else(|| match l {
+             "Mid" => mid_of.map(|m| format!("mid:{m}")),
+             "On" => mid_of.map(|m| format!("on:{m}")),
+             _ => None,
+-        };
++        });
+         (p, arg)
+     })
+ }
+@@ -1447,6 +1473,10 @@ mod corner_ui_tests;
+ #[path = "sketch_continuity_tests.rs"]
+ mod continuity_tests;
+ 
++#[cfg(test)]
++#[path = "sketch_intersection_ui_tests.rs"]
++mod intersection_ui_tests;
++
+ #[cfg(test)]
+ #[path = "sketch_trim_drag_ui_tests.rs"]
+ mod trim_drag_ui_tests;
+diff --git a/docs/control-protocol.md b/docs/control-protocol.md
+index 0fd84bd9..b6766101 100644
+--- a/docs/control-protocol.md
++++ b/docs/control-protocol.md
+@@ -180,6 +180,7 @@ labels; `prefs:measure_axis_distances` identifies the checkbox.
+ | `ui.click` | `x`, `y` (screen points), `button?`: left/right/middle, `shift?`, `ctrl?`, `double?` | real pointer input |
+ | `ui.move` | `x`, `y`, `shift?`, `alt?`, `ctrl?`, `cmd?` | pointer movement without a button; modifiers apply until the next synthetic move/click; a move with omitted modifiers releases them. With `nav: "touchpad"`, Shift pans and Alt/Option orbits. |
+ | `ui.drag` | `x0`, `y0`, `x1`, `y1`, `button?`, `shift?`, `ctrl?`, `steps?`, `hold?`, `hold_end?` | press, move, release; a left drag on the model is a box selection (left to right: window, right to left: crossing); with OpenSCAD navigation, plain left-drag on empty space orbits, Shift+left-drag box-selects, and drags starting on sketch geometry edit it; `hold` keeps the button down that many frames first (a right press-and-hold opens the marking menu, releasing over a direction picks it), `hold_end` that many frames at the end (a sketch drag shows its snap) |
++| `ui.pointer` | `action: down\|up`, `x`, `y`, `button?`, `shift?`, `ctrl?` | one button edge per request; use separate requests with `ui.move` between them when a gesture must span rendered frames, such as entering live sketch dimensions |
+ | `ui.menu` | `x?`, `y?`, `target?`, `close?` | with a point: open a context menu there as a right-click would (the viewport's marking menu, or a browser menu with `target: {"type": "body", "name"} \| {"type": "sketch", "id"} \| {"type": "component", "id"}`); without: the open menu (`radial` and `items`: id, label, shortcut, enabled, icon, placeholder; blank icons on headings/separators have `placeholder: false`) |
+ | `ui.icon_audit` | `reset?`, `stop?` | `reset: true` enables collection on the UI thread and clears previous requests; returns `{requested: [{name, master, placeholder}]}` sorted by requested id. Each read drains names collected since the previous read/reset. Collection stays enabled until `stop: true` (which returns pending names before disabling it). Includes aliases, variable/table ids and cached paints. |
+ | `ui.menuPick` | `item`: id or label | runs an item of the open menu, as clicking it does |
