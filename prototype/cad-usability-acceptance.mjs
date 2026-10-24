@@ -224,6 +224,54 @@ async function main() {
   const dx = committedLine.end_at[0] - committedLine.start_at[0];
   const dy = committedLine.end_at[1] - committedLine.start_at[1];
   assert(Math.abs(Math.hypot(dx, dy) - 20) < 1e-6 && Math.abs(Math.atan2(dy, dx) - Math.PI / 6) < 1e-6, `the resulting line geometry does not measure 20 mm at 30 degrees: ${JSON.stringify(committedLine)}`);
+
+  // Escape must discard a line draft without changing the document model.
+  const beforeLineCancel = await engine('document.inspect');
+  await call('ui.start', { command: 'sketch.line' });
+  const cancelStart = await sketchScreen([65, 30]);
+  const cancelEnd = await sketchScreen([72, 37]);
+  await call('ui.click', { x: cancelStart[0], y: cancelStart[1] });
+  await nextUiFrame();
+  await call('ui.move', { x: cancelEnd[0], y: cancelEnd[1] });
+  await nextUiFrame();
+  await pressKey('Escape');
+  await nextUiFrame();
+  const afterLineCancel = await engine('document.inspect');
+  assert(sameDocumentModel(afterLineCancel, beforeLineCancel), `Escape cancellation changed the sketch document: before=${JSON.stringify(beforeLineCancel)} after=${JSON.stringify(afterLineCancel)}`);
+
+  // Preserve the normal click-click path independently of the numeric click-drag path above.
+  const beforeClickClick = await engine('document.inspect');
+  const priorCurveCount = beforeClickClick.sketches?.[0]?.curves;
+  assert(Number.isInteger(priorCurveCount), `cannot read the active sketch curve count: ${JSON.stringify(beforeClickClick)}`);
+  await call('ui.start', { command: 'sketch.line' });
+  const clickStart = await sketchScreen([65, 30]);
+  const clickEnd = await sketchScreen([75, 30]);
+  await call('ui.click', { x: clickStart[0], y: clickStart[1] });
+  await nextUiFrame();
+  await call('ui.click', { x: clickEnd[0], y: clickEnd[1] });
+  await nextUiFrame();
+  await pressKey('Enter');
+  const afterClickClick = await waitFor('a normal click-click line to commit', async () => {
+    const state = await engine('document.inspect');
+    return state.sketches?.[0]?.curves === priorCurveCount + 1 && state;
+  });
+  await pressKey('Escape'); // Finish the active polyline tool before testing history.
+  const clickSketch = await engine('sketch.inspect');
+  const clickClickLine = clickSketch.curves?.find((curve) => curve.type === 'line' && curve.start_at && curve.end_at
+    && Math.abs(Math.hypot(curve.end_at[0] - curve.start_at[0], curve.end_at[1] - curve.start_at[1]) - 10) < 1e-4);
+  assert(clickClickLine, `the click-click gesture did not create a measured 10 mm line: ${JSON.stringify(clickSketch.curves)}`);
+  await pressKey('Z', { cmd: true });
+  await waitFor('undo of the click-click line', async () => {
+    const state = await engine('document.inspect');
+    return state.sketches?.[0]?.curves === priorCurveCount && state;
+  });
+  await pressKey('Y', { cmd: true });
+  await waitFor('redo of the click-click line', async () => {
+    const state = await engine('document.inspect');
+    return state.sketches?.[0]?.curves === priorCurveCount + 1 && state;
+  });
+  assert(afterClickClick.sketches[0].curves === priorCurveCount + 1, 'click-click redo did not restore the committed line');
+  process.stderr.write('Line regressions passed: Escape preserved the document; click-click drew 10 mm and undo/redo restored it.\n');
   process.stderr.write(`Midpoint and numeric line acceptance passed; locked previews=${lengthLockedShot}, ${bothLockedShot}.\n`);
 
   // Draw through an analytic crossing and require the endpoint to remain constrained to both
