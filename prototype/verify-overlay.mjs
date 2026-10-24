@@ -105,6 +105,7 @@ requireMatch(control, /ui.pointer.*=>/, 'frame-spanning authenticated GUI pointe
 requireMatch(control, /action\?: down\|up/, 'separate-frame authenticated GUI key control');
 requireMatch(control, /Some\("down"\)[\s\S]*Some\("up"\)/, 'explicit key down/up event sequencing');
 requireMatch(control, /"sketch_draft": app\.tool\.as_ref\(\)[\s\S]*sketch_dims::shown\(app, t/, 'UI inspection reports the actual constrained sketch preview endpoint');
+requireMatch(control, /"length_locked": crate::sketch_dims::has_locked\(t, "Length"\)/, 'UI inspection distinguishes typed line locks from cursor coincidence');
 requireMatch(control, /"bounds": app\.preview\.active\.then/, 'UI inspection reports the visible operation preview bounds');
 requireMatch(control, /key_button_edges_can_be_delivered_in_separate_frames/, 'separate-frame key regression');
 requireMatch(controlDocs, /ui.pointer.*one button edge per request/, 'documented frame-spanning pointer control');

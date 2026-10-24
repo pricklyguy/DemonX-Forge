@@ -173,14 +173,15 @@ async function main() {
   await call('ui.text', { text: '8' });
   await nextUiFrame();
   const startDraft = await call('ui.inspect');
+  assert(startDraft.sketch_draft?.length_locked, `the typed length was not acquired by the active GUI dimension field: ${JSON.stringify(startDraft.sketch_draft)}`);
   assert(Math.abs(startDraft.sketch_draft?.length - 8) < 1e-6, `the in-progress line preview is not locked to 8 mm after typing: ${JSON.stringify(startDraft.sketch_draft)}`);
   const pointerMovedTo = await sketchScreen([-15, 20]);
   await call('ui.move', { x: pointerMovedTo[0], y: pointerMovedTo[1] });
   await nextUiFrame();
   const lengthLockedDraft = await call('ui.inspect');
-  assert(Math.abs(lengthLockedDraft.sketch_draft?.length - 8) < 1e-6, `mouse movement changed the locked 8 mm preview: ${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
-  assert(Math.hypot(lengthLockedDraft.sketch_draft.end[0] - startDraft.sketch_draft.end[0], lengthLockedDraft.sketch_draft.end[1] - startDraft.sketch_draft.end[1]) > 1, `with angle unlocked, moving the cursor should rotate the fixed-length preview: before=${JSON.stringify(startDraft.sketch_draft)} after=${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
   const lengthLockedShot = await screenshot('numeric-line-length-locked-preview.png');
+  assert(Math.abs(lengthLockedDraft.sketch_draft?.length - 8) < 1e-6, `mouse movement changed the locked 8 mm preview: ${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
+  assert(Math.hypot(lengthLockedDraft.sketch_draft.end[0] - startDraft.sketch_draft.end[0], lengthLockedDraft.sketch_draft.end[1] - startDraft.sketch_draft.end[1]) > 1, `with angle unlocked, moving the cursor should rotate the fixed-length preview: pointer=${JSON.stringify(pointerMovedTo)} viewport=${JSON.stringify(lengthLockedDraft.viewport)} hover=${JSON.stringify(lengthLockedDraft.hover)} before=${JSON.stringify(startDraft.sketch_draft)} after=${JSON.stringify(lengthLockedDraft.sketch_draft)} screenshot=${lengthLockedShot}`);
   await pressKey('Tab');
   await call('ui.text', { text: '30 deg' });
   await nextUiFrame();
@@ -188,6 +189,7 @@ async function main() {
   await call('ui.move', { x: lockedEnd[0], y: lockedEnd[1] });
   await nextUiFrame();
   const fullyLockedDraft = await call('ui.inspect');
+  assert(fullyLockedDraft.sketch_draft?.angle_locked, `the typed angle was not acquired by the active GUI dimension field: ${JSON.stringify(fullyLockedDraft.sketch_draft)}`);
   const expectedDraft = [fullyLockedDraft.sketch_draft.start[0] + 8 * Math.cos(Math.PI / 6), fullyLockedDraft.sketch_draft.start[1] + 8 * Math.sin(Math.PI / 6)];
   assert(Math.hypot(fullyLockedDraft.sketch_draft.end[0] - expectedDraft[0], fullyLockedDraft.sketch_draft.end[1] - expectedDraft[1]) < 1e-6, `mouse movement changed the endpoint after length and angle locked: ${JSON.stringify(fullyLockedDraft.sketch_draft)}`);
   const bothLockedShot = await screenshot('numeric-line-length-angle-locked-preview.png');

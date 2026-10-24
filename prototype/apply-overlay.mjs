@@ -652,7 +652,7 @@ const scriptUiEdits = [
   ['crates/ui-egui/src/agent_cursor.rs', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),\n        crate::control::Outcome::Deferred => json!({"ok": false, "error": "not a command"}),'],
   ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),\n                Outcome::Deferred => panic!("test helper received a deferred response"),'],
   ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { .. } => Value::Null,', '                Outcome::Screenshot { .. } => Value::Null,\n                Outcome::Deferred => Value::Null,'],
-  ['crates/ui-egui/src/control.rs', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced},', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced, "bounds": app.preview.active.then(|| json!({"min": [app.preview.bounds.min.x, app.preview.bounds.min.y, app.preview.bounds.min.z], "max": [app.preview.bounds.max.x, app.preview.bounds.max.y, app.preview.bounds.max.z]}))},\n            "sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "end": [end.x, end.y], "length": end.dist(*start)}))\n            }),'],
+  ['crates/ui-egui/src/control.rs', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced},', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced, "bounds": app.preview.active.then(|| json!({"min": [app.preview.bounds.min.x, app.preview.bounds.min.y, app.preview.bounds.min.z], "max": [app.preview.bounds.max.x, app.preview.bounds.max.y, app.preview.bounds.max.z]}))},\n            "sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let (cursor, _) = t.hover.as_ref()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "cursor": [cursor.x, cursor.y], "end": [end.x, end.y], "length": end.dist(*start), "length_locked": crate::sketch_dims::has_locked(t, "Length"), "angle_locked": crate::sketch_dims::has_locked(t, "Angle")}))\n            }),'],
   ['crates/ui-egui/src/scenario.rs', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),\n            Outcome::Deferred => json!({"ok": true, "result": null}),'],
   ['crates/ui-egui/src/toolbar.rs', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.'],
 ];
@@ -660,16 +660,23 @@ const scriptUiEdits = [
 for (const [editIndex, [relative, before, after]] of scriptUiEdits.entries()) {
   const path = join(source, relative);
   const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+  const legacyControlInspect = relative === 'crates/ui-egui/src/control.rs'
+    && text.includes('"sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "end": [end.x, end.y], "length": end.dist(*start)}))\n            }),');
   const formattedScriptHandler = relative === 'crates/ui-egui/src/control.rs'
     && before.startsWith('pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome')
     && text.includes('if req.method == "forge.script.run"');
   const formattedOutcome = relative === 'crates/ui-egui/src/control.rs'
     && before.includes('Screenshot { path: Option<String>')
     && text.includes('    Deferred,');
-  const hasAfter = text.includes(after) || formattedScriptHandler || formattedOutcome;
+  const hasAfter = text.includes(after) || formattedScriptHandler || formattedOutcome || legacyControlInspect;
   const hasBefore = text.includes(before);
   assert(hasBefore || hasAfter, `Script UI overlay anchor ${editIndex + 1} drift in ${relative}`);
-  if (!checkOnly && hasBefore && before !== after) {
+  if (!checkOnly && legacyControlInspect) {
+    const legacyBlock = '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced, "bounds": app.preview.active.then(|| json!({"min": [app.preview.bounds.min.x, app.preview.bounds.min.y, app.preview.bounds.min.z], "max": [app.preview.bounds.max.x, app.preview.bounds.max.y, app.preview.bounds.max.z]}))},\n            "sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "end": [end.x, end.y], "length": end.dist(*start)}))\n            }),';
+    assert(text.includes(legacyBlock), 'legacy UI inspection block migration anchor drift');
+    const updated = text.replace(legacyBlock, after);
+    writeFileSync(path, updated);
+  } else if (!checkOnly && hasBefore && before !== after) {
     const updated = replaceNextUnpatched(text, before, after);
     if (updated !== text) writeFileSync(path, updated);
   }
