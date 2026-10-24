@@ -1,6 +1,6 @@
 --- a/crates/ui-egui/src/sketch_dims_tests.rs
 +++ b/crates/ui-egui/src/sketch_dims_tests.rs
-@@ -365,3 +365,153 @@
+@@ -365,3 +365,166 @@
      let tiny = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 30.0));
      assert!(tiny.contains_rect(egui::Rect::from_min_size(in_view(egui::pos2(-200.0, -200.0), Some(tiny), Some(egui::pos2(40.0, 15.0))), BOX)));
  }
@@ -84,9 +84,22 @@
 +    let (mut h, end) = mouse_draw("sketch.line", [0.0, 0.0], [24.0, 12.0]);
 +    mouse_draw_release(&mut h, end);
 +    type_value(&mut h, "20");
++    assert!(h.app.tool.as_ref().unwrap().dims[0].locked, "typed length must lock the live preview");
++    h.step(&json!({"move":{"sketch":[-20.0,15.0]}})).unwrap();
++    let tool = h.app.tool.as_ref().unwrap();
++    let start = tool.pts.last().unwrap().0;
++    let preview = crate::sketch_dims::shown(&h.app, tool, tool.hover.as_ref().unwrap());
++    let delta = preview - start;
++    assert!((delta.len() - 20.0).abs() < 1e-6, "moving the mouse after typing length must keep the live line at 20 mm: {preview:?}");
++    assert!((delta.angle() - (solidcraft_engine::geom::Vec2::new(-20.0,15.0) - start).angle()).abs() < 1e-6, "the unlocked angle should keep following the cursor");
 +    tab(&mut h, false);
 +    assert_focus(&h, 1);
 +    type_value(&mut h, "30 deg");
++    h.step(&json!({"move":{"sketch":[12.0,-30.0]}})).unwrap();
++    let tool = h.app.tool.as_ref().unwrap();
++    let fixed = crate::sketch_dims::shown(&h.app, tool, tool.hover.as_ref().unwrap());
++    let expected = tool.pts.last().unwrap().0 + solidcraft_engine::geom::Vec2::from_angle(30f64.to_radians()) * 20.0;
++    assert!((fixed - expected).len() < 1e-6, "after both dimensions lock, mouse movement must not change the preview endpoint: {fixed:?} expected {expected:?}");
 +    h.step(&json!({"key":"Enter"})).unwrap();
 +    let sketch = h.app.session.world_state().sketch(h.app.session.active_sketch.unwrap()).unwrap().sketch.clone();
 +    let (a, b) = sketch.curves.iter().find_map(|curve| match curve.kind { CurveKind::Line { a, b } => Some((a, b)), _ => None }).unwrap();

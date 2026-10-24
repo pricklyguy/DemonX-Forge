@@ -49,6 +49,7 @@ const pinnedPatches = [
   ['patches/sketch-plane-selection.patch', 'crates/ui-egui/src/dialogs.rs', 'dialog:origin-plane:dropdown'],
   ['patches/sketch-release-to-confirm.patch', 'crates/ui-egui/src/viewport.rs', 'A real drag leaves the second point as a live'],
   ['patches/cad-usability.patch', 'crates/ui-egui/src/sketch_tools.rs', 'mod intersection_ui_tests;'],
+  ['patches/cad-usability-owner-review.patch', 'crates/ui-egui/src/sketch_tools.rs', 'Keep the target marker centred on the acquired model point.'],
 ];
 for (const [patchRelative, targetRelative, marker] of pinnedPatches) {
   const target = join(source, targetRelative);
@@ -73,10 +74,10 @@ const edits = [
     '        assert_eq!(Format::from_name("new.solidcraft").unwrap(), Format::Design);\n        assert_eq!(Format::from_name("new.dxforge").unwrap(), Format::Design);\n        assert!(is_design_path("/d/old.SOLVECRAFT") && is_design_path("new.solidcraft") && is_design_path("new.DXFORGE") && !is_design_path("a.step"));'],
   ['crates/ui-egui/src/toolbar.rs',
     '// Brand mark: the SolidCraft logo, drawn in code from the SVG\'s own coordinates\n        // (viewBox 357 x 412). Same 20 px height and centre as the old block.\n        {\n            let c = pos2(left + 20.0, r.center().y);\n            crate::icons::glyphs::brand_mark(ui.painter(), c);\n        }',
-    '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'],
+    '// Forge-owned DX emblem and horizontal wordmark share the Suite app-bar lockup.\n        {\n            let (mark, width, height, gap) = if compact_actions { (28.0, 124.0, 19.0, 5.0) } else { (36.0, 170.0, 26.0, 7.0) };\n            let mark_rect = Rect::from_center_size(pos2(left + 8.0 + mark / 2.0, r.center().y), vec2(mark, mark));\n            let mark_texture = demonx_forge_emblem(ui.ctx());\n            ui.painter().image(mark_texture.id(), mark_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n            let wordmark_rect = Rect::from_min_size(pos2(mark_rect.right() + gap, r.center().y - height / 2.0), vec2(width, height));\n            let wordmark_texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(wordmark_texture.id(), wordmark_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'],
   ['crates/ui-egui/src/toolbar.rs',
     '        let mut x = left + if compact_actions { 56.0 } else { 128.0 };',
-    '        let mut x = left + if compact_actions { 140.0 } else { 172.0 };'],
+    '        let mut x = left + if compact_actions { 177.0 } else { 229.0 };'],
   ['apps/solidcraft/src/main.rs', '.with_title("SolidCraft")', '.with_title("DemonX Forge")'],
   ['apps/solidcraft/src/main.rs',
     '                        io::DESIGN_EXT,\n                        io::LEGACY_DESIGN_EXT,\n                        "json",',
@@ -235,13 +236,23 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
   const hasAfter = text.includes(after);
   const hasBefore = text.includes(before);
   const legacyWordmark = relative === 'crates/ui-egui/src/toolbar.rs' && before.startsWith('// Brand mark:')
-    ? '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (100.0, 15.0) } else { (132.0, 19.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'
+    ? '// Forge-owned horizontal wordmark, scaled for compact and full app bars.\n        {\n            let (width, height) = if compact_actions { (112.0, 17.0) } else { (150.0, 22.0) };\n            let centre = pos2(left + 8.0 + width / 2.0, r.center().y);\n            let rect = Rect::from_center_size(centre, vec2(width, height));\n            let texture = demonx_forge_wordmark(ui.ctx());\n            ui.painter().image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Rgba::WHITE.into());\n        }'
     : undefined;
+  const legacyBrandHelpers = relative === 'crates/ui-egui/src/toolbar.rs'
+    && before.startsWith('/// Panels shown')
+    && text.includes('fn demonx_forge_wordmark(')
+    && !text.includes('fn demonx_forge_emblem(');
   assert(hasBefore || hasAfter || (legacyWordmark && text.includes(legacyWordmark)), `Overlay anchor ${editIndex + 1} drift in ${relative}: expected a recorded before/after snippet`);
   // Several overlays intentionally target repeated match arms in one file.
   // Replace each remaining source anchor even if a prior replacement already
   // introduced the same `after` snippet elsewhere in the file.
-  if (!checkOnly && hasBefore && before !== after) {
+  if (!checkOnly && legacyBrandHelpers) {
+    const start = after.indexOf('/// Load the Forge-owned Suite emblem');
+    const end = after.lastIndexOf('/// Panels shown');
+    assert(start >= 0 && end > start, 'Forge emblem helper migration anchor drift');
+    const emblem = after.slice(start, end);
+    writeFileSync(path, text.replace(before, emblem + before));
+  } else if (!checkOnly && hasBefore && before !== after) {
     const updated = replaceNextUnpatched(text, before, after);
     if (updated !== text) writeFileSync(path, updated);
   } else if (!checkOnly && legacyWordmark && text.includes(legacyWordmark)) {
@@ -422,7 +433,7 @@ for (const [editIndex, [relative, before, after]] of edits.entries()) {
 }
 
 const uxEdits = [
-  ['crates/ui-egui/src/toolbar.rs', 'pub const APP_BAR_HEIGHT: f32 = 34.0;', 'pub const APP_BAR_HEIGHT: f32 = 42.0;'],
+  ['crates/ui-egui/src/toolbar.rs', 'pub const APP_BAR_HEIGHT: f32 = 34.0;', 'pub const APP_BAR_HEIGHT: f32 = 50.0;'],
   // Wordmark dimensions are introduced by the anchored branding replacement below.
   ['crates/ui-egui/src/update.rs', 'pub const REPO: &str = "bherbruck/solidcraft";', 'pub const REPO: &str = "pricklyguy/DemonX-Forge";'],
   ['crates/ui-egui/src/update.rs', 'pub const APP_ID: &str = "ai.storyteller.solidcraft";', 'pub const APP_ID: &str = "com.pricklyguy.demonxforge";'],
@@ -483,6 +494,22 @@ fn demonx_forge_wordmark(ctx: &egui::Context) -> egui::TextureHandle {
     texture
 }
 
+/// Load the Forge-owned Suite emblem once for this egui context.
+fn demonx_forge_emblem(ctx: &egui::Context) -> egui::TextureHandle {
+    let key = egui::Id::new("demonx-forge-emblem");
+    if let Some(texture) = ctx.data(|data| data.get_temp::<egui::TextureHandle>(key)) {
+        return texture;
+    }
+    let raster = image::load_from_memory(include_bytes!("../../../assets/icons/app/shared/source/demonx-forge-icon.png"))
+        .expect("Forge emblem is a valid image")
+        .to_rgba8();
+    let size = [raster.width() as usize, raster.height() as usize];
+    let image = egui::ColorImage::from_rgba_unmultiplied(size, raster.as_raw());
+    let texture = ctx.load_texture("demonx-forge-emblem", image, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|data| data.insert_temp(key, texture.clone()));
+    texture
+}
+
 /// Panels shown on each tab (in order). Commands come from the registry by (tab, panel).`],
   ['crates/ui-egui/src/toolbar.rs',
     `        if !compact_actions {
@@ -494,7 +521,7 @@ fn demonx_forge_wordmark(ctx: &egui::Context) -> egui::TextureHandle {
                 t.app_bar_text,
             );
         }`,
-    '        // The Forge wordmark is the complete product identity in the app bar.'],
+    '        // Keep sufficient title-bar room for the complete Forge lockup.'],
   ['crates/ui-egui/src/prefs.rs', '    #[default]\n    Axes,\n    Cube,', '    Axes,\n    #[default]\n    Cube,'],
   ['crates/ui-egui/src/prefs.rs',
     '        assert_eq!(p.navigator_style, super::NavigatorStyle::Axes);',
@@ -625,6 +652,7 @@ const scriptUiEdits = [
   ['crates/ui-egui/src/agent_cursor.rs', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),\n        crate::control::Outcome::Deferred => json!({"ok": false, "error": "not a command"}),'],
   ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),\n                Outcome::Deferred => panic!("test helper received a deferred response"),'],
   ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { .. } => Value::Null,', '                Outcome::Screenshot { .. } => Value::Null,\n                Outcome::Deferred => Value::Null,'],
+  ['crates/ui-egui/src/control.rs', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced},', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced, "bounds": app.preview.active.then(|| json!({"min": [app.preview.bounds.min.x, app.preview.bounds.min.y, app.preview.bounds.min.z], "max": [app.preview.bounds.max.x, app.preview.bounds.max.y, app.preview.bounds.max.z]}))},\n            "sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "end": [end.x, end.y], "length": end.dist(*start)}))\n            }),'],
   ['crates/ui-egui/src/scenario.rs', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),\n            Outcome::Deferred => json!({"ok": true, "result": null}),'],
   ['crates/ui-egui/src/toolbar.rs', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.'],
 ];

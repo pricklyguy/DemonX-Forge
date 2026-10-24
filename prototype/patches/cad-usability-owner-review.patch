@@ -1,0 +1,162 @@
+diff --git a/crates/ui-egui/src/canvas.rs b/crates/ui-egui/src/canvas.rs
+index 439eb2b..6b8e8d7 100644
+--- a/crates/ui-egui/src/canvas.rs
++++ b/crates/ui-egui/src/canvas.rs
+@@ -281,7 +281,7 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui, painter: &egui::Painter, proj
+     if app.applying.is_some() {
+         return;
+     }
+-    selected_edge_measurements(app, ui, proj);
++    selected_edge_measurements(app, ui);
+     if app.dialog.is_none() && app.tool.is_none() {
+         crate::browser::occurrence_triad(app, ui, painter, proj);
+     }
+@@ -337,33 +337,40 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui, painter: &egui::Painter, proj
+     app.dialog = Some(d);
+ }
+ 
+-/// Show the exact length beside each selected model edge, without opening the Measure dialog.
+-fn selected_edge_measurements(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj) {
++/// Show the selected edge count and total length in a viewport-anchored status readout.
++fn selected_edge_measurements(app: &SolveApp, ui: &mut egui::Ui) {
+     let state = app.session.world_state();
+-    for (slot, selection) in app.session.selection.iter().enumerate() {
+-        let Sel::Edge { body, point, .. } = selection else { continue };
++    let mut count = 0usize;
++    let mut total = 0.0;
++    for selection in &app.session.selection {
++        let Sel::Edge { body, index, .. } = selection else { continue };
+         let Some(model_body) = state.body(body) else { continue };
+         let tolerance = (model_body.body.size() * 2e-3).max(1e-3);
+         let Ok(edges) = model_body.body.edges(tolerance) else { continue };
+-        let Some(edge) = edges.iter().min_by(|a, b| a.mid.dist(*point).total_cmp(&b.mid.dist(*point))) else { continue };
+-        let Some(at) = proj.to_screen(edge.mid) else { continue };
+-        let mut length = format!("{:.3}", edge.length);
+-        while length.contains('.') && length.ends_with('0') {
+-            length.pop();
+-        }
+-        if length.ends_with('.') {
+-            length.pop();
+-        }
+-        let text = format!("{}  {} mm", crate::i18n::tr_label("Length"), length);
+-        egui::Area::new(egui::Id::new(("sc_selected_edge_measurement", slot))).fixed_pos(at + vec2(12.0, -22.0)).order(egui::Order::Foreground).show(
+-            ui.ctx(),
+-            |ui| {
+-                Container::popup_frame(ui.style()).inner_margin(egui::Margin::symmetric(7, 4)).show(ui, |ui| {
+-                    ui.label(egui::RichText::new(&text).color(Tokens::get().text));
+-                });
+-            },
+-        );
++        let Some(edge) = edges.get(*index) else { continue };
++        if !edge.length.is_finite() || edge.length < 0.0 { continue; }
++        count += 1;
++        total += edge.length;
+     }
++    if count == 0 || !total.is_finite() { return; }
++    let item = if count == 1 { "Edge" } else { "Edges" };
++    let text = format!("{count} {item} | Length: {}", crate::prefs::show_mm(app, total, 2));
++    let t = Tokens::get();
++    let font = egui::FontId::proportional(t.font_label);
++    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.clone(), font.clone(), t.text));
++    let size = galley.size() + vec2(20.0, 10.0);
++    let viewport = ui.max_rect();
++    if viewport.width() < size.x + 16.0 || viewport.height() < size.y + 16.0 { return; }
++    let pos = viewport.right_bottom() - size - vec2(12.0, 12.0);
++    crate::scenario::publish_rect("selection_measurement", egui::Rect::from_min_size(pos, size));
++    egui::Area::new(egui::Id::new("sc_selected_edge_measurement"))
++        .fixed_pos(pos)
++        .order(egui::Order::Foreground)
++        .show(ui.ctx(), |ui| {
++            Container::popup_frame(ui.style()).inner_margin(egui::Margin::symmetric(10, 5)).show(ui, |ui| {
++                ui.label(egui::RichText::new(&text).font(font).color(t.text));
++            });
++        });
+ }
+ 
+ /// A round step for dragged values at this zoom (1, 2 or 5 times a power of ten).
+diff --git a/crates/ui-egui/src/canvas_edge_measure_tests.rs b/crates/ui-egui/src/canvas_edge_measure_tests.rs
+index 26c89e4..1739028 100644
+--- a/crates/ui-egui/src/canvas_edge_measure_tests.rs
++++ b/crates/ui-egui/src/canvas_edge_measure_tests.rs
+@@ -2,7 +2,7 @@ use serde_json::json;
+ use solidcraft_engine::{Sel, geom::Vec3};
+ 
+ #[test]
+-fn selecting_a_solid_edge_shows_its_exact_length_in_the_viewport() {
++fn selecting_a_solid_edge_shows_its_length_in_the_viewport_status_corner() {
+     let mut h = crate::scenario::Harness::new();
+     h.app.run("solid.box", json!({"length":20,"width":10,"height":5})).unwrap();
+     let reply = h.app.run("model.edges", json!({"body":"Body1"})).unwrap();
+@@ -10,5 +10,8 @@ fn selecting_a_solid_edge_shows_its_exact_length_in_the_viewport() {
+     let mid: Vec3 = serde_json::from_value(edge["mid"].clone()).unwrap();
+     h.app.session.selection = vec![Sel::Edge { body: "Body1".into(), index: edge["index"].as_u64().unwrap() as usize, point: mid }];
+     h.frames(3);
+-    assert!(h.widget("Length  20 mm").is_some(), "the selected edge length should be visible as a viewport label");
+-}
+\ No newline at end of file
++    let status = crate::scenario::rect_of("selection_measurement").expect("selected edge length status area");
++    let viewport = h.app.viewport.rect.expect("viewport has a layout rectangle");
++    assert!(status.right() <= viewport.right() - 1.0 && status.right() > viewport.right() - 220.0, "measurement must stay anchored to the viewport's lower right: {status:?}, viewport={viewport:?}");
++    assert!(status.bottom() <= viewport.bottom() - 1.0 && status.bottom() > viewport.bottom() - 60.0, "measurement must remain above the viewport edge: {status:?}, viewport={viewport:?}");
++}
+diff --git a/crates/ui-egui/src/sketch_tools.rs b/crates/ui-egui/src/sketch_tools.rs
+index 9259b70..e8b49b7 100644
+--- a/crates/ui-egui/src/sketch_tools.rs
++++ b/crates/ui-egui/src/sketch_tools.rs
+@@ -376,11 +376,17 @@ pub fn refine_snap(
+     let (a, b) = (proj.to_screen(plane.to_world(lp))?, proj.to_screen(plane.to_world(lp + Vec2::X))?);
+     let px = 1.0 / (a.distance(b) as f64).max(1e-9);
+     let tol = 7.0 * px;
+-    // A model vertex under the cursor: drawing on it projects it into the sketch.
++    // A model vertex under the cursor is another snap candidate. Resolve it against a
++    // nearby midpoint or crossing rather than returning early: otherwise the first pick hit
++    // silently masks the more local sketch inference.
++    let mut vertex: Option<(f64, Vec2, String)> = None;
+     for h in pick(app, proj, a) {
+         if let Hit::Vertex { point, .. } = h {
+-            SNAP.with(|s| *s.borrow_mut() = Some(("Pt", plane.to_local(point))));
+-            return Some((plane.to_local(point), Some(format!("vertex:{},{},{}", point.x, point.y, point.z))));
++            let local = plane.to_local(point);
++            let d = local.dist(lp);
++            if vertex.as_ref().is_none_or(|current| d < current.0) {
++                vertex = Some((d, local, format!("vertex:{},{},{}", point.x, point.y, point.z)));
++            }
+         }
+     }
+     let mid_only = crate::tool_modifiers::target_midpoint();
+@@ -425,6 +431,13 @@ pub fn refine_snap(
+             }
+         }
+     }
++    if let Some((distance, point, reference)) = vertex
++        && !mid_only
++        && best.is_none_or(|candidate| distance < candidate.0)
++    {
++        SNAP.with(|s| *s.borrow_mut() = Some(("Pt", point)));
++        return Some((point, Some(reference)));
++    }
+     // The tool's previous point (a click takes the tool out of the app while it runs, so the
+     // last hover's is kept).
+     let prev = match app.tool.as_ref() {
+@@ -1443,7 +1456,20 @@ fn snap_hint(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
+     let Some(ss) = active_sketch(app).and_then(|s| st.sketch(s)) else { return };
+     let Some(sp) = proj.to_screen(ss.plane.to_world(p)) else { return };
+     let tk = crate::theme::Tokens::get();
+-    let r = egui::Rect::from_min_size(sp + egui::vec2(12.0, -24.0), egui::vec2(24.0, 14.0));
++    // Keep the target marker centred on the acquired model point. The label is offset so
++    // it stays legible without implying that the snap point is where the label sits.
++    let marker = if label == "Int" { 7.0 } else { 5.5 };
++    if label == "Int" {
++        let diamond = [sp + egui::vec2(0.0, -marker), sp + egui::vec2(marker, 0.0), sp + egui::vec2(0.0, marker), sp + egui::vec2(-marker, 0.0), sp + egui::vec2(0.0, -marker)];
++        painter.add(egui::Shape::line(diamond.to_vec(), egui::Stroke::new(2.0, tk.accent)));
++        painter.circle_filled(sp, 1.8, tk.accent);
++    } else if label == "Mid" {
++        painter.circle_stroke(sp, marker, egui::Stroke::new(2.0, tk.accent));
++        painter.circle_filled(sp, 1.8, tk.accent);
++    } else {
++        painter.circle_stroke(sp, marker, egui::Stroke::new(1.5, tk.accent));
++    }
++    let r = egui::Rect::from_min_size(sp + egui::vec2(10.0, -24.0), egui::vec2(30.0, 16.0));
+     painter.rect_filled(r, 3.0, tk.accent_soft);
+     painter.text(r.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(crate::theme::Tokens::get().font_micro), tk.text);
+ }
