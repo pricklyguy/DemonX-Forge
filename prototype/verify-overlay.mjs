@@ -57,7 +57,12 @@ if ([...main.matchAll(/"--forge-mcp" =>/g)].length !== 1) throw new Error('Overl
 if ([...main.matchAll(/let mut forge_control = false;/g)].length !== 1) throw new Error('Overlay left duplicate MCP control state in main.rs');
 requireMatch(toolbar, /demonx-forge-wordmark/, 'Forge-owned horizontal app bar wordmark');
 requireMatch(toolbar, /demonx-forge-emblem/, 'Forge-owned DX emblem beside the wordmark');
-requireMatch(toolbar, /else \{ 229\.0 \}/, 'app bar spacing for full Forge wordmark');
+requireMatch(toolbar, /else \{ 296\.0 \}/, 'app bar spacing for full Forge wordmark');
+requireMatch(toolbar, /mark_width, mark_height, width, height, gap\) = if tiny_actions \{ \(24\.0, 14\.0, 92\.0, 18\.0, 4\.0\) \} else if compact_actions \{ \(34\.0, 20\.0, 150\.0, 28\.0, 5\.0\) \} else \{ \(50\.0, 30\.0, 205\.0, 38\.0, 8\.0\) \}/, 'aspect-preserving responsive Suite DX mark and wordmark');
+requireMatch(toolbar, /demonx-forge-header\.png/, 'approved transparent Suite DX header artwork');
+requireMatch(toolbar, /Forge Help/, 'Forge-owned Help control replaces inherited header actions');
+requireMatch(toolbar, /titlebar:version/, 'Forge version is measured and reserved against the window controls');
+requireMatch(toolbar, /titlebar:forge_help/, 'Forge Help remains a named accessible header action');
 requireMatch(toolbar, /APP_BAR_HEIGHT: f32 = 50\.0/, 'taller Forge title bar');
 requireMatch(updater, /api\.github\.com\/repos\/pricklyguy\/DemonX-Forge\/releases\?per_page=100/, 'native-only Forge release listing');
 requireMatch(updater, /tag\.starts_with\("native-v"\)/, 'native Forge updater channel filtering');
