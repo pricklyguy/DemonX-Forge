@@ -68,7 +68,7 @@ index 439eb2b..6b8e8d7 100644
 +        .order(egui::Order::Foreground)
 +        .show(ui.ctx(), |ui| {
 +            Container::popup_frame(ui.style()).inner_margin(egui::Margin::symmetric(10, 5)).show(ui, |ui| {
-+                ui.label(egui::RichText::new(&text).font(font).color(t.text));
++                ui.add(egui::Label::new(egui::RichText::new(&text).font(font).color(t.text)).wrap_mode(egui::TextWrapMode::Extend));
 +            });
 +        });
  }

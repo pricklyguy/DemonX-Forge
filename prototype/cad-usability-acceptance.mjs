@@ -225,6 +225,30 @@ async function main() {
   const dy = committedLine.end_at[1] - committedLine.start_at[1];
   assert(Math.abs(Math.hypot(dx, dy) - 20) < 1e-6 && Math.abs(Math.atan2(dy, dx) - Math.PI / 6) < 1e-6, `the resulting line geometry does not measure 20 mm at 30 degrees: ${JSON.stringify(committedLine)}`);
 
+  process.stderr.write(`Midpoint and numeric line acceptance passed; locked previews=${lengthLockedShot}, ${bothLockedShot}.\n`);
+
+  // Draw through an analytic crossing and require the endpoint to remain constrained to both
+  // source curves after the UI gesture is committed.
+  await call('ui.start', { command: 'sketch.line' });
+  await startSketchSegment([42.1, 10.1], [55, 10]);
+  await pressKey('Enter');
+  await waitFor('the intersection line to commit', async () => {
+    const state = await engine('document.inspect');
+    return state.sketches?.[0]?.curves >= 5 && state;
+  });
+  const currentSketch = await engine('sketch.inspect');
+  const onCurve = currentSketch?.constraints?.filter((constraint) => constraint.type === 'point_on_curve') ?? [];
+  const paired = new Map();
+  for (const constraint of onCurve) {
+    const point = constraint.p;
+    const curve = constraint.c;
+    if (point == null || curve == null) continue;
+    paired.set(point, [...(paired.get(point) ?? []), curve]);
+  }
+  assert([...paired.values()].some((curves) => new Set(curves).size >= 2), 'viewport line drawing at a curve intersection did not persist both curve constraints');
+  const intersectionShot = await screenshot('intersection-snap.png');
+  process.stderr.write('Intersection snap acceptance passed.\n');
+
   // Escape must discard a line draft without changing the document model.
   const beforeLineCancel = await engine('document.inspect');
   await call('ui.start', { command: 'sketch.line' });
@@ -272,29 +296,7 @@ async function main() {
   });
   assert(afterClickClick.sketches[0].curves === priorCurveCount + 1, 'click-click redo did not restore the committed line');
   process.stderr.write('Line regressions passed: Escape preserved the document; click-click drew 10 mm and undo/redo restored it.\n');
-  process.stderr.write(`Midpoint and numeric line acceptance passed; locked previews=${lengthLockedShot}, ${bothLockedShot}.\n`);
 
-  // Draw through an analytic crossing and require the endpoint to remain constrained to both
-  // source curves after the UI gesture is committed.
-  await call('ui.start', { command: 'sketch.line' });
-  await startSketchSegment([42.1, 10.1], [55, 10]);
-  await pressKey('Enter');
-  await waitFor('the intersection line to commit', async () => {
-    const state = await engine('document.inspect');
-    return state.sketches?.[0]?.curves >= 5 && state;
-  });
-  const currentSketch = await engine('sketch.inspect');
-  const onCurve = currentSketch?.constraints?.filter((constraint) => constraint.type === 'point_on_curve') ?? [];
-  const paired = new Map();
-  for (const constraint of onCurve) {
-    const point = constraint.p;
-    const curve = constraint.c;
-    if (point == null || curve == null) continue;
-    paired.set(point, [...(paired.get(point) ?? []), curve]);
-  }
-  assert([...paired.values()].some((curves) => new Set(curves).size >= 2), 'viewport line drawing at a curve intersection did not persist both curve constraints');
-  const intersectionShot = await screenshot('intersection-snap.png');
-  process.stderr.write('Intersection snap acceptance passed.\n');
 
   // Build a native test solid, select an edge in the running viewport, and record its length
   // label for visual GUI review.
@@ -316,7 +318,15 @@ async function main() {
 
   // Measure a circular half-edge on a separate cylinder; its expected arc length is exact.
   await engine('solid.cylinder', { base: [40, 0, 0], radius: 5, height: 10, operation: 'new', body_name: 'Curved Acceptance Body' });
+  await call('ui.view', { view: 'iso' });
   await call('ui.view', { view: 'fit' });
+  const clearSelectionAt = await call('ui.at', { world: [-20, 30, 0] });
+  await call('ui.click', { x: clearSelectionAt[0], y: clearSelectionAt[1] });
+  await pressKey('Escape');
+  await waitFor('clearing the previous straight-edge selection', async () => {
+    const state = await call('ui.selection');
+    return Array.isArray(state.selection) && state.selection.length === 0 && state;
+  });
   const cylinderEdges = await engine('model.edges', { body: 'Curved Acceptance Body' });
   const curvedEdge = cylinderEdges.edges.find((candidate) => candidate.length > 10 && candidate.length < 20);
   assert(curvedEdge?.mid?.length === 3 && Math.abs(curvedEdge.length - 5 * Math.PI) < 0.02, `acceptance cylinder has no measured half-circumference edge: ${JSON.stringify(cylinderEdges.edges)}`);
@@ -334,6 +344,12 @@ async function main() {
     return selection.includes('curved acceptance body') && selection.includes('edge') && result;
   });
   assert(JSON.stringify(selectedCurvedEdge.selection).includes('Curved Acceptance Body'), `the selected edge is not from the acceptance cylinder: ${JSON.stringify(selectedCurvedEdge.selection)}; candidate=${JSON.stringify(curvedEdge)} screen=${JSON.stringify(curvedScreen)} screenshot=${await screenshot('curved-edge-selection-debug.png')}`);
+  const selectedCurvedTotal = selectedCurvedEdge.selection
+    .map((selected) => cylinderEdges.edges.find((candidate) => candidate.index === selected.index)?.length ?? 0)
+    .reduce((sum, length) => sum + length, 0);
+  assert(selectedCurvedEdge.selection.every((selected) => selected.body === 'Curved Acceptance Body')
+    && Math.abs(selectedCurvedTotal - 2 * curvedEdge.length) < 1e-6,
+    `the curved-edge label must total only the selected cylinder arcs: selection=${JSON.stringify(selectedCurvedEdge.selection)} measured=${selectedCurvedTotal} expected=${2 * curvedEdge.length}`);
   const curvedShot = await screenshot('selected-curved-edge-length.png');
   process.stderr.write(`Selected curved edge ${curvedEdge.length} mm (expected ${5 * Math.PI} mm); screenshot=${curvedShot}.\n`);
 
