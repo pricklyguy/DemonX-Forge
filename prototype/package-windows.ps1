@@ -97,15 +97,13 @@ exit /b %errorlevel%
 Set-Content -Path $cmdFile -Value $script -Encoding ascii
 try {
   Write-Host '==> Build native app and CLI with MSVC'
-  # Start-Process keeps PowerShell 7 from treating ordinary Cargo/rustc warnings on stderr as
-  # terminating errors under $ErrorActionPreference = Stop. Preserve both streams and trust only
-  # the child process exit code.
-  $buildProcess = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') `
-    -ArgumentList @('/d', '/c', "`"$cmdFile`"") -Wait -PassThru -NoNewWindow `
-    -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+  # Run cmd synchronously. Start-Process -Wait can remain blocked after Cargo and rustc exit
+  # when descendants inherit redirected handles, preventing the package stage from running.
+  & (Join-Path $env:SystemRoot 'System32\cmd.exe') /d /c "`"$cmdFile`"" 1> $stdoutFile 2> $stderrFile
+  $buildExitCode = $LASTEXITCODE
   if (Test-Path -LiteralPath $stdoutFile) { Get-Content -LiteralPath $stdoutFile | Set-Content -LiteralPath $logFile -Encoding utf8 }
   if (Test-Path -LiteralPath $stderrFile) { Get-Content -LiteralPath $stderrFile | Add-Content -LiteralPath $logFile -Encoding utf8 }
-  if ($buildProcess.ExitCode -ne 0) { Get-Content -LiteralPath $logFile -Tail 100; throw "Cargo build failed with exit code $($buildProcess.ExitCode). Full log: $logFile" }
+  if ($buildExitCode -ne 0) { Get-Content -LiteralPath $logFile -Tail 100; throw "Cargo build failed with exit code $buildExitCode. Full log: $logFile" }
 } finally { Remove-Item -LiteralPath $cmdFile -ErrorAction SilentlyContinue }
 
 function Get-PeHeader([string] $Path) {
