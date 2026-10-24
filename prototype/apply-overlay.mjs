@@ -1,5 +1,6 @@
-import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
@@ -41,6 +42,19 @@ function replaceNextUnpatched(text, before, after) {
 const head = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 assert(head === PIN, `SolidCraft source must be pinned at ${PIN}; found ${head}`);
 
+// A pristine preflight must validate dependent patches in order. Check them on a disposable
+// shared clone so `--check` never changes the pinned reference checkout or the caller's source.
+let patchSource = source;
+let patchScratch;
+if (checkOnly) {
+  patchScratch = mkdtempSync(join(tmpdir(), 'demonx-forge-overlay-check-'));
+  rmSync(patchScratch, { recursive: true, force: true });
+  execFileSync('git', ['clone', '--shared', '--no-checkout', source, patchScratch], { stdio: 'inherit' });
+  execFileSync('git', ['-C', patchScratch, 'checkout', '--detach', head], { stdio: 'inherit' });
+  patchSource = patchScratch;
+  process.on('exit', () => rmSync(patchScratch, { recursive: true, force: true }));
+}
+
 // Apply unified patches before text replacements normalize touched files to LF. This keeps
 // git-apply's context matching exact on Windows checkouts with CRLF working trees.
 const pinnedPatches = [
@@ -52,11 +66,14 @@ const pinnedPatches = [
   ['patches/cad-usability-owner-review.patch', 'crates/ui-egui/src/sketch_tools.rs', 'Keep the target marker centred on the acquired model point.'],
 ];
 for (const [patchRelative, targetRelative, marker] of pinnedPatches) {
-  const target = join(source, targetRelative);
+  const target = join(patchSource, targetRelative);
   if (readFileSync(target, 'utf8').includes(marker)) continue;
   const patch = join(here, patchRelative);
-  execFileSync('git', ['-C', source, 'apply', '--check', patch]);
-  if (!checkOnly) execFileSync('git', ['-C', source, 'apply', patch]);
+  // On Windows, core.autocrlf can make the patch file itself CRLF. Feed normalized patch text
+  // to git via stdin so the exact hunk context stays portable across Windows and Linux.
+  const patchText = readFileSync(patch, 'utf8').replace(/\r\n/g, '\n');
+  execFileSync('git', ['-C', patchSource, 'apply', '--check', '-'], { input: patchText });
+  execFileSync('git', ['-C', patchSource, 'apply', '-'], { input: patchText });
 }
 
 const edits = [
@@ -652,7 +669,7 @@ const scriptUiEdits = [
   ['crates/ui-egui/src/agent_cursor.rs', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),', '        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),\n        crate::control::Outcome::Deferred => json!({"ok": false, "error": "not a command"}),'],
   ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),', '                Outcome::Screenshot { path } => json!({"ok": true, "screenshot": path}),\n                Outcome::Deferred => panic!("test helper received a deferred response"),'],
   ['crates/ui-egui/src/control.rs', '                Outcome::Screenshot { .. } => Value::Null,', '                Outcome::Screenshot { .. } => Value::Null,\n                Outcome::Deferred => Value::Null,'],
-  ['crates/ui-egui/src/control.rs', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced},', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced, "bounds": app.preview.active.then(|| json!({"min": [app.preview.bounds.min.x, app.preview.bounds.min.y, app.preview.bounds.min.z], "max": [app.preview.bounds.max.x, app.preview.bounds.max.y, app.preview.bounds.max.z]}))},\n            "sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let (cursor, _) = t.hover.as_ref()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "cursor": [cursor.x, cursor.y], "end": [end.x, end.y], "length": end.dist(*start), "length_locked": crate::sketch_dims::has_locked(t, "Length"), "angle_locked": crate::sketch_dims::has_locked(t, "Angle")}))\n            }),'],
+  ['crates/ui-egui/src/control.rs', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced},', '            "preview": {"active": app.preview.active, "busy": app.preview.busy, "error": app.preview.error, "ms": app.preview.ms, "replaced": app.preview.replaced, "bounds": app.preview.active.then(|| json!({"min": [app.preview.bounds.min.x, app.preview.bounds.min.y, app.preview.bounds.min.z], "max": [app.preview.bounds.max.x, app.preview.bounds.max.y, app.preview.bounds.max.z]}))},\n            "sketch_dimension_focus": app.tool.as_ref().is_some_and(|t| (0..t.dims.len()).any(|i| ctx.memory(|memory| memory.has_focus(egui::Id::new(("sc_dim", i)))))),\n            "sketch_draft": app.tool.as_ref().and_then(|t| {\n                let (start, _) = t.pts.last()?;\n                let (cursor, _) = t.hover.as_ref()?;\n                let end = crate::sketch_dims::shown(app, t, t.hover.as_ref()?);\n                Some(json!({"start": [start.x, start.y], "cursor": [cursor.x, cursor.y], "end": [end.x, end.y], "length": end.dist(*start), "length_locked": crate::sketch_dims::has_locked(t, "Length"), "angle_locked": crate::sketch_dims::has_locked(t, "Angle"), "dimensions": t.dims.iter().map(|d| json!({"label": d.label, "value": d.value, "locked": d.locked})).collect::<Vec<_>>()}))\n            }),'],
   ['crates/ui-egui/src/scenario.rs', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),', '            Outcome::Screenshot { .. } => json!({"ok": true, "result": null}),\n            Outcome::Deferred => json!({"ok": true, "result": null}),'],
   ['crates/ui-egui/src/toolbar.rs', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.', '        // Assistant, Settings, Help and Report a bug form the right-hand cluster.'],
 ];

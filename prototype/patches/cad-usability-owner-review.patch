@@ -75,7 +75,7 @@ index 439eb2b..6b8e8d7 100644
  
  /// A round step for dragged values at this zoom (1, 2 or 5 times a power of ten).
 diff --git a/crates/ui-egui/src/canvas_edge_measure_tests.rs b/crates/ui-egui/src/canvas_edge_measure_tests.rs
-index 26c89e4..1739028 100644
+index 9b05f39..1739028 100644
 --- a/crates/ui-egui/src/canvas_edge_measure_tests.rs
 +++ b/crates/ui-egui/src/canvas_edge_measure_tests.rs
 @@ -2,7 +2,7 @@ use serde_json::json;
@@ -93,7 +93,6 @@ index 26c89e4..1739028 100644
      h.frames(3);
 -    assert!(h.widget("Length  20 mm").is_some(), "the selected edge length should be visible as a viewport label");
 -}
-\ No newline at end of file
 +    let status = crate::scenario::rect_of("selection_measurement").expect("selected edge length status area");
 +    let viewport = h.app.viewport.rect.expect("viewport has a layout rectangle");
 +    assert!(status.right() <= viewport.right() - 1.0 && status.right() > viewport.right() - 220.0, "measurement must stay anchored to the viewport's lower right: {status:?}, viewport={viewport:?}");

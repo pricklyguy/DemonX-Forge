@@ -169,31 +169,36 @@ async function main() {
   // length into the live dimension field and confirm it.
   await call('ui.start', { command: 'sketch.line' });
   const numericEnd = await startSketchSegment([10.1, 0.1], [10, 8]);
+  const dimensionFocusShot = await screenshot('numeric-line-dimension-focus.png');
+  const dimensionBeforeTyping = await call('ui.inspect');
+  assert(dimensionBeforeTyping.sketch_dimension_focus, `the live line dimension field did not receive keyboard focus after the pointer gesture: ${JSON.stringify(dimensionBeforeTyping.sketch_draft)} screenshot=${dimensionFocusShot}`);
   await pressKey('A', { cmd: true });
-  await call('ui.text', { text: '8' });
-  await nextUiFrame();
+  await call('ui.text', { text: '20' });
+  const typedDimensionShot = await screenshot('numeric-line-after-typed-length.png');
   const startDraft = await call('ui.inspect');
-  assert(startDraft.sketch_draft?.length_locked, `the typed length was not acquired by the active GUI dimension field: ${JSON.stringify(startDraft.sketch_draft)}`);
-  assert(Math.abs(startDraft.sketch_draft?.length - 8) < 1e-6, `the in-progress line preview is not locked to 8 mm after typing: ${JSON.stringify(startDraft.sketch_draft)}`);
+  assert(startDraft.sketch_draft?.length_locked, `the typed length was not acquired by the active GUI dimension field: focus=${startDraft.sketch_dimension_focus} draft=${JSON.stringify(startDraft.sketch_draft)} focus_screenshot=${dimensionFocusShot} typed_screenshot=${typedDimensionShot}`);
+  assert(Math.abs(startDraft.sketch_draft?.length - 20) < 1e-6, `the in-progress line preview is not locked to 20 mm after typing: ${JSON.stringify(startDraft.sketch_draft)}`);
   const pointerMovedTo = await sketchScreen([-15, 20]);
   await call('ui.move', { x: pointerMovedTo[0], y: pointerMovedTo[1] });
-  await nextUiFrame();
-  const lengthLockedDraft = await call('ui.inspect');
   const lengthLockedShot = await screenshot('numeric-line-length-locked-preview.png');
-  assert(Math.abs(lengthLockedDraft.sketch_draft?.length - 8) < 1e-6, `mouse movement changed the locked 8 mm preview: ${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
+  const lengthLockedDraft = await call('ui.inspect');
+  assert(Math.abs(lengthLockedDraft.sketch_draft?.length - 20) < 1e-6, `mouse movement changed the locked 20 mm preview: ${JSON.stringify(lengthLockedDraft.sketch_draft)}`);
   assert(Math.hypot(lengthLockedDraft.sketch_draft.end[0] - startDraft.sketch_draft.end[0], lengthLockedDraft.sketch_draft.end[1] - startDraft.sketch_draft.end[1]) > 1, `with angle unlocked, moving the cursor should rotate the fixed-length preview: pointer=${JSON.stringify(pointerMovedTo)} viewport=${JSON.stringify(lengthLockedDraft.viewport)} hover=${JSON.stringify(lengthLockedDraft.hover)} before=${JSON.stringify(startDraft.sketch_draft)} after=${JSON.stringify(lengthLockedDraft.sketch_draft)} screenshot=${lengthLockedShot}`);
   await pressKey('Tab');
+  const angleFieldShot = await screenshot('numeric-line-angle-field.png');
   await call('ui.text', { text: '30 deg' });
-  await nextUiFrame();
+  const typedAngleShot = await screenshot('numeric-line-after-typed-angle.png');
+  const angleDraft = await call('ui.inspect');
+  assert(angleDraft.sketch_draft?.angle_locked, `Tab did not route typed angle to the second dimension field: ${JSON.stringify(angleDraft.sketch_draft)} tab_screenshot=${angleFieldShot} typed_screenshot=${typedAngleShot}`);
   const lockedEnd = await sketchScreen([-20, -25]);
   await call('ui.move', { x: lockedEnd[0], y: lockedEnd[1] });
-  await nextUiFrame();
+  const bothLockedShot = await screenshot('numeric-line-length-angle-locked-preview.png');
   const fullyLockedDraft = await call('ui.inspect');
   assert(fullyLockedDraft.sketch_draft?.angle_locked, `the typed angle was not acquired by the active GUI dimension field: ${JSON.stringify(fullyLockedDraft.sketch_draft)}`);
-  const expectedDraft = [fullyLockedDraft.sketch_draft.start[0] + 8 * Math.cos(Math.PI / 6), fullyLockedDraft.sketch_draft.start[1] + 8 * Math.sin(Math.PI / 6)];
+  const expectedDraft = [fullyLockedDraft.sketch_draft.start[0] + 20 * Math.cos(Math.PI / 6), fullyLockedDraft.sketch_draft.start[1] + 20 * Math.sin(Math.PI / 6)];
   assert(Math.hypot(fullyLockedDraft.sketch_draft.end[0] - expectedDraft[0], fullyLockedDraft.sketch_draft.end[1] - expectedDraft[1]) < 1e-6, `mouse movement changed the endpoint after length and angle locked: ${JSON.stringify(fullyLockedDraft.sketch_draft)}`);
-  const bothLockedShot = await screenshot('numeric-line-length-angle-locked-preview.png');
   await pressKey('Enter');
+  await screenshot('numeric-line-after-enter.png');
   try {
     await waitFor('the first viewport line to commit', async () => {
       const state = await engine('document.inspect');
@@ -213,12 +218,12 @@ async function main() {
     .filter((constraint) => constraint.name === 'LinearDimension' && constraint.param)
     .map((constraint) => Number(String(constraint.expression ?? '').replace(/[^\d.eE+-]/g, '')))
     .filter(Number.isFinite);
-  assert(drivingLengths.some((value) => Math.abs(value - 8) < 1e-6), `the live 8 mm entry was not retained as a driving dimension: ${JSON.stringify(drivingLengths)}`);
+  assert(drivingLengths.some((value) => Math.abs(value - 20) < 1e-6), `the live 20 mm entry was not retained as a driving dimension: ${JSON.stringify(drivingLengths)}`);
   const committedLine = sketch.curves?.find((curve) => curve.id === 'l1' && curve.type === 'line');
   assert(committedLine?.start_at && committedLine?.end_at, `the committed dimensioned line is absent: ${JSON.stringify(sketch.curves)}`);
   const dx = committedLine.end_at[0] - committedLine.start_at[0];
   const dy = committedLine.end_at[1] - committedLine.start_at[1];
-  assert(Math.abs(Math.hypot(dx, dy) - 8) < 1e-6 && Math.abs(Math.atan2(dy, dx) - Math.PI / 6) < 1e-6, `the resulting line geometry does not measure 8 mm at 30 degrees: ${JSON.stringify(committedLine)}`);
+  assert(Math.abs(Math.hypot(dx, dy) - 20) < 1e-6 && Math.abs(Math.atan2(dy, dx) - Math.PI / 6) < 1e-6, `the resulting line geometry does not measure 20 mm at 30 degrees: ${JSON.stringify(committedLine)}`);
   process.stderr.write(`Midpoint and numeric line acceptance passed; locked previews=${lengthLockedShot}, ${bothLockedShot}.\n`);
 
   // Draw through an analytic crossing and require the endpoint to remain constrained to both
